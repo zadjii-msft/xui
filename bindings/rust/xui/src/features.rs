@@ -70,6 +70,8 @@ enums!(
     ProgressState {Determinate=0,Indeterminate=1,Paused=2,Error=3,Unknown=4},
     ItemsPresentation {List=0,Tiles=1,Grouped=2,Gallery=3},
     CompactNavigation {Stacked=0,Overlay=1},
+    AdaptivePresentation {Responsive=0,InlinePane=1,Overlay=2},
+    NavigationSide {Left=0,Right=1},
     DateTimePresentation {Date=0,Time=1,Calendar=2},
     TextCommand {Undo=0,Redo=1,Copy=2,Cut=3,Paste=4,SelectAll=5},
     StatusSeverity {Information=0,Success=1,Warning=2,Error=3},
@@ -79,7 +81,7 @@ enums!(
         Minimize=8,Maximize=9,Restore=10,Close=11,More=12,Navigation=13,Home=14,
         Folder=15,Settings=16,Search=17,Library=18,History=19,Bookmark=20,Drive=21,Open=22,
         Save=23,SaveAs=24,Undo=25,Redo=26,ChevronUp=27,ChevronDown=28,ChevronRight=29,
-        FoldersFirst=30,FilesFirst=31,Mixed=32},
+        FoldersFirst=30,FilesFirst=31,Mixed=32,Pin=33,PinFilled=34},
     TrackSizing {Fixed=0,Automatic=1,Star=2},
     CommandKind {Action=0,Submenu=1,Separator=2}
 );
@@ -88,6 +90,22 @@ impl CheckState {
         match value {
             0 => Ok(Self::Unchecked), 1 => Ok(Self::Checked), 2 => Ok(Self::Indeterminate),
             _ => Err(invalid("Invalid check state.")),
+        }
+    }
+}
+impl AdaptivePresentation {
+    pub(crate) fn from_native(value: u64) -> Result<Self> {
+        match value {
+            0 => Ok(Self::Responsive), 1 => Ok(Self::InlinePane), 2 => Ok(Self::Overlay),
+            _ => Err(invalid("Invalid adaptive presentation.")),
+        }
+    }
+}
+impl NavigationSide {
+    pub(crate) fn from_native(value: u64) -> Result<Self> {
+        match value {
+            0 => Ok(Self::Left), 1 => Ok(Self::Right),
+            _ => Err(invalid("Invalid navigation side.")),
         }
     }
 }
@@ -113,7 +131,7 @@ impl ProgressState {
 }
 impl ButtonIcon {
     pub(crate) fn from_native(value: u64) -> Result<Self> {
-        const ICONS: [ButtonIcon; 33] = [
+        const ICONS: [ButtonIcon; 35] = [
             ButtonIcon::None, ButtonIcon::Back, ButtonIcon::Forward, ButtonIcon::Up,
             ButtonIcon::Refresh, ButtonIcon::Split, ButtonIcon::Theme, ButtonIcon::Add,
             ButtonIcon::Minimize, ButtonIcon::Maximize, ButtonIcon::Restore, ButtonIcon::Close,
@@ -123,6 +141,7 @@ impl ButtonIcon {
             ButtonIcon::Save, ButtonIcon::SaveAs, ButtonIcon::Undo, ButtonIcon::Redo,
             ButtonIcon::ChevronUp, ButtonIcon::ChevronDown, ButtonIcon::ChevronRight,
             ButtonIcon::FoldersFirst, ButtonIcon::FilesFirst, ButtonIcon::Mixed,
+            ButtonIcon::Pin, ButtonIcon::PinFilled,
         ];
         usize::try_from(value).ok().and_then(|index| ICONS.get(index).copied())
             .ok_or_else(|| invalid("Invalid button icon."))
@@ -437,6 +456,12 @@ impl Element {
     }
 }
 impl Button {
+    pub fn set_vertical_text(&self, value: bool) -> Result<()> {
+        self.feature_set(59, sys::FeatureValue { first: value as u64, ..value_record() })
+    }
+    pub fn vertical_text(&self) -> Result<bool> {
+        Ok(self.feature_get(59)?.first != 0)
+    }
     pub fn set_icon(&self, icon: ButtonIcon) -> Result<()> {
         self.feature_set(
             45,

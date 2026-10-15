@@ -529,3 +529,19 @@ The three original SVGs are in `assets/icons`.
 The icon values append to the existing C++, C, C#, and Rust contracts.
 `style_basic_render_tests.cpp` checks distinct shapes, bounds, size scaling, foreground colors, and Classic/WinUI parity.
 The partition smoke also checks icon updates after setting changes, tab switches, and inheritance.
+
+## Navigation menu crashes, 2026-10-14
+
+NavigationSidebar.GetContextCommands runs inside a native menu request, outside any content update.
+It previously constructed a FileContextMenu, and its ContextActionsController popup controls, for each request.
+Control creation is rejected there, so the first right-click on a folder row ended Application.Run.
+The sidebar now reuses the active pane's FileContextMenu and passes the clicked folder as the entry snapshot.
+FileTransfers.Busy therefore also observes Shell actions started from the sidebar.
+ExplorerSmoke.NavigationMenuChecks sends its menu message inside Ui, so it did not detect the rejected creation.
+
+show_control_menu treated any zero TrackPopupMenuEx result with a nonzero last error as a failure.
+Windows can report ERROR_NOT_ENOUGH_QUOTA when a cancellation closes the menu before its first paint.
+Cancellation sources include WM_CANCELMODE, owner deactivation, and a stale current callback after a sidebar refresh.
+A zero result is now a dismissal once the popup window exists, or after XUI cancels or refreshes the menu.
+xui_shell_menu_tests covers the cancelled and failed results with ContextMenuTestAccess::track.
+A posted right-click stress on the navigation list and the Details grid then passed 250 open-and-cancel cycles in each mode.

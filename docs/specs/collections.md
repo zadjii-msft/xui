@@ -408,6 +408,19 @@ Wide layouts place them side by side. Compact layouts stack them or display navi
 `set_compact_navigation(CompactNavigation::overlay)` selects the nonmodal overlay recipe.
 `set_navigation_open` controls that compact overlay. Escape from navigation closes it.
 
+`set_presentation(AdaptivePresentation::inline_pane)` forces a docked row at any width.
+`AdaptivePresentation::overlay` forces overlay presentation without reserving navigation space.
+The default `responsive` preserves breakpoint-based behavior.
+`set_navigation_side(NavigationSide::right)` places navigation on the right in inline and overlay modes; left is the default.
+Stacked compact navigation remains above the content.
+`set_dismiss_on_focus_outside(true)` opts into auto-hiding an open overlay when focus moves to another visible control in the host.
+Navigation descendants and retained popups anchored within that subtree keep it open, including nested popups.
+Transient focus repair during layout or popup teardown does not dismiss the pane.
+This option also routes Escape from native navigation editors to overlay dismissal and moves focus to a visible control.
+Native editor composition, suggestions, application Escape actions, and child popups take precedence.
+Pinned inline panes ignore the overlay-open flag and focus dismissal.
+The host does not automatically reopen an overlay on hover or passive model updates.
+
 Inline and overlay transitions keep the same controls, selected IDs, and focused navigation peer.
 The overlay uses the root target and masks native fields under its rectangle.
 It is client-bound and is not an anchored popup or a modal dialog.

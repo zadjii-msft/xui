@@ -27,6 +27,8 @@ internal sealed class DesignerInspector : IDisposable
     private ControlTemplate[] matchingTemplates = [];
 
     internal DesignerInspectorLayout Layout { get; }
+    internal Action? RevealPane { get; set; }
+    internal void FocusSearch() { RevealPane?.Invoke(); Layout.ArgumentFilter.Focus(); }
     internal DesignerControlPaletteLayout PaletteLayout { get; }
     internal bool IsPaletteOpen => !disposed && PaletteLayout.Root.IsOpen;
     internal string Feedback
@@ -139,9 +141,13 @@ internal sealed class DesignerInspector : IDisposable
         window.Closed -= OnClosed;
     }
 
-    internal void Show(XuiSourceNode? selected, XuiSourceNode? parent, bool canEdit, bool validating = false)
+    internal void Show(XuiSourceNode? selected, XuiSourceNode? parent, bool canEdit, bool validating = false,
+        bool sourcePending = false)
     {
-        string? preferred = ReferenceEquals(node, selected) ? Argument : selected?.Arguments.FirstOrDefault(a => a.IsPositional)?.Name;
+        bool sameArguments = node is not null && selected is not null && node.Id == selected.Id && node.Kind == selected.Kind &&
+            node.Arguments.Select(a => (a.Name, a.Value, a.IsPositional))
+                .SequenceEqual(selected.Arguments.Select(a => (a.Name, a.Value, a.IsPositional)));
+        string? preferred = sameArguments ? Argument : selected?.Arguments.FirstOrDefault(a => a.IsPositional)?.Name;
         node = selected;
         this.parent = parent;
         editable = canEdit;
@@ -151,7 +157,8 @@ internal sealed class DesignerInspector : IDisposable
         preferred ??= selected?.Arguments.FirstOrDefault()?.Name;
         argumentIndex = preferred is null ? -1 : Array.IndexOf(names, preferred);
         if (argumentIndex < 0 && names.Length > 0) argumentIndex = 0;
-        FilterArguments();
+        if (!sameArguments) FilterArguments();
+        else arguments.Enabled = editable && names.Length > 0;
         bool siblings = parent?.Kind is "VStack" or "HStack" or "Grid";
         bool movable = siblings || parent?.Kind == "SplitView";
         int index = selected is null || parent is null ? -1 : parent.Children.ToList().FindIndex(n => n.Id == selected.Id);
@@ -177,7 +184,7 @@ internal sealed class DesignerInspector : IDisposable
             : parent.Kind == "SplitView" ? "SplitView keeps both panes. Move swaps their order."
             : parent.Kind == "Grid" ? "Grid duplicates need an empty cell. Placement and overlap checks run before Apply."
             : "Move changes sibling order. Duplicate rejects shared IDs and Content references.";
-        ShowArgument();
+        ShowArgument(sourcePending);
     }
 
     internal static string[] FindArguments(XuiSourceNode? selected, string query, bool authoredOnly)
@@ -283,6 +290,7 @@ internal sealed class DesignerInspector : IDisposable
 
     internal void FocusValue()
     {
+        RevealPane?.Invoke();
         if (dimensionMode) Layout.DimensionWidth.Focus();
         else if (booleanMode) Layout.BooleanValue.Focus();
         else if (insetsMode) Layout.InsetLeft.Focus();
@@ -308,7 +316,7 @@ internal sealed class DesignerInspector : IDisposable
         FocusValue();
     }
 
-    private void ShowArgument()
+    private void ShowArgument(bool sourcePending = false)
     {
         var argument = node?.Arguments.FirstOrDefault(a => a.Name == Argument);
         bool expression = argument?.ValueKind == XuiValueKind.Expression;
@@ -366,7 +374,8 @@ internal sealed class DesignerInspector : IDisposable
         if (writable && booleanError is not null) Layout.ArgumentHelp.Text += " Boolean mode unavailable: " + booleanError;
         if (writable && insetsError is not null) Layout.ArgumentHelp.Text += " Insets mode unavailable: " + insetsError;
         Value.Help(Layout.ArgumentHelp.Text);
-        Layout.ArgumentHelp.Visible(!writable || textError is not null || dimensionError is not null || booleanError is not null || insetsError is not null);
+        if (!sourcePending)
+            Layout.ArgumentHelp.Visible(!writable || textError is not null || dimensionError is not null || booleanError is not null || insetsError is not null);
     }
 
     internal bool TryReadLiteral(out string value, out string? error)

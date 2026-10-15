@@ -85,6 +85,14 @@ private:
 class MultilineText final : public DocumentText {
 public:
     explicit MultilineText(std::wstring name = L"Text document") : DocumentText(std::move(name), false) {}
+    bool line_numbers() const { return line_numbers_; }
+    void set_line_numbers(bool value) {
+        if (line_numbers_ == value) return;
+        line_numbers_ = value;
+        invalidate(Invalidation::paint);
+    }
+private:
+    bool line_numbers_{};
 };
 class RichText final : public DocumentText {
 public:

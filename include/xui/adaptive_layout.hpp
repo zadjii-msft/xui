@@ -55,6 +55,8 @@ private:
     std::size_t columns_{1};
 };
 enum class CompactNavigation { stacked, overlay };
+enum class AdaptivePresentation { responsive, inline_pane, overlay };
+enum class NavigationSide { left, right };
 // Wide panes share a row. Compact navigation can stack or overlay the same retained content.
 class AdaptiveLayout : public Stack {
 public:
@@ -65,9 +67,16 @@ public:
     bool content_sized() const { return content_sized_; }
     void set_compact_navigation(CompactNavigation mode);
     void set_navigation_open(bool open);
+    bool navigation_open() const { return open_; }
+    void set_presentation(AdaptivePresentation value);
+    AdaptivePresentation presentation() const { return presentation_; }
+    void set_navigation_side(NavigationSide value);
+    NavigationSide navigation_side() const { return side_; }
+    void set_dismiss_on_focus_outside(bool value) { dismiss_on_focus_outside_ = value; }
+    bool dismiss_on_focus_outside() const { return dismiss_on_focus_outside_; }
     const std::shared_ptr<Element>& navigation() const { return child_at(1); }
     const std::shared_ptr<Element>& content() const { return child_at(0); }
-    bool overlay_active() const { return compact_ && mode_ == CompactNavigation::overlay && open_ && bounds().width > 0 && bounds().height > 0; }
+    bool overlay_active() const { return overlay() && open_ && bounds().width > 0 && bounds().height > 0; }
     bool compact() const { return compact_; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
@@ -80,5 +89,11 @@ private:
     bool content_sized_{};
     bool open_{true};
     CompactNavigation mode_{};
+    AdaptivePresentation presentation_{};
+    NavigationSide side_{};
+    bool dismiss_on_focus_outside_{};
+    bool is_compact(bool responsive) const;
+    bool overlay() const;
+    void arrange_panes(Rect bounds, float extent, float gap);
 };
 }

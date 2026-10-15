@@ -1141,6 +1141,15 @@ internal sealed partial class DesignerApplication
 
     private static class SelectionNative
     {
+        internal static void Invoke(ulong control)
+        {
+            int status = InvokeControl(control);
+            if (status != 0) throw new InvalidOperationException($"Native preview invocation failed: {status}.");
+        }
+
+        [DllImport("xui", EntryPoint = "xui_invoke")]
+        private static extern int InvokeControl(ulong control);
+
         internal static int PeerCount(string text) => Peers(text).Count;
 
         internal static bool Enabled(string text)

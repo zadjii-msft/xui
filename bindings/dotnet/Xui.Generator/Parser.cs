@@ -222,7 +222,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
         {
             "VStack" or "HStack" => ["spacing", "padding"],
             "Text" => ["value"],
-            "Button" => ["value", "click", "icon"],
+            "Button" => ["value", "click", "icon", "verticalText"],
             "Toggle" or "ToggleSwitch" => ["value", "checked", "change"],
             "ToggleButton" => ["value", "checked", "change", "icon"],
             "CheckBox" => ["value", "checkState", "threeState", "change"],
@@ -240,6 +240,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             "Reveal" => ["value", "open", "duration", "layout", "direction"],
             "Popup" => ["value", "placement", "windowBackground"],
             "SplitView" => ["value", "secondVisible", "duration"],
+            "AdaptiveLayout" => ["value", "presentation", "navigationSide", "navigationExtent", "navigationOpen", "dismissOnFocusOutside", "breakpoint", "compactNavigation"],
             "Content" => ["value"],
             _ => throw new ParseError($"Control '{kind}' is not supported in .xui. Use a supported control such as Text, Button, VStack, or HStack; see docs/specs/xui-language.md for the complete list.", start)
         };
@@ -249,9 +250,9 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
         else if (StyleCatalog.TargetExists(styleTarget))
             allowed = [.. allowed, "style", .. StyleCompiler.AllowedProperties(styleTarget, "root")];
         bool stack = kind is "VStack" or "HStack";
-        bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView" or "Reveal";
+        bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView" or "Reveal" or "AdaptiveLayout";
         allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];
-        if (!stack && kind is not ("Content" or "Grid")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
+        if (!stack && kind is not ("Content" or "Grid" or "AdaptiveLayout")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
         var arguments = new Dictionary<string, Expression>(StringComparer.Ordinal);
         var authoredArguments = new List<XuiSourceArgument>();
         Expect("(", $"after control name '{kind}'", $"Write '{kind}(...)' before its {(container ? "child block" : "terminating ';'")}.");
@@ -330,7 +331,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             }
             bodySpan = new(bodyStart, Offset - bodyStart);
             CloseBlock($"the child block of '{kind}'");
-            int required = kind is "ScrollView" or "Popup" or "Reveal" ? 1 : kind == "SplitView" ? 2 : -1;
+            int required = kind is "ScrollView" or "Popup" or "Reveal" ? 1 : kind is "SplitView" or "AdaptiveLayout" ? 2 : -1;
             if (required >= 0 && children.Count != required)
                 throw new ParseError($"{kind} requires exactly {required} direct child control{(required == 1 ? "" : "s")}, but found {children.Count}. " +
                     (children.Count > required ? "Wrap sibling controls in a VStack or HStack to group them into the required number of children." : "Add the missing child controls inside its '{ ... }' block."), start);

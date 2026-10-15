@@ -98,6 +98,8 @@ public sealed partial class Button : Control
     internal Button(Window w, ulong h) : base(w, h) { }
     public ButtonIcon Icon { get => (ButtonIcon)Features.Get(this, 45).First; set => Features.Set(this, 45, first: (uint)value); }
     public Button SetIcon(ButtonIcon value) { Icon = value; return this; }
+    public bool VerticalText { get => Features.Get(this, 59).First != 0; set => Features.Set(this, 59, first: value ? 1u : 0u); }
+    public Button SetVerticalText(bool value) { VerticalText = value; return this; }
     private Action? clicked;
     private void OnEvent(UiEvent e) { if (e.Kind == EventKind.Click) clicked?.Invoke(); }
     public event Action Click

@@ -79,14 +79,15 @@ internal sealed class DesignerWorkspace : IDisposable
         observedSource = source;
         StopHierarchyExpansion();
         editCancellation?.Cancel();
+        bool wasCurrent = current;
         current = false;
         version++;
-        Hierarchy.Tree.Enabled = false;
         Hierarchy.SetSearchCurrent(false);
         Hierarchy.Layout.FromCaret.Enabled = false;
         Hierarchy.Layout.Status.Text = Document is null ? "Reading source..." : "Stale hierarchy - read-only. Reading source...";
-        Hierarchy.Layout.Status.Visible(true);
-        Inspector.Show(Hierarchy.Selection, Hierarchy.Selection is { } selected ? Hierarchy.Parent(selected) : null, false);
+        if (wasCurrent || Document is null)
+            Inspector.Show(Hierarchy.Selection, Hierarchy.Selection is { } selected ? Hierarchy.Parent(selected) : null,
+                false, sourcePending: true);
         Inspector.Feedback = "Visual edits wait for a matching source hierarchy.";
         if (!snapshots.Writer.TryWrite((version, source))) throw new InvalidOperationException("The hierarchy queue is closed.");
     }
@@ -97,11 +98,14 @@ internal sealed class DesignerWorkspace : IDisposable
         {
             await foreach (var snapshot in snapshots.Reader.ReadAllAsync(lifetime.Token))
             {
-                var document = VisualDocument.Parse(snapshot.Source, lifetime.Token);
+                var latest = snapshot;
+                await Task.Delay(150, lifetime.Token);
+                while (snapshots.Reader.TryRead(out var next)) latest = next;
+                var document = VisualDocument.Parse(latest.Source, lifetime.Token);
                 bool post;
                 lock (publicationGate)
                 {
-                    pendingDocument = (snapshot.Version, document);
+                    pendingDocument = (latest.Version, document);
                     post = !publicationScheduled;
                     publicationScheduled = true;
                 }
@@ -116,6 +120,8 @@ internal sealed class DesignerWorkspace : IDisposable
             {
                 if (disposed) return;
                 Hierarchy.Layout.Status.Text = "Hierarchy failed - read-only.";
+                Hierarchy.Layout.Status.Visible(true);
+                Hierarchy.Tree.Enabled = false;
                 report($"Hierarchy worker failed: {error.Message}");
             });
         }
@@ -134,7 +140,10 @@ internal sealed class DesignerWorkspace : IDisposable
         var document = ready.Document;
         if (!document.Success)
         {
+            Hierarchy.Tree.Enabled = false;
             Hierarchy.Layout.Status.Text = "Invalid source - stale hierarchy is read-only.";
+            Hierarchy.Layout.Status.Visible(true);
+            Inspector.Show(Hierarchy.Selection, Hierarchy.Selection is { } stale ? Hierarchy.Parent(stale) : null, false);
             Inspector.Feedback = document.Diagnostics.FirstOrDefault()?.Message ?? "Source is not a valid component.";
             Changed?.Invoke();
             return;
@@ -196,7 +205,7 @@ internal sealed class DesignerWorkspace : IDisposable
             return;
         }
         SelectNode(node, revealSource: true);
-        Hierarchy.Tree.Focus();
+        Hierarchy.Focus();
         Inspector.Feedback = $"Selected {node.Kind} in the hierarchy.";
     }
 
@@ -213,7 +222,7 @@ internal sealed class DesignerWorkspace : IDisposable
         pending.Enqueue(selected);
         long request = ++hierarchyExpansion;
         IsExpandingHierarchy = true;
-        Hierarchy.Tree.Focus();
+        Hierarchy.Focus();
         Inspector.Feedback = "Expanding the selected subtree. Source editing remains available.";
         PostBatch();
 
@@ -266,7 +275,7 @@ internal sealed class DesignerWorkspace : IDisposable
         }
         StopHierarchyExpansion();
         Hierarchy.Tree.Expand(Hierarchy.Key(Hierarchy.Selection!), expanded: false);
-        Hierarchy.Tree.Focus();
+        Hierarchy.Focus();
         Inspector.Feedback = "Selected branch collapsed. Nested expansion choices are retained.";
     }
 

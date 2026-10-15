@@ -13,6 +13,8 @@ internal static partial class Program
         {
             Run();
             RunKeyboardRouting();
+            RunSelectionIndentation(VisualStyle.Classic);
+            RunSelectionIndentation(VisualStyle.WinUI);
             RunComments(VisualStyle.Classic);
             RunComments(VisualStyle.WinUI);
             RunDuplication(VisualStyle.Classic);
@@ -73,8 +75,6 @@ internal static partial class Program
                 Unhandled("    Text();", new(0, 0), 0x0D, KeyModifiers.None);
                 Unhandled("    Text();", new(6, 6), 0x09, KeyModifiers.None);
                 Unhandled("    Text();", new(6, 6), 0x09, KeyModifiers.Shift);
-                Unhandled("    Text();", new(0, 4), 0x09, KeyModifiers.None);
-                Unhandled("    Text();", new(0, 4), 0x09, KeyModifiers.Shift);
                 Unhandled("    Text();", new(11, 11), 0x0D, KeyModifiers.Control);
                 Unhandled("    Text();", new(11, 11), 0x0D, KeyModifiers.Shift);
                 Unhandled("    Text();", new(4, 4), 0x09, KeyModifiers.Control);
@@ -168,6 +168,8 @@ internal static partial class Program
         int stage = 0, changes = 0;
         bool markerSeen = false, completed = false;
         nint target = 0;
+        var originalKeys = new byte[256];
+        Require(GetKeyboardState(originalKeys), "Read the fixture thread's keyboard state.");
         Exception? failure = null;
         editor.Event += value => { if (value.Kind == EventKind.Change) changes++; };
         window.KeyHandler = key =>
@@ -195,6 +197,27 @@ internal static partial class Program
                 {
                     Require(editor.Text == "        Text();" && editor.Selection == new TextSelection(4, 4) &&
                         changes == 1 && editor.Focused, "A queued leading Tab indents instead of traversing focus.");
+                    editor.Command(TextCommand.Undo);
+                    editor.Selection = new(4, 8);
+                    stage++;
+                    StartKey(0x09);
+                }
+                else if (stage == 2)
+                {
+                    Require(editor.Text == "        Text();" && editor.Selection == new TextSelection(8, 12) &&
+                        changes == 1 && editor.Focused, "A queued selected Tab indents the line and keeps native focus and selection.");
+                    var shifted = (byte[])originalKeys.Clone();
+                    shifted[0x10] = shifted[0xA0] = 0x80;
+                    Require(SetKeyboardState(shifted), "Set Shift for the fixture thread.");
+                    stage++;
+                    StartKey(0x09);
+                }
+                else if (stage == 3)
+                {
+                    Require(SetKeyboardState(originalKeys), "Restore the fixture thread's keyboard state.");
+                    Require(editor.Text == "    Text();" && editor.Selection == new TextSelection(4, 8) &&
+                        changes == 1 && editor.Focused, "Queued Shift+Tab unindents the selected line without traversing focus.");
+                    editor.Command(TextCommand.Undo);
                     editor.Command(TextCommand.Undo);
                     other.Focus();
                     other.Selection = new(5, 5);
@@ -236,7 +259,8 @@ internal static partial class Program
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         });
-        window.Run();
+        try { window.Run(); }
+        finally { SetKeyboardState(originalKeys); }
         cancellation.Cancel();
         timeout.GetAwaiter().GetResult();
         if (failure is not null) throw new InvalidOperationException("Source indentation keyboard routing failed.", failure);
@@ -260,4 +284,12 @@ internal static partial class Program
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool PostMessageW(nint window, uint message, nuint wParam, nint lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetKeyboardState([Out] byte[] keys);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetKeyboardState(byte[] keys);
 }

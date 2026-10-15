@@ -18,6 +18,8 @@ public readonly record struct RgbaColor(byte Red, byte Green, byte Blue, byte Al
 public enum ProgressState : uint { Determinate, Indeterminate, Paused, Error, Unknown }
 public enum ItemsPresentation : uint { List, Tiles, Grouped, Gallery }
 public enum CompactNavigation : uint { Stacked, Overlay }
+public enum AdaptivePresentation : uint { Responsive, InlinePane, Overlay }
+public enum NavigationSide : uint { Left, Right }
 public enum DateTimePresentation : uint { Date, Time, Calendar }
 public enum TextCommand : uint { Undo, Redo, Copy, Cut, Paste, SelectAll }
 public enum StatusSeverity : uint { Information, Success, Warning, Error }
@@ -672,7 +674,7 @@ public sealed unsafe partial class Window
             try
             {
                 var item = pin.Source.Item(index, column);
-                if ((uint)item.Icon > (uint)ButtonIcon.Mixed) throw new ArgumentException("Invalid item icon.");
+                if ((uint)item.Icon > (uint)ButtonIcon.PinFilled) throw new ArgumentException("Invalid item icon.");
                 if (item.ImagePath.Length > 32767) throw new ArgumentException("Image path exceeds 32767 UTF-16 units.");
                 var bytes = Utf8(item.ImagePath);
                 *icon = (uint)item.Icon; *required = (uint)bytes.Length;

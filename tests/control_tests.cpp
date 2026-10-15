@@ -76,9 +76,11 @@ void sizing_and_scroll() {
         static_cast<int>(ButtonIcon::chevron_up) == 27 && static_cast<int>(ButtonIcon::chevron_down) == 28 &&
         static_cast<int>(ButtonIcon::chevron_right) == 29 &&
         static_cast<int>(ButtonIcon::folders_first) == 30 && static_cast<int>(ButtonIcon::files_first) == 31 &&
-        static_cast<int>(ButtonIcon::mixed) == 32);
+        static_cast<int>(ButtonIcon::mixed) == 32 && static_cast<int>(ButtonIcon::pin) == 33 &&
+        static_cast<int>(ButtonIcon::pin_filled) == 34);
     for (const auto value : {ButtonIcon::save, ButtonIcon::save_as, ButtonIcon::undo, ButtonIcon::redo,
-        ButtonIcon::chevron_up, ButtonIcon::chevron_down, ButtonIcon::chevron_right, ButtonIcon::folders_first, ButtonIcon::files_first, ButtonIcon::mixed}) {
+        ButtonIcon::chevron_up, ButtonIcon::chevron_down, ButtonIcon::chevron_right, ButtonIcon::folders_first, ButtonIcon::files_first, ButtonIcon::mixed,
+        ButtonIcon::pin, ButtonIcon::pin_filled}) {
         Button command(L"Document command");
         const auto id = command.id();
         command.set_icon(value);
@@ -92,7 +94,7 @@ void sizing_and_scroll() {
             "Document icon buttons retain keyboard activation");
         command.set_enabled(false);
         require(!command.invoke() && clicks == 1, "Disabled document icons cannot invoke commands");
-        for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(33)}) {
+        for (const auto invalid : {static_cast<ButtonIcon>(-1), static_cast<ButtonIcon>(35)}) {
             bool rejected{};
             try { command.set_icon(invalid); }
             catch (const std::invalid_argument&) { rejected = true; }
@@ -100,6 +102,35 @@ void sizing_and_scroll() {
         }
     }
     Button icon(L"Back");
+    Button vertical(L"Hierarchy");
+    const auto vertical_id = vertical.id();
+    vertical.set_text_measurer([](std::wstring_view, TextStyle) { return Size{70, 18}; });
+    int orientation_layouts{};
+    vertical.set_invalidator([&](Invalidation kind) { if (kind == Invalidation::layout) ++orientation_layouts; });
+    require(!vertical.vertical_text(), "Button text remains horizontal by default");
+    vertical.set_vertical_text(true);
+    vertical.set_vertical_text(true);
+    require(orientation_layouts == 1 && vertical.id() == vertical_id && vertical.name() == L"Hierarchy",
+        "Orientation changes preserve identity and accessibility without redundant invalidation");
+    PartStyleValues tab_style;
+    tab_style.padding = Insets{4, 4, 4, 4};
+    tab_style.border_thickness = Insets{1, 1, 1, 1};
+    vertical.set_control_style_values(StylePart::root, tab_style);
+    auto vertical_size = vertical.measure({300, 300});
+    require(vertical_size.width == 28 && vertical_size.height == 80,
+        "Vertical labels swap measured text dimensions and retain physical authored padding");
+    vertical_size = vertical.measure({20, 60});
+    require(vertical_size.width == 20 && vertical_size.height == 60, "Vertical labels respect parent constraints");
+    vertical.set_fixed_size({32, 112});
+    vertical_size = vertical.measure({300, 300});
+    require(vertical_size.width == 32 && vertical_size.height == 112, "Vertical tabs preserve explicit sizes");
+    vertical.set_visible(false);
+    require(vertical.measure({300, 300}).width == 0, "Hidden vertical tabs do not reserve space");
+    vertical.set_visible(true);
+    int tab_clicks{};
+    vertical.on_click([&] { ++tab_clicks; });
+    vertical.set_focused(true);
+    require(vertical.key_down(ActivationKey::enter) && tab_clicks == 1, "Sideways tabs retain keyboard activation");
     icon.set_text_measurer([](std::wstring_view, TextStyle) { return Size{180, 20}; });
     icon.set_icon(ButtonIcon::back);
     require(icon.measure({300, 80}).width == 36 && icon.name() == L"Back", "Icon size is independent of accessible name");

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using Microsoft.CodeAnalysis;
@@ -12,7 +13,7 @@ using Xui.Generator;
 
 namespace Xui.Designer;
 
-internal sealed record PreviewCompilation(byte[]? Assembly, string Diagnostics)
+internal sealed record PreviewCompilation(byte[]? Assembly, string Diagnostics, string? Fingerprint = null)
 {
     public bool Success => Assembly is not null;
 }
@@ -24,7 +25,7 @@ internal static class PreviewCompiler
     private static readonly object ReferenceLock = new();
     private static MetadataReference[]? cachedReferences;
 
-    public static PreviewCompilation Compile(string source, CancellationToken cancellation = default)
+    public static PreviewCompilation Compile(string source, CancellationToken cancellation = default, bool fingerprint = false)
     {
         cancellation.ThrowIfCancellationRequested();
         if (source is null)
@@ -134,11 +135,25 @@ internal static class PreviewCompiler
             }
             """, parseOptions, "GeneratedPreview.g.cs", Encoding.UTF8, cancellation);
         var compilation = generated.AddSyntaxTrees(wrapper);
+        string? identity = null;
+        if (fingerprint)
+        {
+            // Compare emitted behavior, not source tokens: whitespace in strings and
+            // source-sensitive C# features such as CallerLineNumber can change the IL.
+            using var stableOutput = new MemoryStream();
+            var stable = compilation.WithAssemblyName("Xui.Designer.Preview.Content")
+                .WithOptions(compilation.Options.WithDeterministic(true));
+            var stableResult = stable.Emit(stableOutput, cancellationToken: cancellation);
+            if (!stableResult.Success)
+                return new(null, FormatDiagnostics(diagnostics.Concat(stableResult.Diagnostics), cancellation));
+            identity = Convert.ToHexString(SHA256.HashData(stableOutput.GetBuffer().AsSpan(0, checked((int)stableOutput.Length))));
+        }
         using var output = new MemoryStream();
         var emitted = compilation.Emit(output, cancellationToken: cancellation);
         cancellation.ThrowIfCancellationRequested();
         diagnostics.AddRange(emitted.Diagnostics);
-        return new(emitted.Success ? output.ToArray() : null, FormatDiagnostics(diagnostics, cancellation));
+        return new(emitted.Success ? output.ToArray() : null, FormatDiagnostics(diagnostics, cancellation),
+            emitted.Success ? identity : null);
     }
 
     private static bool IsElement(ITypeSymbol type, INamedTypeSymbol? element)

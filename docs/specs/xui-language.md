@@ -43,7 +43,7 @@ Leaf controls end with a semicolon, for example `Text("Hello");`.
 Containers have a child block and end with its closing brace, for example `HStack() { Text("Hello"); }`.
 Do not add a semicolon after a child block or after a `view`, `resources`, `style`, or `code csharp` block.
 
-Native layout nodes are `VStack`, `HStack`, `Grid`, `ScrollView`, `Popup`, `SplitView`, and `Reveal`.
+Native layout nodes are `VStack`, `HStack`, `Grid`, `AdaptiveLayout`, `ScrollView`, `Popup`, `SplitView`, and `Reveal`.
 Basic nodes are `Text`, `Button`, `Toggle`, `ToggleSwitch`, `ToggleButton`, `CheckBox`, `HyperlinkButton`, `InfoBadge`, and `TextInput`.
 Other native nodes are `DataGrid`, `NavigationView`, `ItemsView`, `RangeInput`, `Progress`, `ProgressRing`, `SelectorBar`, and `MenuBar`.
 `SwapChainPanel` is a Windows-only graphics leaf. Its generated reference exposes the [native graphics contract](swap-chain-panel.md).
@@ -64,7 +64,7 @@ Controls support `id`, `enabled`, `visible`, and `help`.
 Hidden `ScrollView` controls reserve no desired layout space, including passthrough hosts.
 The `id` argument supplies the automation ID.
 `help` supplies native help text.
-`Stack`, `Grid`, and `Content` are elements, not controls, so they do not support those four arguments.
+`Stack`, `Grid`, `AdaptiveLayout`, and `Content` are elements, not controls, so they do not support those four arguments.
 For example, `Button("?", size: (36, 36), help: "Row 1, column 1: covered.");` declares a square cell.
 
 `Text`, `Button`, `Toggle`, `ToggleSwitch`, and `ToggleButton` use their positional string for both text and the accessible name.
@@ -81,6 +81,10 @@ Toggle actions do not also emit a click event. The node does not accept `click`.
 Checked-state setters are silent for both toggle presentations.
 Event arguments name C# methods.
 `Button` supports `icon: global::Xui.ButtonIcon.Refresh` through the native `SetIcon` method.
+`Button` also accepts the reactive boolean `verticalText` (default false).
+For example, `Button("Hierarchy", verticalText: true, size: (32, 112));` draws a sideways edge tab:
+the full label rotates clockwise, while its accessible name and keyboard behavior remain unchanged.
+`ButtonIcon.Pin` and `ButtonIcon.PinFilled` supply outlined and filled pushpins.
 `NavigationView` supports `headerVisible`.
 Its `searchId` and `searchHelp` arguments configure the native search input.
 Its optional reactive `duration` argument is a `uint` from zero through 10,000 milliseconds.
@@ -91,6 +95,10 @@ Its optional reactive `duration` argument accepts a `uint` from zero through 10,
 Zero disables motion. The compiler initializes duration before secondary visibility.
 The [animation contract](animations.md#split-pane-transitions) describes pane geometry, focus, and interruption.
 `Popup` supports `placement: global::Xui.PopupPlacement.Right` and `windowBackground`.
+`AdaptiveLayout` takes navigation first and content second, with exactly two retained children.
+It supports reactive `presentation`, `navigationSide`, `navigationExtent`, `navigationOpen`, `dismissOnFocusOutside`, `breakpoint`, and `compactNavigation`.
+Its positional name is a fixed constructor input, not reactive state.
+See the [layout examples](controls/layout.md#adaptivelayout) for responsive and pinned/overlay presentation.
 `DataGrid` accepts a `global::Xui.GridColumn[]` expression in `columns`.
 The compiler calls `SetColumns` when the authored column values change.
 
@@ -576,7 +584,7 @@ Placement and flex cannot depend on state because the bindings expose no placeme
 
 `Grid`, `VStack`, and `HStack` use braces for their children.
 `ScrollView` and `Popup` require exactly one child inside braces.
-`SplitView` requires exactly two children.
+`SplitView` and `AdaptiveLayout` require exactly two children.
 The compiler creates children before it calls factories that require those children.
 
 ## Bind state
@@ -682,7 +690,7 @@ Omitted control properties do not generate refresh setters.
 
 A structural edit changes the control types or their parent-child relationships.
 A source edit to the state schema, an initializer, or an explicit automation-ID expression also requires replacement.
-Parameter declarations, reference names, placement, flex, Grid names, and Content expressions belong to the structural signature.
+Parameter declarations, reference names, placement, flex, Grid and AdaptiveLayout names, and Content expressions belong to the structural signature.
 An edit to any of them requires replacement.
 Adding or deleting an event subscription requires replacement.
 Adding or removing an optional binding also requires replacement.

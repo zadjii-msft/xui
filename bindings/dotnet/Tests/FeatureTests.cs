@@ -397,7 +397,7 @@ internal static class FeatureTests
             Expect(flyout.Menu.GetControlStyleValues(StylePart.Root, true).RowHeight == 32);
             Fails(() => _ = flyout.Editor);
             Fails(() => flyout.SetPlacement((PopupPlacement)99));
-            Fails(() => flyout.SetCommands([new(1, "Invalid icon", Icon: (ButtonIcon)33)]));
+            Fails(() => flyout.SetCommands([new(1, "Invalid icon", Icon: (ButtonIcon)35)]));
             int order = 0;
             flyout.OnCommand((id, pin) => { Expect(!pin); order = (int)id; });
             flyout.Invoke(3); Expect(order == 3);
@@ -526,15 +526,16 @@ internal static class FeatureTests
                     (uint)ButtonIcon.ChevronRight == 29 && (uint)ButtonIcon.FoldersFirst == 30 && (uint)ButtonIcon.FilesFirst == 31 && (uint)ButtonIcon.Mixed == 32);
                 foreach (var icon in new[] { ButtonIcon.History, ButtonIcon.Bookmark, ButtonIcon.Drive, ButtonIcon.Open,
                     ButtonIcon.Save, ButtonIcon.SaveAs, ButtonIcon.Undo, ButtonIcon.Redo,
-                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown, ButtonIcon.ChevronRight, ButtonIcon.FoldersFirst, ButtonIcon.FilesFirst, ButtonIcon.Mixed })
+                    ButtonIcon.ChevronUp, ButtonIcon.ChevronDown, ButtonIcon.ChevronRight, ButtonIcon.FoldersFirst, ButtonIcon.FilesFirst, ButtonIcon.Mixed,
+                    ButtonIcon.Pin, ButtonIcon.PinFilled })
                 {
                     iconButton.SetIcon(icon);
                     Expect(iconButton.Icon == icon);
                     w.NavigationView($"Icon {icon}").SetItems([new(1, "Section", Selectable: false, Icon: icon)]);
                     w.TabStrip($"Tab {icon}").SetTabItems([new(1, "Document", icon)], 1);
                 }
-                Fails(() => iconButton.SetIcon((ButtonIcon)33));
-                Expect(iconButton.Icon == ButtonIcon.Mixed);
+                Fails(() => iconButton.SetIcon((ButtonIcon)35));
+                Expect(iconButton.Icon == ButtonIcon.PinFilled);
                 var navigation = w.NavigationView("Navigation");
                 navigation.SetItems([new(1, "Group", Selectable: false), new(2, "Home", 1)]);
                 ulong selected = 0; navigation.Event += e => { if (e.Kind == EventKind.Selection) selected = e.Value; };

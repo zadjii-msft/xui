@@ -400,7 +400,7 @@ test("style target aliases do not expand the application constructor vocabulary"
     has(doc, `for ${target}`, "support.class.node.xui", "for ".length);
     const nodes = ["VStack", "HStack", "Text", "Button", "Toggle", "ToggleSwitch", "ToggleButton", "ProgressRing",
       "CheckBox", "HyperlinkButton", "SelectorBar", "InfoBadge", "MenuBar", "TextInput", "Grid", "DataGrid",
-      "NavigationView", "ItemsView", "ScrollView", "Popup", "SplitView", "Content"];
+      "NavigationView", "ItemsView", "ScrollView", "Popup", "SplitView", "AdaptiveLayout", "Content"];
     has(doc, `${target}("`, nodes.includes(target) ? "support.class.node.xui" : "entity.name.tag.xui");
     closed(doc);
   }

@@ -33,6 +33,9 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Compiler diagnostics](xui-language-plan.md#compiler-diagnostics): Contextual syntax errors, style and value rules, source locations, and build/Designer delivery.
 - [Designer source map](xui-language-plan.md#designer-source-map): Native editor, runtime compilation, and preview ownership.
 - [Designer native editor feedback](xui-language-plan.md#native-editor-feedback-september-18-2026): Scrollbar pixel checks, single-selection findings, and required-LSH build limits.
+- [Designer editor retention](xui-language-plan.md#editor-retention-evidence-october-6-2026): Buffered live gutter painting, scroll/newline latency, selected indentation, retained previews, and the baseline pointer-inspection limitation.
+- [Designer auto-hide panes](xui-language-plan.md#auto-hide-panes-october-6-2026): Retained left/right docking, sideways edge tabs, outline/filled pushpins, focus navigation, popup ownership, and native occlusion.
+- [Native caret presentation](rendering-history.md#native-caret-presentation-october-6-2026): Designer line-end caret artifacts, transparent viewport composition, and owned-window pixel regressions.
 - [Control roadmap](control-roadmap.md): Reference research, family coverage, and remaining work.
 - [Shell menu discovery](shell-menu-discovery.md): Worker lifetime, cancellation, safe menu replacement, and the [prefetch experiment](shell-menu-discovery.md#prefetch-experiment-september-19-2026).
 - [Control styling implementation and evidence](control-styling.md): Shared-only styling source map, version-2 consolidation, binding lifetimes, and historical native paint/performance evidence.

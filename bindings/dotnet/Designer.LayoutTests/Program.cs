@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Xui;
 using Xui.Designer;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main()
@@ -20,7 +20,9 @@ internal static class Program
             var templates = window.ComboBox("Templates", false);
             var hierarchy = new DesignerHierarchyLayout(window, tree, attach: false);
             var inspector = new DesignerInspectorLayout(window, arguments, value, attach: false);
-            var preview = window.Label("Layout fixture preview");
+            var preview = window.Button("Layout fixture preview");
+            var popupField = window.TextInput("Pane-owned popup field");
+            var popup = window.Popup("Pane-owned popup", window.Stack().Add(popupField));
             var layout = new DesignerLayout(window, searchLayout.Root, diagnosticLayout.Root, hierarchy.Root, inspector.Root, preview, templates, window);
             editor.Text = "Native editor layout fixture";
             int assertions = 0;
@@ -185,6 +187,7 @@ internal static class Program
                         Require(layout.AddControl.Text == "Add control..." && layout.PreviewSize.GetBounds().Width == 210,
                             "The toolbar exposes Add control and a stable width for current preview dimensions.");
                     });
+                    await Panes(window, layout, hierarchy, inspector, editor, value, tree, preview, popup, popupField, Ui, Require);
                 }
                 catch (Exception error) { failure = error; }
                 finally { window.Post(window.Close); }
@@ -207,7 +210,7 @@ internal static class Program
             });
             window.Run();
             test.GetAwaiter().GetResult();
-            if (failure is not null) throw failure;
+            if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
             Console.WriteLine($"Designer native layout assertions: {assertions} passed.");
             return 0;
         }

@@ -44,8 +44,11 @@
     [["Wrap"],"ItemWidth",30,"double",""],
     [["AdaptiveLayout"],"Breakpoint",31,"double",""],
     [["AdaptiveLayout"],"NavigationExtent",32,"double",""],
-    [["AdaptiveLayout"],"NavigationOpen",33,"bool",""],
+    [["AdaptiveLayout"],"NavigationOpen",33,"bool","get"],
     [["AdaptiveLayout"],"CompactNavigation",34,"CompactNavigation",""],
+    [["AdaptiveLayout"],"Presentation",56,"AdaptivePresentation","get"],
+    [["AdaptiveLayout"],"NavigationSide",57,"NavigationSide","get"],
+    [["AdaptiveLayout"],"DismissOnFocusOutside",58,"bool","get"],
     [["SplitView"],"Ratio",35,"double","get"],
     [["SplitView"],"SecondVisible",44,"bool","get"],
     [["PageView"],"SelectedPage",36,"ulong",""]

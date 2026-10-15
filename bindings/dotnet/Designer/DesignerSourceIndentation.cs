@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Xui.Designer;
 
 internal sealed class DesignerSourceIndentation(MultilineText editor, Action<string> report)
@@ -12,6 +14,11 @@ internal sealed class DesignerSourceIndentation(MultilineText editor, Action<str
 
         string source = editor.Text;
         var selection = editor.Selection;
+        if (tab && selection.Start != selection.End)
+        {
+            IndentSelection(source, selection, key.Modifiers == KeyModifiers.Shift);
+            return true;
+        }
         int start = checked((int)selection.Start);
         int lineStart = start == 0 ? 0 : source.LastIndexOf('\r', start - 1) + 1;
         int indentEnd = lineStart;
@@ -58,5 +65,42 @@ internal sealed class DesignerSourceIndentation(MultilineText editor, Action<str
             report($"Native editor rejected the indentation edit: {error.Message}");
         }
         return true;
+    }
+
+    private void IndentSelection(string source, TextSelection selection, bool unindent)
+    {
+        var (first, last) = DesignerSourceLines.SelectedLineBounds(source, selection);
+        var replacement = new StringBuilder();
+        int start = checked((int)selection.Start), end = checked((int)selection.End);
+        int mappedStart = start, mappedEnd = end;
+        for (int line = first; line <= last;)
+        {
+            int lineEnd = source.IndexOf('\r', line);
+            if (lineEnd < 0 || lineEnd > last) lineEnd = last;
+            int removed = 0;
+            if (unindent)
+            {
+                if (line < lineEnd && source[line] == '\t') removed = 1;
+                else while (removed < IndentSize && line + removed < lineEnd && source[line + removed] == ' ') removed++;
+            }
+            int added = unindent ? 0 : IndentSize;
+            if (start >= line) mappedStart += added - Math.Min(removed, start - line);
+            if (end >= line) mappedEnd += added - Math.Min(removed, end - line);
+            replacement.Append(' ', added).Append(source, line + removed, lineEnd - line - removed);
+            if (lineEnd == last) break;
+            replacement.Append('\r');
+            line = lineEnd + 1;
+        }
+        string text = replacement.ToString();
+        if (source.AsSpan(first, last - first).SequenceEqual(text)) return;
+        try
+        {
+            editor.ReplaceRange(new((ulong)first, (ulong)last), source, text);
+            editor.Selection = new((ulong)mappedStart, (ulong)mappedEnd);
+        }
+        catch (XuiException error)
+        {
+            report($"Native editor rejected the indentation edit: {error.Message}");
+        }
     }
 }

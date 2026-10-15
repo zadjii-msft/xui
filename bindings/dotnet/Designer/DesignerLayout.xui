@@ -10,6 +10,8 @@ component DesignerLayout {
     param global::Xui.Window Dispatcher;
     state bool OutputExpanded = false;
     state bool WinUIStyle = true;
+    state bool HierarchyPinned = true;
+    state bool InspectorPinned = true;
     state string PickStatus = "Select preview controls without running their pointer actions. Keyboard and accessibility actions remain live.";
     state string OutlineStatus = "No selected outline.";
 
@@ -32,6 +34,10 @@ component DesignerLayout {
         background: theme(light: 0xF3F3F3, dark: 0x272727);
         borderThickness: 0;
         cornerRadius: 0;
+    }
+    style PaneTab for Button basedOn OutputDisclosure {
+        padding: 6;
+        when hovered { background: theme(light: 0xE0E0E0, dark: 0x383838); }
     }
 
     view {
@@ -78,26 +84,55 @@ component DesignerLayout {
                 }
             }
             Grid("Designer workspace", ref: Workspace, flex: 1,
-                columns: [new(global::Xui.TrackSizing.Fixed, 220), new(global::Xui.TrackSizing.Star), new(global::Xui.TrackSizing.Fixed, 284)]) {
-                VStack(ref: HierarchyPanel, style: Panel) {
-                    Content(Hierarchy, flex: 1);
+                columns: [new(global::Xui.TrackSizing.Fixed, HierarchyPinned ? 0 : 36), new(global::Xui.TrackSizing.Star),
+                    new(global::Xui.TrackSizing.Fixed, InspectorPinned ? 0 : 36)]) {
+                VStack() {
+                    Button("Hierarchy", ref: HierarchyTab, id: "designer-hierarchy-tab", verticalText: true, style: PaneTab,
+                        size: (32, 112), visible: !HierarchyPinned, help: "Open the auto-hidden hierarchy", click: OpenHierarchy);
                 }
-                SplitView("Source and live preview", ref: SourcePreview, column: 1) {
-                    VStack(spacing: 6, padding: 6) {
-                        HStack(spacing: 8) {
-                            Text("Source", fontSize: 18, fontWeight: 600, flex: 1);
-                            Button("Go to line", ref: GoToLine, id: "designer-go-to-line",
-                                help: "Go to a source line and column (Ctrl+G in source)");
+                AdaptiveLayout("Hierarchy docking", ref: HierarchyDock, column: 1,
+                    presentation: HierarchyPinned ? global::Xui.AdaptivePresentation.InlinePane : global::Xui.AdaptivePresentation.Overlay,
+                    navigationExtent: 220, dismissOnFocusOutside: true) {
+                    VStack(ref: HierarchyPanel, style: Panel) {
+                        HStack(padding: 8, spacing: 4) {
+                            Text("Hierarchy", fontSize: 20, fontWeight: 600, flex: 1);
+                            Button(HierarchyPinned ? "Unpin hierarchy" : "Pin hierarchy", ref: HierarchyPin, id: "designer-hierarchy-pin",
+                                icon: HierarchyPinned ? global::Xui.ButtonIcon.PinFilled : global::Xui.ButtonIcon.Pin, size: (32, 32),
+                                help: HierarchyPinned ? "Auto-hide hierarchy at the left edge" : "Keep hierarchy open beside the workspace", click: ToggleHierarchyPin);
                         }
-                        Content(Editor, flex: 1);
+                        Content(Hierarchy, flex: 1);
                     }
-                    VStack(spacing: 6, padding: 6) {
-                        Text("Live preview", fontSize: 18, fontWeight: 600, help: OutlineStatus);
-                        Content(Preview, flex: 1);
+                    AdaptiveLayout("Properties docking", ref: InspectorDock,
+                        presentation: InspectorPinned ? global::Xui.AdaptivePresentation.InlinePane : global::Xui.AdaptivePresentation.Overlay,
+                        navigationSide: global::Xui.NavigationSide.Right, navigationExtent: 284, dismissOnFocusOutside: true) {
+                        VStack(ref: InspectorPanel, style: Panel) {
+                            HStack(padding: 8, spacing: 4) {
+                                Text("Properties", fontSize: 20, fontWeight: 600, flex: 1);
+                                Button(InspectorPinned ? "Unpin properties" : "Pin properties", ref: InspectorPin, id: "designer-properties-pin",
+                                    icon: InspectorPinned ? global::Xui.ButtonIcon.PinFilled : global::Xui.ButtonIcon.Pin, size: (32, 32),
+                                    help: InspectorPinned ? "Auto-hide properties at the right edge" : "Keep properties open beside the workspace", click: ToggleInspectorPin);
+                            }
+                            Content(Inspector, flex: 1);
+                        }
+                        SplitView("Source and live preview", ref: SourcePreview) {
+                            VStack(spacing: 6, padding: 6) {
+                                HStack(spacing: 8) {
+                                    Text("Source", fontSize: 18, fontWeight: 600, flex: 1);
+                                    Button("Go to line", ref: GoToLine, id: "designer-go-to-line",
+                                        help: "Go to a source line and column (Ctrl+G in source)");
+                                }
+                                Content(Editor, flex: 1);
+                            }
+                            VStack(spacing: 6, padding: 6) {
+                                Text("Live preview", fontSize: 18, fontWeight: 600, help: OutlineStatus);
+                                Content(Preview, flex: 1);
+                            }
+                        }
                     }
                 }
-                VStack(ref: InspectorPanel, style: Panel, column: 2) {
-                    Content(Inspector, flex: 1);
+                VStack(column: 2) {
+                    Button("Properties", ref: InspectorTab, id: "designer-properties-tab", verticalText: true, style: PaneTab,
+                        size: (32, 120), visible: !InspectorPinned, help: "Open the auto-hidden properties", click: OpenInspector);
                 }
             }
             VStack(ref: OutputPanel, style: Panel) {
@@ -121,6 +156,26 @@ component DesignerLayout {
     }
 
     code csharp {
+        public void RevealHierarchy() => HierarchyDock.SetNavigationOpen(true);
+        public void RevealInspector() => InspectorDock.SetNavigationOpen(true);
+
+        void OpenHierarchy() => PostPane(() => { RevealHierarchy(); HierarchyPin.Focus(); });
+        void OpenInspector() => PostPane(() => { RevealInspector(); InspectorPin.Focus(); });
+
+        void ToggleHierarchyPin() => PostPane(() => {
+            HierarchyPinned = !HierarchyPinned;
+            HierarchyDock.SetNavigationOpen(HierarchyPinned);
+            if (HierarchyPinned) HierarchyPin.Focus(); else HierarchyTab.Focus();
+        });
+        void ToggleInspectorPin() => PostPane(() => {
+            InspectorPinned = !InspectorPinned;
+            InspectorDock.SetNavigationOpen(InspectorPinned);
+            if (InspectorPinned) InspectorPin.Focus(); else InspectorTab.Focus();
+        });
+        void PostPane(global::System.Action action) {
+            if (!Dispatcher.Post(action)) throw new global::System.InvalidOperationException("The window rejected the pane request.");
+        }
+
         void ToggleStyle() {
             if (!Dispatcher.Post(() => {
                 var style = Dispatcher.Style == global::Xui.VisualStyle.WinUI
