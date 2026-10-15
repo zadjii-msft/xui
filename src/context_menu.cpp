@@ -39,7 +39,7 @@ struct Menu {
     std::function<bool()> current;
     std::function<bool()> refresh;
     int label_width{}, shortcut_width{}, row_height{}, icon_offset{};
-    bool owner_attached{}, root_attached{}, marked{}, timer{}, refreshing{}, cancelled{}, painted{};
+    bool owner_attached{}, root_attached{}, marked{}, timer{}, refreshing{}, cancelled{}, painted{}, displayed{};
     // The CBT callback has no user-data parameter. This pointer exists only inside
     // TrackPopupMenuEx on this thread, and never supplies another window's palette.
     static thread_local Menu* creating;
@@ -437,6 +437,7 @@ struct Menu {
                     win32_require(SetWindowSubclass(hwnd, popup_proc, reinterpret_cast<UINT_PTR>(self),
                         reinterpret_cast<DWORD_PTR>(self)) != FALSE, "Attach context menu frame drawing");
                     self->popup = hwnd;
+                    self->displayed = true;
                     hr_require(SetWindowTheme(hwnd, L"", L""), "Disable default context menu theme");
                 } catch (...) { self->remember_failure(); return 1; }
             }
@@ -634,7 +635,8 @@ void show_control_menu(Control& control, HWND window, LPARAM position, const Pal
             TrackPopupMenuEx(menu.handle, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NOANIMATION, point.x, point.y, window, nullptr);
         const DWORD error = GetLastError();
         if (menu.failure) std::rethrow_exception(menu.failure);
-        if (!chosen && error != ERROR_SUCCESS) {
+        // Windows can report a stale error after a displayed or cancelled menu closes without a command.
+        if (!chosen && error != ERROR_SUCCESS && !menu.displayed && !menu.cancelled && !menu.refreshing) {
             SetLastError(error);
             win32_require(false, "Show context menu");
         }

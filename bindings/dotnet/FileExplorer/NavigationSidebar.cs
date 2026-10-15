@@ -60,7 +60,8 @@ internal sealed class NavigationSidebar : IDisposable
         CancelHover();
         contextMenu = null;
         if (!paths.TryGetValue(id, out string? path)) return [];
-        contextMenu = new(app, app.Active);
+        // Menu requests cannot create controls, so reuse the pane's menu and its prebuilt action popup.
+        contextMenu = app.Active.ContextMenu;
         return contextMenu.GetCommands([new(path, FolderName(path), true, 0, DateTime.MinValue)]);
     }
 
