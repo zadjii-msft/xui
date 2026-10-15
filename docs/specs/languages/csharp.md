@@ -56,6 +56,7 @@ The `using` declaration disposes it after the run returns, including error paths
 ## Floating cards and Win32 interop
 
 The [floating-card sample](../../../bindings/dotnet/FloatingCard/README.md) creates a transparent top-level window, paints a rounded XUI card over the desktop, retains native text input, and exposes a small caption-drag region.
+With `--acrylic`, it adds `SetBackdrop(WindowBackdrop.Acrylic)` before Show to make the whole window a Desktop Acrylic card.
 Set `NativeHwndCreated` to configure Win32 attributes before the first Show/Run; after `Application.Show`, `NativeHwnd` provides the same borrowed HWND for further interop.
 The XUI handle is not an HWND. The [binding contract](../bindings.md#native-hwnd-and-floating-windows) describes ownership, state, errors, and the software-layered rendering limit.
 

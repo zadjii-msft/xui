@@ -1,10 +1,12 @@
 #include "drawing.hpp"
 #include "xui/menu_bar.hpp"
 #include <dwrite_3.h>
+#include <d2d1effects.h>
 #include "platform.hpp"
 #include "window_host.hpp"
 #include "images.hpp"
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <cmath>
 #include <utility>
@@ -84,7 +86,8 @@ void Drawing::tab_strip(const TabStrip& strip, Rect bounds, const Palette& palet
     };
     const auto parent = on_surface ? palette.surface : palette.background;
     const auto content = resolve(colors.selected_background, parent);
-    const auto rail = resolve(colors.row_background, parent);
+    // Over a system backdrop, the unselected rail shows the material.
+    const auto rail = resolve(colors.row_background, !on_surface && palette.backdrop ? D2D1::ColorF(0, 0.0f) : parent);
     const auto inactive = resolve(colors.inactive_background, rail);
     const auto hover = resolve(colors.hover_background, palette.hover);
     const auto border = resolve(colors.border, palette.border);
@@ -875,14 +878,16 @@ void Drawing::symbol(Symbol value, Rect bounds, D2D1_COLOR_F color, float size) 
     target_->SetTextAntialiasMode(antialias);
 }
 
-bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset, bool transparent) {
+bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset, bool transparent, bool backdrop) {
     RECT client{};
     win32_require(GetClientRect(window, &client) != 0, "Read window size");
     const auto size = D2D1::SizeU(static_cast<UINT32>(client.right), static_cast<UINT32>(client.bottom));
     if (!size.width || !size.height) return false;
+    if (transparent && backdrop) throw std::invalid_argument("A layered window cannot present a system backdrop");
     if (transparent && (size.width > 4096 || size.height > 4096))
         throw std::invalid_argument("Transparent windows support at most 4096 physical pixels per edge");
-    if (target_ && (host_window_ != window || static_cast<bool>(layered_target_) != transparent ||
+    if (target_ && (host_window_ != window || composition_ || static_cast<bool>(layered_target_) != transparent ||
+        backdrop_ != backdrop ||
         (transparent && (layered_size_.width != size.width || layered_size_.height != size.height))))
         discard();
     if (!target_) {
@@ -906,9 +911,13 @@ bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offse
                 layered_size_ = size;
                 target_ = layered_target_;
             } else {
-                hr_require(factory_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(),
+                const auto properties = backdrop ? D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                    D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)) :
+                    D2D1::RenderTargetProperties();
+                hr_require(factory_->CreateHwndRenderTarget(properties,
                     D2D1::HwndRenderTargetProperties(window, size), &hwnd_target_), "Create graphics target");
                 target_ = hwnd_target_;
+                backdrop_ = backdrop;
             }
             host_window_ = window;
             ++live_targets_;
@@ -921,7 +930,7 @@ bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offse
         const HRESULT result = hwnd_target_->Resize(size);
         if (result == D2DERR_RECREATE_TARGET) {
             discard();
-            return begin(window, dpi, background, offset, transparent);
+            return begin(window, dpi, background, offset, transparent, backdrop);
         }
         hr_require(result, "Resize graphics target");
     }
@@ -929,12 +938,161 @@ bool Drawing::begin(HWND window, float dpi, D2D1_COLOR_F background, Point offse
         RECT bounds{0, 0, static_cast<LONG>(size.width), static_cast<LONG>(size.height)};
         hr_require(layered_target_->BindDC(layered_dc_, &bounds), "Bind transparent graphics target");
     }
+    start_frame(dpi, background, offset);
+    return true;
+}
+
+void Drawing::start_frame(float dpi, D2D1_COLOR_F background, Point offset) {
     target_->SetDpi(dpi, dpi);
+    // ClearType requires opaque destination pixels.
+    if (backdrop_ || composition_) target_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
     target_->BeginDraw();
+    clips_.clear();
+    backdrop_holes_.clear();
     offset_ = offset;
     origin(0, 0);
     target_->Clear(background);
     for (auto& scene : scenes_) scene.used = false;
+}
+
+namespace {
+using CreateD3D11Device = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*,
+    UINT, UINT, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+// XUI does not link Direct3D 11; composition windows resolve it on first use.
+CreateD3D11Device d3d11_create_device() {
+    static const auto create = [] {
+        const HMODULE module = LoadLibraryExW(L"d3d11.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        win32_require(module != nullptr, "Load Direct3D 11");
+        const auto function = reinterpret_cast<CreateD3D11Device>(GetProcAddress(module, "D3D11CreateDevice"));
+        win32_require(function != nullptr, "Find D3D11CreateDevice");
+        return function;
+    }();
+    return create;
+}
+bool device_lost(HRESULT result) {
+    return result == D2DERR_RECREATE_TARGET || result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET;
+}
+}
+
+void Drawing::create_composition_target(HWND window, D2D1_SIZE_U size) {
+    const auto create = d3d11_create_device();
+    HRESULT result = create(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        nullptr, 0, D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
+    if (result == DXGI_ERROR_UNSUPPORTED)
+        result = create(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            nullptr, 0, D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
+    hr_require(result, "Create composition graphics device");
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgi;
+    hr_require(d3d_device_.As(&dxgi), "Read composition graphics device");
+    Microsoft::WRL::ComPtr<ID2D1Factory1> factory;
+    hr_require(factory_.As(&factory), "Read Direct2D device support");
+    hr_require(factory->CreateDevice(dxgi.Get(), &d2d_device_), "Create Direct2D device");
+    hr_require(d2d_device_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &context_),
+        "Create Direct2D device context");
+    context_checked_ = true;
+    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+    hr_require(dxgi->GetAdapter(&adapter), "Read composition adapter");
+    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgi_factory;
+    hr_require(adapter->GetParent(IID_PPV_ARGS(&dxgi_factory)), "Read DXGI factory");
+    DXGI_SWAP_CHAIN_DESC1 description{};
+    description.Width = size.width;
+    description.Height = size.height;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc.Count = 1;
+    description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    description.BufferCount = 2;
+    description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    description.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    hr_require(dxgi_factory->CreateSwapChainForComposition(d3d_device_.Get(), &description, nullptr, &swap_chain_),
+        "Create composition swap chain");
+    swap_size_ = size;
+    ++swap_generation_;
+    composition_ = true;
+    host_window_ = window;
+    target_ = context_;
+    ++live_targets_;
+}
+
+bool Drawing::bind_swap_target() {
+    Microsoft::WRL::ComPtr<IDXGISurface> surface;
+    HRESULT result = swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface));
+    if (device_lost(result)) return false;
+    hr_require(result, "Read composition back buffer");
+    result = context_->CreateBitmapFromDxgiSurface(surface.Get(), D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &swap_target_);
+    if (device_lost(result)) return false;
+    hr_require(result, "Bind composition back buffer");
+    context_->SetTarget(swap_target_.Get());
+    return true;
+}
+
+bool Drawing::begin_composition(HWND window, float dpi, D2D1_COLOR_F background) {
+    RECT client{};
+    win32_require(GetClientRect(window, &client) != 0, "Read window size");
+    const auto size = D2D1::SizeU(static_cast<UINT32>(client.right), static_cast<UINT32>(client.bottom));
+    if (!size.width || !size.height) return false;
+    if (target_ && (!composition_ || host_window_ != window)) discard();
+    if (!target_) {
+        try {
+            create_composition_target(window, size);
+            hr_require(target_->CreateSolidColorBrush(D2D1::ColorF(0, 0.0f), &brush_), "Create paint brush");
+            if (!bind_swap_target()) { discard(); return false; }
+        } catch (...) {
+            discard();
+            throw;
+        }
+    } else if (swap_size_.width != size.width || swap_size_.height != size.height) {
+        // The context must release the back buffer before DXGI resizes it.
+        context_->SetTarget(nullptr);
+        swap_target_.Reset();
+        const HRESULT result = swap_chain_->ResizeBuffers(0, size.width, size.height, DXGI_FORMAT_UNKNOWN, 0);
+        if (device_lost(result)) { discard(); return false; }
+        hr_require(result, "Resize composition swap chain");
+        swap_size_ = size;
+        if (!bind_swap_target()) { discard(); return false; }
+    }
+    start_frame(dpi, background, {});
+    return true;
+}
+
+bool Drawing::backdrop_hole(Rect bounds, float radius) {
+    if (!composition_ || bounds.width <= 0 || bounds.height <= 0) return false;
+    float dpi_x{}, dpi_y{};
+    target_->GetDpi(&dpi_x, &dpi_y);
+    const float scale_x = dpi_x / 96.0f, scale_y = dpi_y / 96.0f;
+    D2D1_MATRIX_3X2_F transform{};
+    target_->GetTransform(&transform);
+    const auto device = [&](float x, float y, const D2D1_MATRIX_3X2_F& matrix) {
+        return POINT{static_cast<LONG>(std::lround((x + matrix._31) * scale_x)),
+            static_cast<LONG>(std::lround((y + matrix._32) * scale_y))};
+    };
+    const auto top_left = device(bounds.x, bounds.y, transform);
+    const auto bottom_right = device(bounds.x + bounds.width, bounds.y + bounds.height, transform);
+    RECT area{top_left.x, top_left.y, bottom_right.x, bottom_right.y};
+    RECT visible = area;
+    for (const auto& clip : clips_) {
+        const auto a = device(clip.bounds.left, clip.bounds.top, clip.transform);
+        const auto b = device(clip.bounds.right, clip.bounds.bottom, clip.transform);
+        const RECT limit{a.x, a.y, b.x, b.y};
+        if (!IntersectRect(&visible, &visible, &limit)) return true;
+    }
+    if (IsRectEmpty(&visible)) return true;
+    // A COPY fill inside a layer (rounded clip) only clears the layer, which then blends over the
+    // parent. Clear the target directly, limited to the visible pixels.
+    suspend_clips();
+    target_->SetTransform(D2D1::Matrix3x2F::Identity());
+    target_->PushAxisAlignedClip(D2D1::RectF(visible.left / scale_x, visible.top / scale_y,
+        visible.right / scale_x, visible.bottom / scale_y), D2D1_ANTIALIAS_MODE_ALIASED);
+    target_->SetTransform(transform);
+    context_->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY);
+    brush_->SetColor(D2D1::ColorF(0, 0.0f));
+    if (radius > 0) target_->FillRoundedRectangle(D2D1::RoundedRect(rectangle(bounds), radius, radius), brush_.Get());
+    else target_->FillRectangle(rectangle(bounds), brush_.Get());
+    context_->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    target_->PopAxisAlignedClip();
+    resume_clips();
+    backdrop_holes_.push_back({area, visible, radius * scale_x});
     return true;
 }
 
@@ -1051,11 +1209,17 @@ bool Drawing::end() {
     HRESULT result = target_->EndDraw();
     const auto injected = std::exchange(end_result_override_, S_OK);
     if (SUCCEEDED(result) && FAILED(injected)) result = injected;
-    if (result == D2DERR_RECREATE_TARGET) {
+    // A composition device can also report DXGI device removal or reset.
+    if (result == D2DERR_RECREATE_TARGET || (composition_ && device_lost(result))) {
         discard();
         return false;
     }
     hr_require(result, "Draw window");
+    if (composition_) {
+        const HRESULT presented = swap_chain_->Present(1, 0);
+        if (device_lost(presented)) { discard(); return false; }
+        hr_require(presented, "Present composition frame");
+    }
     if (layered_target_) {
         RECT bounds{};
         win32_require(GetWindowRect(host_window_, &bounds) != 0, "Read transparent window position");
@@ -1090,6 +1254,24 @@ void Drawing::discard() {
     native_pixels_ = nullptr;
     native_size_ = {};
     if (target_) --live_targets_;
+    clips_.clear();
+    acrylic_noise_.Reset();
+    acrylic_restore_.Reset();
+    acrylic_invert_.Reset();
+    acrylic_blend_.Reset();
+    acrylic_flood_.Reset();
+    acrylic_blur_.Reset();
+    acrylic_source_.Reset();
+    context_.Reset();
+    context_checked_ = false;
+    backdrop_ = false;
+    swap_target_.Reset();
+    swap_chain_.Reset();
+    d2d_device_.Reset();
+    d3d_device_.Reset();
+    swap_size_ = {};
+    backdrop_holes_.clear();
+    composition_ = false;
     target_.Reset();
     hwnd_target_.Reset();
     layered_target_.Reset();
@@ -1906,11 +2088,12 @@ void Drawing::caption_button(Rect bounds, ButtonIcon icon, const Palette& palett
         } else {
             const float alpha = down ? 0.06f : 0.10f;
             const float overlay = dark ? 1.0f : 0.0f;
-            background = D2D1::ColorF(background.r * (1 - alpha) + overlay * alpha,
+            background = palette.backdrop ? D2D1::ColorF(overlay, overlay, overlay, alpha) :
+                D2D1::ColorF(background.r * (1 - alpha) + overlay * alpha,
                 background.g * (1 - alpha) + overlay * alpha, background.b * (1 - alpha) + overlay * alpha);
             if (down) ink.a = 0.7f;
         }
-    }
+    } else if (palette.backdrop) background = D2D1::ColorF(0, 0.0f);
     Rect glyph_bounds = bounds;
     if (style) {
         const auto& values = *style;
@@ -2331,7 +2514,10 @@ void Drawing::text_layout(IDWriteTextLayout* layout, Rect bounds, D2D1_COLOR_F c
 }
 
 void Drawing::push_clip(Rect bounds) {
-    target_->PushAxisAlignedClip(rectangle(bounds), D2D1_ANTIALIAS_MODE_ALIASED);
+    ClipEntry entry{false, rectangle(bounds)};
+    target_->GetTransform(&entry.transform);
+    clips_.push_back(entry);
+    target_->PushAxisAlignedClip(entry.bounds, D2D1_ANTIALIAS_MODE_ALIASED);
 }
 bool Drawing::push_rounded_clip(Rect bounds, float radius) {
     radius = std::min({radius, bounds.width / 2, bounds.height / 2});
@@ -2347,12 +2533,149 @@ bool Drawing::push_rounded_clip(Rect bounds, float radius) {
         rounded_clips_.push_back(std::move(clip));
         found = rounded_clips_.end() - 1;
     }
-    target_->PushLayer(D2D1::LayerParameters(rectangle(bounds), found->geometry.Get(),
-        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::Matrix3x2F::Translation(bounds.x, bounds.y)), nullptr);
+    ClipEntry entry{true, rectangle(bounds)};
+    target_->GetTransform(&entry.transform);
+    entry.mask = D2D1::Matrix3x2F::Translation(bounds.x, bounds.y);
+    entry.geometry = found->geometry;
+    clips_.push_back(entry);
+    target_->PushLayer(D2D1::LayerParameters(entry.bounds, entry.geometry.Get(),
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, entry.mask), nullptr);
     return true;
 }
-void Drawing::pop_rounded_clip() { target_->PopLayer(); }
-void Drawing::pop_clip() { target_->PopAxisAlignedClip(); }
+void Drawing::pop_rounded_clip() {
+    if (!clips_.empty()) clips_.pop_back();
+    target_->PopLayer();
+}
+void Drawing::pop_clip() {
+    if (!clips_.empty()) clips_.pop_back();
+    target_->PopAxisAlignedClip();
+}
+void Drawing::suspend_clips() {
+    for (auto it = clips_.rbegin(); it != clips_.rend(); ++it) {
+        if (it->rounded) target_->PopLayer();
+        else target_->PopAxisAlignedClip();
+    }
+}
+void Drawing::resume_clips() {
+    D2D1_MATRIX_3X2_F current{};
+    target_->GetTransform(&current);
+    for (const auto& entry : clips_) {
+        target_->SetTransform(entry.transform);
+        if (entry.rounded)
+            target_->PushLayer(D2D1::LayerParameters(entry.bounds, entry.geometry.Get(),
+                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, entry.mask), nullptr);
+        else target_->PushAxisAlignedClip(entry.bounds, D2D1_ANTIALIAS_MODE_ALIASED);
+    }
+    target_->SetTransform(current);
+}
+namespace {
+struct AcrylicRecipe { uint32_t tint; float tint_opacity, luminosity_opacity; uint32_t fallback; };
+// WinUI AcrylicInAppFillColorDefault resources.
+constexpr AcrylicRecipe acrylic_recipe(ThemeMode mode) {
+    return mode == ThemeMode::light ? AcrylicRecipe{0xfcfcfc, 0.0f, 0.85f, 0xf9f9f9} :
+        AcrylicRecipe{0x2c2c2c, 0.15f, 0.96f, 0x2c2c2c};
+}
+}
+D2D1_COLOR_F Drawing::acrylic_fallback(const Palette& palette) {
+    return palette.high_contrast ? palette.surface : D2D1::ColorF(acrylic_recipe(palette.mode).fallback);
+}
+bool Drawing::acrylic(Rect bounds, const Palette& palette, float radius, bool effects) {
+    if (bounds.width <= 0 || bounds.height <= 0) return false;
+    const auto fallback = [&] { rounded(bounds, acrylic_fallback(palette), radius); return false; };
+    if (!effects || palette.high_contrast) return fallback();
+    if (!context_checked_) {
+        context_checked_ = true;
+        const auto supported = target_.As(&context_);
+        if (supported != E_NOINTERFACE) hr_require(supported, "Read acrylic effect support");
+    }
+    if (!context_) return fallback();
+    float dpi_x{}, dpi_y{};
+    target_->GetDpi(&dpi_x, &dpi_y);
+    D2D1_MATRIX_3X2_F transform{};
+    target_->GetTransform(&transform);
+    const auto pixels = target_->GetPixelSize();
+    const auto scale_x = dpi_x / 96.0f, scale_y = dpi_y / 96.0f;
+    const auto left = std::clamp(std::floor((bounds.x + transform._31) * scale_x), 0.0f, static_cast<float>(pixels.width));
+    const auto top = std::clamp(std::floor((bounds.y + transform._32) * scale_y), 0.0f, static_cast<float>(pixels.height));
+    const auto right = std::clamp(std::ceil((bounds.x + bounds.width + transform._31) * scale_x), 0.0f, static_cast<float>(pixels.width));
+    const auto bottom = std::clamp(std::ceil((bounds.y + bounds.height + transform._32) * scale_y), 0.0f, static_cast<float>(pixels.height));
+    if (right <= left || bottom <= top) return false;
+    const D2D1_RECT_U source{static_cast<UINT32>(left), static_cast<UINT32>(top),
+        static_cast<UINT32>(right), static_cast<UINT32>(bottom)};
+    const auto size = D2D1::SizeU(source.right - source.left, source.bottom - source.top);
+    if (acrylic_source_ && (acrylic_source_->GetPixelSize().width != size.width ||
+        acrylic_source_->GetPixelSize().height != size.height)) acrylic_source_.Reset();
+    if (!acrylic_source_)
+        hr_require(target_->CreateBitmap(size, D2D1::BitmapProperties(target_->GetPixelFormat(), dpi_x, dpi_y),
+            &acrylic_source_), "Create acrylic source");
+    suspend_clips();
+    const auto point = D2D1::Point2U(0, 0);
+    const auto copied = acrylic_source_->CopyFromRenderTarget(&point, target_.Get(), &source);
+    resume_clips();
+    if (copied == D2DERR_RECREATE_TARGET) return fallback();
+    hr_require(copied, "Copy acrylic backdrop");
+    if (!acrylic_blur_) {
+        hr_require(context_->CreateEffect(CLSID_D2D1GaussianBlur, &acrylic_blur_), "Create acrylic blur");
+        hr_require(acrylic_blur_->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_HARD), "Configure acrylic blur");
+        hr_require(acrylic_blur_->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, 24.0f), "Configure acrylic blur radius");
+        hr_require(context_->CreateEffect(CLSID_D2D1Flood, &acrylic_flood_), "Create acrylic luminosity");
+        hr_require(context_->CreateEffect(CLSID_D2D1Blend, &acrylic_blend_), "Create acrylic blend");
+        hr_require(acrylic_blend_->SetValue(D2D1_BLEND_PROP_MODE, D2D1_BLEND_MODE_LUMINOSITY), "Configure acrylic blend");
+        acrylic_blend_->SetInputEffect(1, acrylic_flood_.Get());
+        // Direct2D's luminosity blend shifts hues when the target lightness is near white.
+        // Light materials blend inverted colors: 1 - SetLum(1 - c, 1 - l) equals SetLum(c, l).
+        D2D1_MATRIX_5X4_F inversion{};
+        inversion._11 = inversion._22 = inversion._33 = -1;
+        inversion._44 = 1;
+        inversion._51 = inversion._52 = inversion._53 = 1;
+        for (auto* effect : std::array<Microsoft::WRL::ComPtr<ID2D1Effect>*, 2>{
+                std::addressof(acrylic_invert_), std::addressof(acrylic_restore_)}) {
+            hr_require(context_->CreateEffect(CLSID_D2D1ColorMatrix, effect->GetAddressOf()), "Create acrylic inversion");
+            hr_require((*effect)->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, inversion), "Configure acrylic inversion");
+        }
+        acrylic_invert_->SetInputEffect(0, acrylic_blur_.Get());
+        acrylic_restore_->SetInputEffect(0, acrylic_blend_.Get());
+    }
+    if (!acrylic_noise_) {
+        constexpr UINT32 extent = 64;
+        std::array<std::uint32_t, extent * extent> noise{};
+        std::uint32_t state = 0x2545f491u;
+        for (auto& pixel : noise) {
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            const auto value = state & 0xff;
+            pixel = 0xff000000u | (value << 16) | (value << 8) | value;
+        }
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+        hr_require(target_->CreateBitmap(D2D1::SizeU(extent, extent), noise.data(), extent * 4,
+            D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+            &bitmap), "Create acrylic noise");
+        hr_require(target_->CreateBitmapBrush(bitmap.Get(), D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_WRAP,
+            D2D1_EXTEND_MODE_WRAP, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR), &acrylic_noise_),
+            "Create acrylic noise brush");
+    }
+    const auto recipe = acrylic_recipe(palette.mode);
+    const auto tint = D2D1::ColorF(recipe.tint);
+    const bool inverted = 0.3f * tint.r + 0.59f * tint.g + 0.11f * tint.b > 0.5f;
+    acrylic_blur_->SetInput(0, acrylic_source_.Get());
+    acrylic_blend_->SetInputEffect(0, inverted ? acrylic_invert_.Get() : acrylic_blur_.Get());
+    hr_require(acrylic_flood_->SetValue(D2D1_FLOOD_PROP_COLOR, inverted ?
+        D2D1::Vector4F(1 - tint.r, 1 - tint.g, 1 - tint.b, recipe.luminosity_opacity) :
+        D2D1::Vector4F(tint.r, tint.g, tint.b, recipe.luminosity_opacity)), "Configure acrylic luminosity");
+    const bool clipped = push_rounded_clip(bounds, radius);
+    if (!clipped) push_clip(bounds);
+    target_->SetTransform(D2D1::Matrix3x2F::Identity());
+    const auto origin = D2D1::Point2F(left / scale_x, top / scale_y);
+    const auto area = D2D1::RectF(0, 0, size.width / scale_x, size.height / scale_y);
+    context_->DrawImage(inverted ? acrylic_restore_.Get() : acrylic_blend_.Get(), &origin, &area);
+    target_->SetTransform(transform);
+    fill(bounds, D2D1::ColorF(tint.r, tint.g, tint.b, recipe.tint_opacity));
+    acrylic_noise_->SetOpacity(0.02f);
+    target_->FillRectangle(rectangle(bounds), acrylic_noise_.Get());
+    if (clipped) pop_rounded_clip();
+    else pop_clip();
+    ++acrylic_draws_;
+    return true;
+}
 void Drawing::origin(float x, float y) {
     target_->SetTransform(D2D1::Matrix3x2F::Translation(x + offset_.x, y + offset_.y));
 }

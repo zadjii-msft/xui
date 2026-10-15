@@ -1222,6 +1222,17 @@ menu.set_commands(&[
     Command { id: 2, parent: 1, label: "Show summary".into(), kind: CommandKind::Action,
         enabled: true, checked: None, shortcut_hint: String::new(), pin_label: String::new() },
 ])?;
-menu.on_invoke(|id| { println!("{id}"); Ok(()) })?;)"}
+menu.on_invoke(|id| { println!("{id}"); Ok(()) })?;)"},
+    Reference{L"materials",
+        L"Use Mica for a long-lived window background and acrylic for transient or overlapping surfaces. Keep text and fields on opaque surfaces.",
+        L"Select None, Mica, Mica Alt, and Acrylic. Move the window over different wallpaper and windows. Turn off transparency effects in Windows settings to see the solid fallback.",
+        L"Window materials require Windows 11 build 22621 or later, transparency effects, and a theme other than high contrast. The status line reports the active state. In-app acrylic blurs only pixels the window has already painted. Rust has no backdrop or material wrapper, and .xui cannot select them.",
+        L"docs/specs/materials.md",
+        L"",
+        LR"(window.SetBackdrop(WindowBackdrop.Mica);
+var flyout = window.Stack().Material(SurfaceMaterial.Acrylic);
+flyout.Add(window.Label("Acrylic surface"));
+bool presented = window.BackdropActive;)",
+        L""}
 };
 }

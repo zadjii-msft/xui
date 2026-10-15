@@ -29,6 +29,7 @@ No hosted site is required to read these pages.
 - [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, ownership, native file dialogs, and accessibility.
 - [C ABI, C#, and Rust](bindings.md): Binding coverage, examples, data limits, and error contracts.
 - [WinUI-style appearance](winui-style.md): Optional style selection, supported controls, and platform boundaries.
+- [Mica and acrylic materials](materials.md): Windows 11 window backdrops, in-app acrylic surfaces, fallbacks, and binding coverage.
 - [Control styles and color resources](control-styling.md): One shared API for all supported elements, named parts, typography, state rules, and [version-2 migration](bindings.md#breaking-migration-to-version-2).
 - [Control styling inventory](control-styling-inventory.md): Delivered coverage, exact value limits, retained-child paths, and remaining native/binding gaps.
 
@@ -53,7 +54,7 @@ Public headers and binding source define the available symbols.
 - [Control gallery](gallery.md)
 - [C# and C++ file explorers](file-explorers.md): Navigation, icon galleries, List, Tree, Details, Columns, commands, and C# file previews.
 - [Minesweeper](../../bindings/dotnet/Minesweeper/README.md)
-- [Floating C# card](../../bindings/dotnet/FloatingCard/README.md): Borderless alpha window with borrowed HWND, drag area, native input, and a pixel/hit-test smoke check.
+- [Floating C# card](../../bindings/dotnet/FloatingCard/README.md): Borderless alpha window or Desktop Acrylic card with borrowed HWND, drag area, native input, and a pixel/hit-test smoke check.
 - [Task Manager](task-manager.md)
 - [Thumbnail sample](thumbnail-sample.md)
 

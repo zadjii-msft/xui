@@ -1667,6 +1667,60 @@ private:
             label(demo, L"Recent samples contains a nested menu. Publish and Cut are disabled. No external actions run.", TextTone::secondary);
             break;
         }
+        case 60: {
+            label(demo, L"Window backdrop")->set_heading(true);
+            auto backdrop = std::make_shared<SelectorBar>(L"Window backdrop");
+            backdrop->set_automation_id(L"gallery-window-backdrop");
+            backdrop->set_items({{1, L"None"}, {2, L"Mica"}, {3, L"Mica Alt"}, {4, L"Acrylic"}},
+                static_cast<std::uint64_t>(window_.backdrop()) + 1);
+            demo->add(backdrop); targets_[index] = backdrop;
+            auto status = label(demo, L"", TextTone::secondary);
+            status->set_automation_id(L"gallery-backdrop-status");
+            auto describe = [this, status = status.get()] {
+                status->set_text(window_.backdrop() == WindowBackdrop::none ? L"No material is requested. The window uses its theme background." :
+                    window_.backdrop_active() ? L"Windows presents the material behind the catalog, header, and page margins." :
+                    L"Solid fallback: this Windows version, the transparency setting, or high contrast prevents the material.");
+            };
+            describe();
+            // The active state is known only after the window opens.
+            window_.post(describe);
+            backdrop->on_change([this, describe, output](std::uint64_t id) {
+                window_.set_backdrop(static_cast<WindowBackdrop>(id - 1));
+                describe();
+                output->set_text(L"Events: window backdrop " + std::to_wstring(id - 1));
+            });
+            label(demo, L"In-app acrylic")->set_heading(true);
+            // Acrylic blurs pixels painted before it, so the swatches occupy the same Grid cells first.
+            auto scene = std::make_shared<Grid>();
+            scene->set_tracks({{TrackSizing::fixed, 32}, {TrackSizing::fixed, 72}, {TrackSizing::fixed, 32}},
+                {{}, {}, {}, {}});
+            const std::array<std::uint32_t, 4> colors{0xd83b01, 0x0078d4, 0x107c10, 0x8764b8};
+            for (std::size_t i = 0; i < colors.size(); ++i) {
+                auto swatch = std::make_shared<Stack>(Axis::vertical);
+                PartStyleValues fill; fill.background = ThemeColor{colors[i]};
+                swatch->set_control_style_values(StylePart::root, fill);
+                scene->add(swatch, 0, i, 3, 1);
+            }
+            auto flyout = std::make_shared<Stack>(Axis::vertical);
+            flyout->set_material(SurfaceMaterial::acrylic);
+            flyout->set_padding({16, 12, 16, 12});
+            flyout->add(std::make_shared<Label>(L"Acrylic surface"));
+            auto caption = std::make_shared<Label>(L"Blurred and tinted pixels from the swatches behind it");
+            caption->set_tone(TextTone::secondary); caption->set_caption(true);
+            flyout->add(caption);
+            scene->add(flyout, 1, 0, 1, 4);
+            scene->set_preferred_size({0, 136});
+            demo->add(scene);
+            auto acrylic = std::make_shared<Toggle>(L"Use acrylic material"); acrylic->set_checked(true);
+            acrylic->on_change([flyout, output](bool value) {
+                flyout->set_material(value ? SurfaceMaterial::acrylic : SurfaceMaterial::solid);
+                flyout->set_surface(!value);
+                output->set_text(value ? L"Events: acrylic surface." : L"Events: solid surface.");
+            });
+            demo->add(acrylic);
+            label(demo, L"Transparency effects off and high contrast use solid surfaces. The materials never add an idle render loop.", TextTone::secondary);
+            break;
+        }
         }
     }
 };
@@ -1698,6 +1752,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
                 experiment = false;
             }
             else if (arg == L"--system-titlebar") options.custom_titlebar = false;
+            else if (arg == L"--backdrop" && i + 1 < argc) {
+                const std::wstring_view value = argv[++i];
+                options.backdrop = value == L"mica" ? WindowBackdrop::mica : value == L"mica-alt" ? WindowBackdrop::mica_alt :
+                    value == L"acrylic" ? WindowBackdrop::acrylic : WindowBackdrop::none;
+            }
         }
         LocalFree(argv);
     }

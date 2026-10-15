@@ -43,6 +43,32 @@ XUI_API xui_status XUI_CALL xui_window_visual_style_get(xui_handle window, uint3
 /* Before run only. Zero shows without activation or initial keyboard focus.
    The default is one. Does not prevent subsequent user activation. */
 XUI_API xui_status XUI_CALL xui_window_show_activated(xui_handle window, uint32_t activated) XUI_NOEXCEPT;
+typedef enum xui_window_backdrop {
+    XUI_BACKDROP_NONE = 0,
+    XUI_BACKDROP_MICA = 1,
+    XUI_BACKDROP_MICA_ALT = 2,
+    XUI_BACKDROP_ACRYLIC = 3
+} xui_window_backdrop;
+/* Windows 11 system material behind unpainted client pixels. UI thread, before or while open.
+   Combined with xui_window_transparent before Show/Run, the window is a borderless, non-layered
+   material card. A shown layered window returns XUI_INVALID_ARGUMENT. Windows before build 22621,
+   disabled transparency effects, and high contrast keep the solid theme background. */
+XUI_API xui_status XUI_CALL xui_window_backdrop_set(xui_handle window, uint32_t backdrop) XUI_NOEXCEPT;
+/* Active is 1 only while DWM presents the requested material. Either output can be null. */
+XUI_API xui_status XUI_CALL xui_window_backdrop_get(xui_handle window, uint32_t* backdrop, uint32_t* active) XUI_NOEXCEPT;
+typedef enum xui_surface_material {
+    XUI_MATERIAL_SOLID = 0,
+    XUI_MATERIAL_ACRYLIC = 1,
+    XUI_MATERIAL_BACKDROP_ACRYLIC = 2
+} xui_surface_material;
+/* Acrylic paints a surface that blurs and tints the window pixels behind the stack.
+   Backdrop acrylic blurs the desktop behind the window; it needs a composition window
+   and otherwise paints acrylic. Disabled transparency effects and high contrast use a solid surface. */
+XUI_API xui_status XUI_CALL xui_stack_material(xui_handle stack, uint32_t material) XUI_NOEXCEPT;
+/* Experimental. Before Show/Run: 1 renders through a composition swap chain so backdrop
+   acrylic can take any shape. Incompatible with a system backdrop. With xui_window_transparent,
+   the window is a frameless card whose painted shapes receive input. */
+XUI_API xui_status XUI_CALL xui_window_composition(xui_handle window, uint32_t enabled) XUI_NOEXCEPT;
 /* Pane bounds determine the tab bands after each content layout. The OS window
    title is independent of show_title. Pane handles must belong to the window. */
 XUI_API xui_status XUI_CALL xui_window_titlebar_layout(xui_handle window,

@@ -7,7 +7,9 @@
 #include "xui/vector_canvas.hpp"
 #include "symbols.hpp"
 #include <windows.h>
-#include <d2d1.h>
+#include <d2d1_1.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <string_view>
@@ -23,6 +25,8 @@ struct Palette {
     D2D1_COLOR_F disabled{};
     VisualStyle style{};
     ThemeMode mode{};
+    // Unpainted window pixels show a system backdrop.
+    bool backdrop{};
     static Palette system(ThemeMode mode = ThemeMode::dark, VisualStyle style = VisualStyle::classic);
     D2D1_COLOR_F input_fill(bool enabled, bool focused, bool hovered, bool on_surface) const;
 };
@@ -62,7 +66,22 @@ public:
     const wchar_t* symbol_font_family() const { return symbol_family_; }
     bool has_symbol(Symbol symbol) const;
     void symbol(Symbol symbol, Rect bounds, D2D1_COLOR_F color, float size = 16);
-    bool begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset = {}, bool transparent = false);
+    // A backdrop target presents premultiplied alpha so DWM shows the system material
+    // behind transparent pixels. Text uses grayscale antialiasing on that target.
+    bool begin(HWND window, float dpi, D2D1_COLOR_F background, Point offset = {}, bool transparent = false,
+        bool backdrop = false);
+    // Opt-in composition presentation: a premultiplied composition swap chain for one window.
+    // The caller binds composition_swap_chain() to a visual; generation changes on recreation.
+    bool begin_composition(HWND window, float dpi, D2D1_COLOR_F background);
+    IDXGISwapChain1* composition_swap_chain() const { return swap_chain_.Get(); }
+    std::uint64_t composition_generation() const { return swap_generation_; }
+    D2D1_SIZE_U composition_size() const { return swap_size_; }
+    // Physical-pixel areas cleared for a system backdrop visual beneath the swap chain.
+    struct BackdropHole { RECT bounds; RECT visible; float radius; };
+    const std::vector<BackdropHole>& backdrop_holes() const { return backdrop_holes_; }
+    // Clears bounds to transparent in a composition frame and records the visible pixels.
+    // Returns false for other targets.
+    bool backdrop_hole(Rect bounds, float radius);
     struct NativeWindow { HWND window; RECT clip; };
     bool native_windows(std::span<const NativeWindow> windows);
     void present_native(std::span<const HWND> windows);
@@ -83,6 +102,13 @@ public:
     void field_frame(Rect bounds, const Palette& palette, bool focused, bool enabled, bool invalid = false,
         std::optional<D2D1_COLOR_F> fill = {});
     void surface_frame(Rect bounds, const Palette& palette);
+    // In-app acrylic: blurs the pixels already drawn beneath bounds, applies the
+    // theme luminosity and tint, and adds low-opacity noise. Without effects, or when
+    // the target cannot supply them, it fills the documented solid fallback color.
+    // Returns true when the blurred material was drawn.
+    bool acrylic(Rect bounds, const Palette& palette, float radius, bool effects);
+    static D2D1_COLOR_F acrylic_fallback(const Palette& palette);
+    static std::size_t acrylic_draws() { return acrylic_draws_; }
     void styled_surface(Rect bounds, const Palette& palette, const PartStyleValues& values,
         D2D1_COLOR_F background, D2D1_COLOR_F border, float radius, Insets thickness,
         SurfaceCorners corners = SurfaceCorners::all);
@@ -159,6 +185,7 @@ private:
     static thread_local std::size_t created_text_layouts_;
     static thread_local std::size_t created_field_brushes_;
     inline static thread_local std::size_t created_symbol_faces_{};
+    inline static thread_local std::size_t acrylic_draws_{};
     Microsoft::WRL::ComPtr<ID2D1Factory> factory_;
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> pin_geometry_;
     Microsoft::WRL::ComPtr<IDWriteFactory> text_factory_;
@@ -205,6 +232,34 @@ private:
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hwnd_target_;
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> layered_target_;
     HWND host_window_{};
+    bool backdrop_{};
+    bool composition_{};
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
+    Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> swap_target_;
+    D2D1_SIZE_U swap_size_{};
+    std::uint64_t swap_generation_{};
+    std::vector<BackdropHole> backdrop_holes_;
+    void create_composition_target(HWND window, D2D1_SIZE_U size);
+    bool bind_swap_target();
+    void start_frame(float dpi, D2D1_COLOR_F background, Point offset);
+    // Clips and layers in push order. Acrylic must suspend them to copy target pixels.
+    struct ClipEntry {
+        bool rounded{};
+        D2D1_RECT_F bounds{};
+        D2D1_MATRIX_3X2_F transform{};
+        D2D1_MATRIX_3X2_F mask{};
+        Microsoft::WRL::ComPtr<ID2D1Geometry> geometry;
+    };
+    std::vector<ClipEntry> clips_;
+    void suspend_clips();
+    void resume_clips();
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> context_;
+    bool context_checked_{};
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> acrylic_source_;
+    Microsoft::WRL::ComPtr<ID2D1Effect> acrylic_blur_, acrylic_flood_, acrylic_blend_, acrylic_invert_, acrylic_restore_;
+    Microsoft::WRL::ComPtr<ID2D1BitmapBrush> acrylic_noise_;
     HDC layered_dc_{};
     HBITMAP layered_bitmap_{};
     HGDIOBJ layered_previous_{};

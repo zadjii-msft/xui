@@ -295,6 +295,13 @@ void Stack::set_separator_inset_enabled(bool value) {
     separator_inset_enabled_ = value;
     invalidate(Invalidation::layout);
 }
+void Stack::set_material(SurfaceMaterial value) {
+    if (value != SurfaceMaterial::solid && value != SurfaceMaterial::acrylic && value != SurfaceMaterial::backdrop_acrylic)
+        throw std::invalid_argument("Invalid surface material");
+    if (material_ == value) return;
+    material_ = value;
+    invalidate(Invalidation::paint);
+}
 const PartStyleValues* Stack::effective_separator_style() const {
     if (!has_control_styling()) return nullptr;
     const auto target = control_style_target();

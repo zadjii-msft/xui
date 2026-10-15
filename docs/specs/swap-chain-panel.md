@@ -135,6 +135,15 @@ Native text inputs beside the panel keep their existing native editing behavior.
 `WM_PRINT`, root bitmap capture, and Designer pointer inspection do not include the composition content.
 A real compositor capture is necessary to inspect its pixels.
 
+### Composition windows
+
+In a window with the experimental [composition presentation](materials.md#experimental-composition-presentation), the panel does not create a DirectComposition target on its peer HWND.
+Its producer joins the window's own composition tree, above the window content and below a separate layer for popups and tooltips.
+The child-window popup surfaces described above are not used. Popups and tooltips compose above an active panel, and the producer keeps presenting underneath.
+A panel inside a popup composes above all popup faces; a popup nested over it does not cover it.
+XUI does not fill the panel's field while a producer is attached, so transparent pixels in a premultiplied producer show the window content beneath it, including desktop acrylic.
+Clipping, visibility, metrics, and attachment rules are unchanged.
+
 ## Lifetime and errors
 
 `native_window()` returns the borrowed input-peer HWND.

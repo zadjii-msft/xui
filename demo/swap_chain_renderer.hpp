@@ -96,7 +96,21 @@ public:
         context1_->ClearView(target_.Get(), accent.data(), &rectangle, 1);
         present();
     }
-    void render_triangle(const xui::SwapChainPanelMetrics& metrics, float angle) {
+    // Premultiplied transparent background with an opaque gold center square, so content beneath
+    // the panel shows through around the square.
+    void render_translucent(const xui::SwapChainPanelMetrics& metrics) {
+        if (!prepare(metrics)) return;
+        constexpr float clear[]{0, 0, 0, 0};
+        context_->ClearRenderTargetView(target_.Get(), clear);
+        const auto accent = color(gold);
+        const D3D11_RECT rectangle{
+            static_cast<LONG>(metrics.pixel_width / 4), static_cast<LONG>(metrics.pixel_height / 4),
+            static_cast<LONG>(metrics.pixel_width * 3 / 4), static_cast<LONG>(metrics.pixel_height * 3 / 4)};
+        context1_->ClearView(target_.Get(), accent.data(), &rectangle, 1);
+        present();
+    }
+    // With transparent, the background stays clear so content beneath the panel shows around the triangle.
+    void render_triangle(const xui::SwapChainPanelMetrics& metrics, float angle, bool transparent = false) {
         if (!std::isfinite(angle)) throw std::invalid_argument("Triangle angle must be finite");
         if (!prepare(metrics)) return;
         if (!vertex_shader_) create_triangle();
@@ -109,7 +123,8 @@ public:
         const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(metrics.pixel_width),
             static_cast<float>(metrics.pixel_height), 0, 1};
         constexpr float background[]{0.025f, 0.03f, 0.045f, 1};
-        context_->ClearRenderTargetView(target, background);
+        constexpr float clear[]{0, 0, 0, 0};
+        context_->ClearRenderTargetView(target, transparent ? clear : background);
         context_->OMSetRenderTargets(1, &target, nullptr);
         context_->RSSetViewports(1, &viewport);
         context_->RSSetState(rasterizer_.Get());

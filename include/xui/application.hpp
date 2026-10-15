@@ -44,6 +44,10 @@ struct ContentInspectionTarget {
 };
 enum class ContentHighlightResult { applied = 0, cleared = 1, not_visible = 2, occluded_native = 3, unsupported_surface = 4 };
 
+// Windows 11 system backdrop materials behind unpainted client pixels.
+// mica_alt is the tabbed-window material; acrylic is Desktop Acrylic.
+enum class WindowBackdrop { none = 0, mica = 1, mica_alt = 2, acrylic = 3 };
+
 struct WindowOptions {
     std::wstring title = L"XUI";
     // Initial client size in device-independent pixels.
@@ -57,6 +61,13 @@ struct WindowOptions {
     bool show_activated = true;
     // Borderless per-pixel-alpha top-level window. Cannot use the XUI title bar.
     bool transparent = false;
+    // Requested system backdrop. With transparent, chosen before show, the window is a borderless
+    // non-layered card: unpainted pixels show the material and DWM rounds its corners.
+    WindowBackdrop backdrop = WindowBackdrop::none;
+    // Experimental composition presentation: the window renders through a composition swap
+    // chain so SurfaceMaterial::backdrop_acrylic can show the blurred desktop in any shape.
+    // With transparent, the window is a frameless, non-layered card. Fixed before show.
+    bool composition = false;
 };
 
 // Stable virtual-key values. TextInput remains responsible for character input.
@@ -157,6 +168,16 @@ public:
     VisualStyle visual_style() const;
     void set_show_activated(bool value);
     void set_transparent(bool value);
+    // UI thread, before or while open. Unsupported systems, disabled transparency effects,
+    // and high contrast present the solid theme background instead. A shown layered
+    // transparent window cannot add a backdrop.
+    void set_backdrop(WindowBackdrop backdrop);
+    WindowBackdrop backdrop() const;
+    // True only while the requested material is applied behind transparent client pixels.
+    bool backdrop_active() const;
+    // Experimental. Before show only; see WindowOptions::composition.
+    void set_composition(bool value);
+    bool composition() const;
     // Borrowed HWND, valid on the UI thread only while the Window is open.
     HWND native_window() const;
     // Invoked after HWND creation and before first paint/show. Configure Win32 only;

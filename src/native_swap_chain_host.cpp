@@ -1,7 +1,9 @@
 #include "native_swap_chain_host.hpp"
+#include "composition_presenter.hpp"
 #include <dcomp.h>
 #include <wrl/client.h>
 #include <algorithm>
+#include <cmath>
 #include <system_error>
 #include <utility>
 
@@ -27,6 +29,29 @@ struct SwapChainPanel::State {
     D2D_RECT_F clip{};
     bool clipped{};
     bool active{}, disposed{}, native_input{};
+    // Producer content in both presentations: a composition swap chain or a duplicated surface handle.
+    ComPtr<IDXGISwapChain1> chain;
+    HANDLE handle{};
+    // Composition windows place the producer in the window's composition tree instead of a
+    // DirectComposition target on the peer HWND.
+    std::weak_ptr<platform::CompositionPresenter> presenter;
+    HWND root{};
+    std::uint64_t panel_visual{};
+    bool composed{};
+    bool popup_layer{};
+    POINT composed_origin{};
+    SIZE composed_size{};
+    RECT composed_clip{};
+
+    ~State() { if (handle) CloseHandle(handle); }
+    bool has_producer() const { return chain || handle; }
+    void set_handle(HANDLE next) {
+        if (handle && handle != next) CloseHandle(handle);
+        handle = next;
+    }
+    void bind_composed() {
+        if (auto owner = presenter.lock()) owner->panel_content(panel_visual, chain.Get(), handle);
+    }
 
     void check_thread() const {
         if (thread != GetCurrentThreadId())
@@ -44,6 +69,14 @@ struct SwapChainPanel::State {
         visual = std::move(next_visual);
     }
     void apply(bool shown) {
+        if (composed) {
+            if (!window || disposed) return;
+            const bool show = shown && has_producer() && (!can_activate || can_activate());
+            if (auto owner = presenter.lock())
+                owner->place_panel(panel_visual, composed_origin, composed_size, composed_clip, show, popup_layer);
+            active = show;
+            return;
+        }
         if (!device || !window || disposed) return;
         const bool show = shown && content && (!can_activate || can_activate());
         if (show == active) return;
@@ -71,6 +104,15 @@ struct SwapChainPanel::State {
         content = std::move(next);
         apply(metrics.visible);
     }
+    // Recreates DirectComposition content after a composition host released it.
+    void restore_classic_content() {
+        if (content || !has_producer()) return;
+        if (chain) { replace(chain); return; }
+        ensure_device();
+        ComPtr<IUnknown> surface;
+        require_composition(device->CreateSurfaceFromHandle(handle, &surface), "Open composition surface handle");
+        replace(std::move(surface));
+    }
     void publish(SwapChainPanelMetrics next, Rect visible_bounds) {
         if (metrics == next && visible_pixel_bounds.x == visible_bounds.x &&
             visible_pixel_bounds.y == visible_bounds.y && visible_pixel_bounds.width == visible_bounds.width &&
@@ -82,6 +124,15 @@ struct SwapChainPanel::State {
     }
     void close() noexcept {
         // Releasing the target disconnects the visual tree, without a fallible Commit in teardown.
+        if (composed)
+            if (auto owner = presenter.lock()) owner->remove_panel(panel_visual);
+        composed = false;
+        popup_layer = false;
+        panel_visual = 0;
+        presenter.reset();
+        root = nullptr;
+        chain.Reset();
+        set_handle(nullptr);
         disposed = true;
         active = false;
         window = nullptr;
@@ -116,20 +167,56 @@ void SwapChainPanel::set_swap_chain(IDXGISwapChain* swap_chain) {
             throw std::invalid_argument("Use a flip-sequential composition swap chain with stretch scaling and no multisampling");
         content = chain;
     }
-    state_->replace(std::move(content));
+    auto& state = *state_;
+    ComPtr<IDXGISwapChain1> next_chain;
+    if (content) require_composition(content.As(&next_chain), "Query composition swap chain");
+    if (state.composed) {
+        const auto previous = std::exchange(state.chain, next_chain);
+        const HANDLE previous_handle = std::exchange(state.handle, nullptr);
+        try { state.bind_composed(); }
+        catch (...) { state.chain = previous; state.handle = previous_handle; throw; }
+        if (previous_handle) CloseHandle(previous_handle);
+        state.apply(state.metrics.visible);
+    } else {
+        state.replace(content);
+        state.chain = next_chain;
+        state.set_handle(nullptr);
+    }
     invalidate(Invalidation::paint);
 }
 void SwapChainPanel::set_swap_chain_handle(HANDLE surface) {
-    state_->check_thread();
-    ComPtr<IUnknown> content;
-    if (surface) {
-        state_->ensure_device();
-        require_composition(state_->device->CreateSurfaceFromHandle(surface, &content), "Open composition surface handle");
+    auto& state = *state_;
+    state.check_thread();
+    // Keep a duplicate: composition windows import the handle when they attach the producer,
+    // and the caller may close its handle after this call.
+    HANDLE duplicate{};
+    if (surface && !DuplicateHandle(GetCurrentProcess(), surface, GetCurrentProcess(), &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "Duplicate composition surface handle");
+    try {
+        if (state.composed) {
+            const HANDLE previous = std::exchange(state.handle, duplicate);
+            const auto previous_chain = std::exchange(state.chain, nullptr);
+            try { state.bind_composed(); }
+            catch (...) { state.handle = previous; state.chain = previous_chain; throw; }
+            if (previous) CloseHandle(previous);
+            state.apply(state.metrics.visible);
+        } else {
+            ComPtr<IUnknown> content;
+            if (surface) {
+                state.ensure_device();
+                require_composition(state.device->CreateSurfaceFromHandle(surface, &content), "Open composition surface handle");
+            }
+            state.replace(std::move(content));
+            state.chain.Reset();
+            state.set_handle(duplicate);
+        }
+    } catch (...) {
+        if (duplicate && duplicate != state.handle) CloseHandle(duplicate);
+        throw;
     }
-    state_->replace(std::move(content));
     invalidate(Invalidation::paint);
 }
-bool SwapChainPanel::has_content() const { return state_->content != nullptr; }
+bool SwapChainPanel::has_content() const { return state_->has_producer(); }
 const SwapChainPanelMetrics& SwapChainPanel::metrics() const { return state_->metrics; }
 Rect SwapChainPanel::visible_pixel_bounds() const { return state_->visible_pixel_bounds; }
 HWND SwapChainPanel::native_window() const { return state_->window; }
@@ -145,18 +232,43 @@ void SwapChainPanel::set_native_input(bool enabled) {
 bool SwapChainPanel::native_input() const { return state_->native_input; }
 
 NativeSwapChainHost::NativeSwapChainHost(std::shared_ptr<SwapChainPanel> model, HWND window,
-    std::function<bool()> can_activate) : model_(std::move(model)) {
+    std::function<bool()> can_activate, std::weak_ptr<platform::CompositionPresenter> presenter, HWND root)
+    : model_(std::move(model)) {
     auto& state = *model_->state_;
     state.check_thread();
     if (state.window) throw std::logic_error("Swap chain panel already has a native host");
     state.window = window;
     state.disposed = false;
     state.can_activate = std::move(can_activate);
+    try {
+        if (auto target = presenter.lock()) {
+            // The window's composition tree presents the producer; release any DirectComposition objects.
+            state.active = false;
+            state.target.Reset();
+            state.visual.Reset();
+            state.content.Reset();
+            state.device.Reset();
+            state.presenter = presenter;
+            state.root = root;
+            state.panel_visual = target->add_panel();
+            state.composed = true;
+            state.bind_composed();
+        } else state.restore_classic_content();
+    } catch (...) {
+        // Keep the producer so that another host can attach it; release this host's binding.
+        auto chain = std::move(state.chain);
+        const HANDLE handle = std::exchange(state.handle, nullptr);
+        state.close();
+        state.chain = std::move(chain);
+        state.handle = handle;
+        throw;
+    }
 }
 NativeSwapChainHost::~NativeSwapChainHost() { cancel_owner(); }
-void NativeSwapChainHost::sync(bool visible, UINT dpi, Rect clip) {
+void NativeSwapChainHost::sync(bool visible, UINT dpi, Rect clip, bool popup_layer) {
     auto& state = *model_->state_;
     if (state.disposed) return;
+    state.popup_layer = popup_layer;
     RECT bounds{};
     if (!GetClientRect(state.window, &bounds))
         throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "Read swap chain panel size");
@@ -175,7 +287,16 @@ void NativeSwapChainHost::sync(bool visible, UINT dpi, Rect clip) {
             pixels = {};
         }
     }
-    if (!state.clipped || state.clip.left != pixels.left || state.clip.top != pixels.top ||
+    if (state.composed) {
+        POINT origin{};
+        MapWindowPoints(state.window, state.root, &origin, 1);
+        state.composed_origin = origin;
+        state.composed_size = {static_cast<LONG>(next.pixel_width), static_cast<LONG>(next.pixel_height)};
+        state.composed_clip = {static_cast<LONG>(std::floor(pixels.left)), static_cast<LONG>(std::floor(pixels.top)),
+            static_cast<LONG>(std::ceil(pixels.right)), static_cast<LONG>(std::ceil(pixels.bottom))};
+        state.clip = pixels;
+        state.clipped = true;
+    } else if (!state.clipped || state.clip.left != pixels.left || state.clip.top != pixels.top ||
         state.clip.right != pixels.right || state.clip.bottom != pixels.bottom) {
         if (state.visual) {
             require_composition(state.visual->SetClip(pixels), "Clip swap chain visual");

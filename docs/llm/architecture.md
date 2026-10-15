@@ -140,6 +140,177 @@ The tab-strip painter remains responsible for its own baseline, colors, and open
 `tests\collections_window_tests.cpp --miller-only` also covers hover transitions and separator pixels after fractional scrolling.
 These tests need a Windows desktop. Static checks do not establish a passing native test result.
 
+## System backdrops and acrylic
+
+The [materials contract](../specs/materials.md) describes the public behavior.
+
+`Window::Impl::sync_backdrop` in `src\application.cpp` runs from `apply_theme`, after `platform::appearance`.
+`material_popup` records, at HWND creation, whether a transparent window also requested a backdrop.
+Such a window omits `WS_EX_LAYERED`, requests `DWMWCP_ROUND`, and uses the premultiplied HWND target; `layered()` selects the `UpdateLayeredWindow` path only for the other transparent windows.
+A frameless `WS_POPUP` receives only the flat fallback color (`#545454` for dark Desktop Acrylic), which is what the first version of the acrylic card showed.
+The material window therefore uses `WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX`, returns 0 from every `WM_NCCALCSIZE` so the client covers the window, and answers `WM_NCHITTEST` with `HTCAPTION` for the drag region and `HTCLIENT` elsewhere.
+It uses the same bottom-band margins as a custom title bar; `-1` margins made DWM draw its caption buttons over the card.
+It reads the transparency preference, maps the request to a `DWM_SYSTEMBACKDROP_TYPE`, and calls `platform::system_backdrop` only when the applied type changes.
+High contrast and disabled transparency request type zero, which restores the frame margins and `DWMSBT_AUTO`.
+A change in presentation discards the root `Drawing` target and toggles the opaque native paint subclass on EDIT and document peers.
+New native peers receive the subclass in `collect` when a backdrop is already active.
+`WM_SETTINGCHANGE`, `WM_THEMECHANGED`, `WM_SYSCOLORCHANGE`, and `WM_DWMCOMPOSITIONCHANGED` reach `apply_theme`.
+
+`src\window_host.cpp` owns the DWM calls, the build check, the registry preference, and the native paint subclass.
+`DwmExtendFrameIntoClientArea` is required: DWM ignores client alpha without it.
+Ordinary windows use `-1` margins.
+A custom title bar uses a bottom band covering the whole client area instead: a nonzero top margin makes DWM draw its own caption and buttons beneath the XUI title bar (see the frame notes in Windows Terminal's `NonClientIslandWindow`).
+While a backdrop is active, `Palette::backdrop` makes resting caption buttons, unstyled collection backgrounds, and unselected tab rails transparent instead of filling the window color.
+`E_INVALIDARG` and `DWM_E_COMPOSITIONDISABLED` become a debugger diagnostic and a solid fallback. Other failures throw.
+The caption color is reset to `DWMWA_COLOR_DEFAULT`; an explicit caption color hides the material in the system title bar.
+
+`Drawing::begin` takes a `backdrop` flag.
+It recreates the HWND target with `D2D1_ALPHA_MODE_PREMULTIPLIED` and grayscale text when the flag changes.
+The default HWND target uses `D2D1_ALPHA_MODE_IGNORE`, which DWM treats as opaque; overlay popup child surfaces keep it.
+Native pixels composed into the root frame use an ignore-alpha bitmap and stay opaque.
+
+GDI writes zero alpha. Without repair, EDIT backgrounds add to the material and dark text disappears.
+`opaque_paint` replaces `WM_PAINT` with a buffered `WM_PRINTCLIENT` and `BufferedPaintSetAlpha(255)`.
+`WM_PRINTCLIENT` passes through the whole subclass chain, so the search hint, line numbers, and occlusion clipping still apply.
+Input that EDIT or RichEdit draws immediately triggers a synchronous `RedrawWindow`; programmatic text and format changes only invalidate.
+Layered child windows would also make native peers opaque, but they require a Windows 8 manifest entry in every host executable.
+
+`Drawing::acrylic` implements the in-app material.
+`CopyFromRenderTarget` fails while clips or layers are active, so `Drawing` now records its clip stack.
+`suspend_clips` pops every clip, the copy runs, and `resume_clips` restores each clip with its original transform.
+The effect graph is Gaussian blur (24 DIPs, hard border) into a luminosity blend with a flood color, followed by a tint fill and a 64-pixel noise brush at 2% opacity.
+The source bitmap matches the copied rectangle and is recreated when its size changes. Effects and the noise brush live until the target is discarded.
+`ID2D1DeviceContext` comes from the existing render target; `E_NOINTERFACE` uses the solid fallback.
+Direct2D's luminosity blend inverts hues when the target lightness is near white, which turned blue swatches yellow under the light material.
+Light tints therefore blend inverted colors between two `ColorMatrix` inversions; `1 - SetLum(1 - c, 1 - l)` equals `SetLum(c, l)`.
+A 16-bit float buffer precision did not change the artifact.
+
+`tests\backdrop_window_tests.cpp` checks acrylic pixels through the software layered target, which exposes its DIB.
+That part needs no desktop capture. The window part needs an unlocked desktop for owned Graphics Capture.
+A non-activated test window can receive the solid inactive material, so the test checks DWM attributes rather than material pixels.
+
+### Material evidence (October 6, 2026)
+
+Windows 11 build 26200, x64 Release build in `build\x64`, Visual Studio 2022 Preview, SDK 10.0.26100.0.
+
+- A standalone Win32 probe showed that a premultiplied HWND target with `-1` frame margins exposes the DWM material layer behind cleared pixels, and that an ignore-alpha HWND target is opaque.
+- The same probe showed GDI EDIT backgrounds adding to the material. The buffered-paint subclass made them match the surrounding opaque surface, including text typed through `WM_CHAR`.
+- `xui_backdrop_window_tests` passed: layered acrylic pixels in both themes, clip restoration, the solid fallback, DWM attributes for all three materials, and identical opaque surface and EDIT pixels with and without a backdrop.
+- `xui_abi_features_tests`, `xui_abi_features_tests --backdrop`, `xui_gallery_catalog_tests`, and the C# `--window-native` tests passed.
+- Screen captures of the gallery with a custom title bar and with `--system-titlebar` showed the DWM material layer in the caption, catalog, and margins, with no DWM caption buttons beneath the XUI title bar.
+- The workstation was locked for part of the session. During that time, Graphics Capture omitted Direct2D content and many existing window tests failed identically on an unmodified baseline build.
+- Not established: battery-saver behavior, transparency-setting changes while running, remote sessions, mixed-DPI moves, and Narrator review.
+- The FloatingCard `--smoke` and `--acrylic --smoke` runs passed when started directly. Under `dotnet run`, both failed hit testing while two earlier topmost card instances still covered the screen center.
+- A screen capture of the first `FloatingCard --acrylic` (a frameless `WS_POPUP`) showed rounded corners, a compositor shadow, and a flat `#545454` fill: the Desktop Acrylic fallback color, not a blur. An earlier note in this session misreported it as blurred.
+- Before Explorer was restarted, every DWM material on the machine, including the taskbar, rendered as a flat fallback. After the restart the taskbar was translucent again.
+- Afterwards, screen captures of XUI windows over a striped test window showed real Desktop Acrylic: blurred, saturated stripe edges behind both an ordinary captioned window and the material card. The frameless `WS_POPUP` still showed only `#545454`; the captioned frame with its non-client area removed showed the blur. With `-1` margins the card also showed DWM caption buttons; the bottom-band margins removed them.
+- Single-pixel samples at stripe centers can look nearly unchanged under dark acrylic, because blurring a wide uniform stripe preserves its color. Use edge softness, not center pixels, to judge the blur.
+
+## Composition presentation prototype
+
+Status: experimental, opt-in (`WindowOptions::composition`). Classic windows are unchanged.
+The [public contract](../specs/materials.md#experimental-composition-presentation) describes the API and restrictions.
+
+### Why a separate presentation
+
+DWM system backdrops fill the whole window rectangle, and a window region makes DWM fall back to its flat color.
+In-app acrylic (`Drawing::acrylic`) can only blur pixels the window has already painted.
+A `Windows.UI.Composition` `HostBackdropBrush` blurs the desktop in any clipped shape, but a composition tree attached with `CreateDesktopWindowTarget` always composes above the HWND's redirection surface, even with `isTopmost=FALSE`.
+A probe confirmed that a Direct2D HWND target drawn on that surface disappears under the backdrop visual.
+So the window content must itself be a composition visual: a premultiplied swap chain above the backdrop sprites, in a `WS_EX_NOREDIRECTIONBITMAP` window.
+
+### Source map
+
+- `src\composition_presenter.{hpp,cpp}`: the only C++/WinRT code. Lazily creates a CoreMessaging `DispatcherQueue`, a `Compositor`, a `DesktopWindowTarget`, a backdrop container of `HostBackdropBrush` sprites (rounded `RectangleClip` and a tint child), and a content sprite whose surface brush wraps the swap chain. Content uses `RelativeSizeAdjustment` so a resize needs no composition commit; an explicit `Size` made every resize show one stale frame.
+- `src\drawing.cpp`: `begin_composition` creates a D3D11 device (`d3d11.dll` resolved with `LoadLibraryExW` on first use), a D2D device context, and a `FLIP_SEQUENTIAL` composition swap chain with premultiplied alpha. Resizes release the target bitmap before `ResizeBuffers`. `backdrop_hole` suspends the clip/layer stack, clips to the visible pixels, and clears the rounded area with `D2D1_PRIMITIVE_BLEND_COPY`; a COPY fill inside a rounded-clip layer only clears the layer, which then blends over the parent (found in review).
+- `src\application.cpp`: `options.composition` selects `begin_composition`; `present_composition` mirrors the frame's holes into the presenter after `Present`. `composition_card()` windows reuse the hidden-caption frame, square corners and no DWM border (`platform::composition_frame`), and a `SetWindowRgn` built from painted surfaces and controls (`add_hit_shape`, `apply_hit_region`, keyed by DPI). Composition cards paint once before show so the hit region exists before the first input.
+- `platform::layered_child` makes EDIT, RichEdit, and date/time peers layered: without a redirection surface, only layered children show their pixels. This needs a Windows 8+ compatibility manifest; `demo\xui.manifest` has one.
+- `SwapChainPanel` producers join the window's composition tree, and `RuntimeHost` children draw above it (see [Panels and runtime hosts](#panels-and-runtime-hosts-october-7-2026)).
+- Linking: `xui_windows` links `runtimeobject` for WinRT activation. `windowsapp` was tried first and pulled about 30 `api-ms-win-core-*` imports into `xui.dll`. With `runtimeobject`, `xui.dll` gains only `api-ms-win-core-winrt-l1-1-0` and `api-ms-win-core-winrt-error-l1-1-1`; CoreMessaging and Direct3D 11 load on demand.
+
+Known gaps (October 6, 2026): popups, overlay surfaces, and native menus are untested in composition windows. Device-loss recovery reuses the generation counter but has not been exercised. A review flagged `TextInput` caption `STATIC` children as invisible without a redirection surface; that does not apply, because `paint_edit` draws the caption text in the frame and the `STATIC` only supplies the accessible name (the test card shows its caption).
+
+### Overlays and device loss (October 7, 2026)
+
+`tests\composition_window_tests.cpp --overlays` runs the same flow on a composition window and, with `--overlays-classic`, on a classic window. It checks a root-drawn popup with its own native editor over another native editor, backdrop acrylic inside a popup, a combo box popup, a menu bar submenu, a command surface, a tooltip, a content dialog's dim, the separate suggestion list window, and a native `#32768` context menu driven from a worker thread. `--card-overlays` checks the transparent card hit region with an open popup and an open dialog. `--device-loss` injects `D2DERR_RECREATE_TARGET` and `DXGI_ERROR_DEVICE_REMOVED` at `EndDraw`, sends `WM_DISPLAYCHANGE`, and repeats the removal with a popup open; it compares composed pixels, the backdrop visual count, live targets, and editor text after each recovery.
+
+Defects found and fixed:
+
+- Clearing a native editor's occlusion region (`SetWindowRgn(hwnd, nullptr)`) left the layered child showing black where a dismissed popup had covered it. Layered children keep their last pixels; `sync_native_occlusion` now invalidates them after removing a region in composition windows.
+- `backdrop_acrylic` inside a popup punched a hole to the desktop through the window content beneath. Popups (`owner != 0`) now paint the in-app material.
+- A content dialog's dim on a transparent card did not block input to the windows behind the card. The dim now adds a full-window hit shape.
+- `Drawing::end` treated only `D2DERR_RECREATE_TARGET` as recoverable. A composition device can also report `DXGI_ERROR_DEVICE_REMOVED` or `DXGI_ERROR_DEVICE_RESET` from `EndDraw`; those now discard and recreate the target too.
+
+Not covered: a real GPU reset (TDR) or driver update. Injected results exercise the same recovery path, and recovery always creates a fresh D3D device. Popups were tested at one DPI and in the dark theme. The test drives tooltips with the delay timer message, as `foundation_window_tests` does, because a synthetic hover is cancelled by the real cursor position.
+
+### Panels and runtime hosts (October 7, 2026)
+
+A classic panel creates a `CreateTargetForHwnd(topmost)` DirectComposition target on its peer HWND. In a composition window that target would sit above the window's own tree, so popups would need the opaque child-window surfaces and acrylic could never show through producer pixels. Instead:
+
+- `CompositionPresenter` has a panels container above the content sprite and an overlay sprite above the panels. `add_panel` creates a sprite; `panel_content` wraps either the producer's swap chain or its surface handle (`ICompositorInterop::CreateCompositionSurfaceForHandle`); `place_panel` sets the offset (peer origin mapped to the root), size, `InsetClip`, and visibility.
+- `NativeSwapChainHost` receives a `weak_ptr` to the presenter. `SwapChainPanel::State` keeps the producer (`chain`, or a duplicated surface handle so composition hosts can import it after the caller closes its copy) in both modes. Composed hosts bind it into the presenter; classic hosts keep the old DirectComposition path.
+- `paint()` paints popups and tooltips into a second composition `Drawing` (`composition_overlay`) when a panel is active: it ends and presents the root frame, begins the overlay with a transparent clear, paints popups and tooltips, and presents the overlay sprite. Without an active panel, popups draw into the root frame as before and the overlay is hidden. `prepare_popup_surface` is skipped in composition windows.
+- The panel field fill is skipped while a composed producer is attached so translucent producer pixels show the content beneath, including `backdrop_acrylic` holes.
+- A panel inside a popup (`popup_owner != 0`) moves to a `popup_panels` container above the overlay and does not count for `active_panel()`; otherwise its own popup face, drawn in the overlay, would cover it. A popup nested above such a panel does not cover it (the classic path stacks child HWND surfaces instead). The overlay `Drawing` takes part in `keep_images`, so popup images do not stay charged against the shared GPU image budget.
+- A failure while binding a composed producer closes the host binding and keeps the producer, so the panel can be hosted again.
+- `MediaPlayback` (MFPlay `STATIC` child) and `WebContent` (WebView2 child windows) needed no changes: child HWNDs draw above the composition tree. The classic rule that an XUI popup cannot open over active runtime content still applies, because those children would cover the popup.
+
+`tests\composition_window_tests.cpp --panels` checks a premultiplied producer over a rounded acrylic card (opaque square visible, transparent pixels show the blurred stripes and not the field color), a surface-handle producer whose caller closed its handle, a popup and a tooltip above an active panel through the overlay layer, a panel inside a popup above its own face, hide/show, window target recovery with panels attached, detachment, and closure. `--runtime-hosts` plays a local video and, in a WebView2 build (`XUI_ENABLE_WEBVIEW2`), checks web pixels, the popup restriction, and popups after unload. `xui_swap_chain_sample --acrylic` shows the triangle over desktop acrylic.
+
+Test notes: the initial focus offers a tooltip on the first focusable button, and a dismissed popup returns focus to a button that can then offer one, so the panel and overlay tests use long tooltip delays and drive the timer themselves; the WinRT compositor commits batched visibility changes when the thread pumps messages, so captures of overlay visibility need a pump. `RuntimeHost::visual_bounds()` is local to the control.
+
+Regression runs: classic `xui_swap_chain_panel_tests` fails at "Y-axis quarter turn makes the triangle edge-on" identically on the baseline commit. `xui_swap_chain_popup_input_tests` failed 3 of 25 runs at popup-injection checks during a busy period and passed 6 of 6 on the baseline and 18 consecutive runs afterwards; the classic paths it exercises are unchanged.
+
+### Measurements (October 6, 2026)
+
+Machine: Windows 11 build 26200, AMD Radeon 780M, 120 DPI, x64 Release, Visual Studio 2022 Preview. Desktop unlocked, transparency effects on.
+Baseline: commit `6353a24f` built in a separate worktree with the same probe source (`XUI_PROBE_BASELINE` removes the composition option).
+Tool: `tests\composition_probe.cpp` (one configuration per process) driven by `tests\measure-composition.ps1` with `-Runs 8 -Sizes 800x600,1600x1000 -ResizeCycles 40 -HoldSeconds 8`; configurations alternate in ABBA order. Values are medians of 8 processes.
+Workload: WinUI window, heading, a rounded panel with six labels, a native editor, and a button. `classic` uses a solid surface panel; `classic-acrylic` uses in-app acrylic; `composition` uses backdrop acrylic; `composition-card` is the transparent card form.
+
+Opt-out cost (classic windows, prototype vs baseline):
+
+| Measure | 800×600 baseline | 800×600 prototype | 1600×1000 baseline | 1600×1000 prototype |
+| --- | --- | --- | --- | --- |
+| Paint, Mcycles per full repaint | 13.22 | 13.32 | 14.39 | 14.10 |
+| Paint p95, ms (vsync-bound) | 18.27 | 18.10 | 18.14 | 18.34 |
+| Resize p50 / p95, ms | 31.7 / 47.8 | 32.0 / 62.7 | 30.6 / 34.2 | 30.6 / 33.4 |
+| Private commit shown / after 40 resizes, MiB | 41.6 / 50.2 | 41.3 / 49.9 | 56.5 / 80.4 | 56.1 / 80.0 |
+| GPU local memory, MiB | 23.2 | 23.2 | 44.0 | 44.0 |
+| Threads / loaded modules | 20 / 48 | 20 / 48 | 20 / 48 | 20 / 48 |
+| Idle paints in 2 s | 0 | 0 | 0 | 0 |
+
+`xui.dll` grew from 2,915,328 to 2,949,120 bytes (+33 KB; this includes the earlier backdrop work). Classic windows load no new modules (CoreMessaging absent, same module count). The single 800×600 resize p95 outlier (62.7 ms) is within run-to-run noise: the same configuration's 1600×1000 p95 is below baseline, and its resize Mcycles (71.4 vs 65.3) overlap the baseline spread. In-app acrylic (`classic-acrylic`) matches its baseline too.
+
+Opt-in cost (composition vs classic, prototype):
+
+| Measure | classic 800×600 | composition 800×600 | classic 1600×1000 | composition 1600×1000 |
+| --- | --- | --- | --- | --- |
+| First paint, ms from launch | 210 | 245 | 192 | 199 |
+| Paint, Mcycles per full repaint | 13.32 | 16.08 (+21%) | 14.10 | 15.19 (+8%) |
+| Paint p50 / p95, ms | 16.6 / 18.1 | 16.6 / 17.7 | 16.6 / 18.3 | 16.6 / 18.2 |
+| Resize p50 / p95 / max, ms | 32.0 / 62.7 / 84.4 | 31.7 / 47.5 / 55.6 | 30.6 / 33.4 / 40.4 | 30.1 / 44.4 / 46.2 |
+| Resize Mcycles per step | 71.4 | 66.6 | 47.8 | 49.2 |
+| Private commit shown / after resizes, MiB | 41.3 / 49.9 | 40.3 / 45.3 | 56.1 / 80.0 | 46.7 / 56.5 |
+| GPU local memory shown / after resizes, MiB | 23.2 / 25.5 | 20.1 / 20.6 | 44.0 / 46.5 | 35.9 / 39.9 |
+| Threads / modules | 20 / 48 | 22 / 53 | 20 / 48 | 22 / 53 |
+| Idle Mcycles in 2 s / idle paints | 5.2 / 0 | 6.0 / 0 | 4.3 / 0 | 5.6 / 0 |
+| Resize frames with stale edge or missing backdrop (20 steps × 8 runs) | 0 | 0 | 0 | 0 |
+
+The composition card form (`composition-card`) matched `composition` within noise (paint 17.4 / 16.9 Mcycles).
+Compared with in-app acrylic on a classic window, backdrop acrylic used less memory at 1600×1000 (46.7 vs 78.9 MiB private, 35.9 vs 63.0 MiB GPU) because the blur runs in the compositor rather than in a per-window Direct2D effect graph.
+
+Compositor load: a 60 Hz full-screen GDI stripe animation behind each window, system-wide 3D engine utilization sampled each second for 6 s, 4 runs per configuration. Medians: none 5.45%, classic 5.42%, composition 5.57%, composition card 5.58% at 800×600; none 7.25%, classic 7.27%, composition 7.30%, composition card 7.50% at 1600×1000. The backdrop blur's added GPU load was within the variance of this counter. The counter is coarse: `dwm.exe` reported no 3D usage of its own, so compositor work is attributed elsewhere (for example `csrss`), and this does not measure frame latency or power.
+
+Method limits: process cycles exclude DWM. Synchronous paint wall time is vsync-bound (~16.6 ms) for both paths, so cycles are the useful paint cost. One machine, one GPU, one DPI. Resize uses `SetWindowPos` from the UI thread, not an interactive drag; interactive live-resize smoothness was not measured. The artifact check samples the newly exposed edge and the panel interior over a solid magenta window after each 8-pixel growth step. The raw JSON was kept outside the repository; rerun the command above to reproduce.
+
+### Decision inputs
+
+- Not opting in costs nothing measurable at runtime; the binary grows by tens of kilobytes and links `runtimeobject`.
+- Opting in costs about 1–3 Mcycles more CPU per full repaint (8–21%), two threads, five modules, and about 35 ms more first-paint time at the smaller size. It saved private and GPU memory compared with classic presentation in this workload.
+- Resizes showed no stale frames after the content sprite switched to relative sizing.
+- The remaining risk is breadth, not cost: native runtime hosts, swap chain panels, and interactive resize need work or verification before this could be more than an opt-in experiment. Popups, menus, and device loss are covered by [the overlay and device-loss tests](#overlays-and-device-loss-october-7-2026).
+
 ## Tab drag ownership
 
 `src\application_tab_drag.inc` contains the native title-bar drag session inside `Window::Impl`.

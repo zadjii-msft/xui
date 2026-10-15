@@ -72,6 +72,69 @@ internal static class WindowNativeTests
                     "Native-window callback failure lost its managed exception.");
             }
         }
+        using (var window = new Window("Backdrop contract"))
+        {
+            Require(window.Backdrop == WindowBackdrop.None && !window.BackdropActive, "A window requested a backdrop by default.");
+            window.SetBackdrop(WindowBackdrop.Mica);
+            Require(window.Backdrop == WindowBackdrop.Mica && !window.BackdropActive, "A backdrop was active before Run.");
+            try
+            {
+                window.SetBackdrop((WindowBackdrop)7);
+                throw new InvalidOperationException("An undefined backdrop was accepted.");
+            }
+            catch (ArgumentOutOfRangeException) { }
+            var acrylic = window.Stack().Material(SurfaceMaterial.Acrylic).Add(window.Label("Acrylic"));
+            window.SetContent(window.Stack().Add(acrylic));
+            bool changed = false;
+            Require(window.Post(() =>
+            {
+                window.SetBackdrop(WindowBackdrop.Acrylic);
+                _ = window.BackdropActive;
+                changed = window.Backdrop == WindowBackdrop.Acrylic;
+                acrylic.Material(SurfaceMaterial.Solid);
+                window.Close();
+            }), "Backdrop update was not accepted.");
+            window.Run();
+            Require(changed, "The backdrop did not change while open.");
+        }
+        using (var app = new Xui.Application())
+        using (var layered = app.CreateWindow("Layered backdrop", 240, 160, transparent: true))
+        {
+            layered.SetContent(layered.Stack().Add(layered.Label("Layered")));
+            app.Show(layered);
+            // The layered presentation is fixed when the HWND exists.
+            Status(() => layered.SetBackdrop(WindowBackdrop.Acrylic), 1);
+            Require(app.Post(layered.Close), "Cannot schedule layered closure.");
+            app.Run();
+        }
+        using (var app = new Xui.Application())
+        using (var card = app.CreateWindow("Acrylic card", 240, 160, transparent: true))
+        {
+            card.SetBackdrop(WindowBackdrop.Acrylic);
+            card.SetContent(card.Stack().Add(card.Label("Acrylic card")));
+            app.Show(card);
+            Require((GetWindowLongPtr(card.NativeHwnd, -20) & 0x00080000) == 0, "A material card used a layered window.");
+            card.SetBackdrop(WindowBackdrop.Mica);
+            card.SetBackdrop(WindowBackdrop.None);
+            Require(!card.BackdropActive, "Removing the material left it active.");
+            Require(app.Post(card.Close), "Cannot schedule card closure.");
+            app.Run();
+        }
+        using (var app = new Xui.Application())
+        using (var card = app.CreateWindow("Composition card", 240, 160, transparent: true))
+        {
+            Status(() => card.SetBackdrop(WindowBackdrop.Mica).SetComposition(), 1);
+            card.SetBackdrop(WindowBackdrop.None).SetComposition();
+            Status(() => card.SetBackdrop(WindowBackdrop.Acrylic), 1);
+            var body = card.Stack().Material(SurfaceMaterial.BackdropAcrylic).Add(card.Label("Composition"));
+            card.SetContent(card.Stack().Padding(12).Add(body));
+            app.Show(card);
+            Require((GetWindowLongPtr(card.NativeHwnd, -20) & 0x00200000) != 0, "A composition card kept its redirection surface.");
+            Require((GetWindowLongPtr(card.NativeHwnd, -20) & 0x00080000) == 0, "A composition card used a layered window.");
+            Status(() => card.SetComposition(false), 7);
+            Require(app.Post(card.Close), "Cannot schedule composition closure.");
+            app.Run();
+        }
         Console.WriteLine("Managed HWND ownership, creation, threading, and callback failures passed");
     }
 

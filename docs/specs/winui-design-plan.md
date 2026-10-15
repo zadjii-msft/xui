@@ -426,6 +426,10 @@ Include larger text, long translations, and bidirectional text in the layout rev
 
 ### 6. Investigate real materials separately
 
+Status: window backdrops and in-app acrylic surfaces are implemented as opt-in [materials](materials.md).
+The notes below record the design constraints that shaped that implementation.
+Popups and flyouts still use solid surfaces.
+
 Mica is not live blur of windows behind the application.
 It incorporates the desktop wallpaper and is intended for long-lived application backgrounds.
 Acrylic is the more expensive translucent material for transient or overlapping surfaces.
