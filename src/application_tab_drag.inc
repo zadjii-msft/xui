@@ -287,7 +287,7 @@
             moving_tabs->tab_move->cancelled = true;
         return result;
     }
-    void begin_tab_move(Peer& peer, POINT point) {
+    void begin_tab_move(UnextractedPeer& peer, POINT point) {
         if (tab_move || moving_tabs || !peer.pressed_tab || !popups.empty()) return;
         const auto strip = std::static_pointer_cast<TabStrip>(peer.control);
         const auto source = titlebar_strip(strip.get());

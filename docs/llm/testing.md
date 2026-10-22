@@ -3,6 +3,30 @@
 This reference describes regression scope and measurement methods.
 Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry points.
 
+## Collection-family host boundary
+
+`tests\family_accessibility_tests.cpp` checks five malformed row-role capabilities,
+generic content_view and both inline_status implementations, exact HWND/control/token
+mailbox identity and replay rejection, and independently retained collection children/grid
+cells after disconnection. `tests\family_accessibility_retirement_tests.cpp` checks ten
+publication/disconnect releases outside typed state locks, including source references
+held only by a nonempty selection and the grid full-source slot. A second thread probes
+the mutex with a bounded wait; empty or unrecognized selections cannot pass as coverage.
+Both are in the ordinary noninteractive gate.
+
+`tests\collection_host_probe.cpp` runs real host scroll synchronization, selection/source
+publication and visible-row paint phases over large virtual sources plus the native
+legacy adapter and an unchanged editor. It reports wall and owning-thread CPU separately,
+C++ allocation counts and retained native/process resources; it checks coalesced queue,
+peer/HWND/target identity, bounded nonempty selections and zero editor scroll writes.
+It does not measure physical input latency or model-only throughput.
+`tests\collection-host-evidence.ps1` compiles identical probe sources against immutable
+baseline/fresh candidate libraries and retains counterbalanced process samples and hashes.
+Use the [contributor procedure](../../CONTRIBUTING.md#collection-family-host-checks).
+The [3a companion](stage3a-collection-host.md) separates baseline-matched desktop failures
+and earlier unresolved optimizer/foreground/IME/Narrator/inspection limitations from
+this extraction's own evidence.
+
 ## Release packaging and local deployment
 
 The public contract is in [Packages and deployment](../specs/packages.md).

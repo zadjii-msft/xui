@@ -59,6 +59,10 @@ The grid exposes UIA Grid, Table, Selection, Scroll, GridItem, TableItem, Select
 Virtual providers resolve stable keys against immutable snapshots.
 The host processes value-only action tokens on the UI thread.
 UIA events use root-level updates and selected-item changes, not thousands of per-cell events.
+Collection and grid providers retain immutable snapshots independently of the native peer.
+Removing or closing the owning control disconnects retained providers; subsequent access
+returns `UIA_E_ELEMENTNOTAVAILABLE` instead of targeting a recycled HWND.
+Source queries and releases run outside the internal accessibility snapshot locks.
 Charts expose their current metric and scale as accessible text. They do not advertise an editable value pattern.
 The controls use the existing window render target and theme palette.
 

@@ -1058,6 +1058,66 @@ ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
+### Collection-family host checks
+
+The ordinary gate includes `xui_family_accessibility_tests` and
+`xui_family_accessibility_retirement_tests`: typed retained-provider/token/role contracts
+and ten source/full-source/nonempty-selection release cases. The retirement test uses
+another thread's bounded `try_lock`, not same-owner mutex behavior. Unknown selectors
+and incomplete coverage fail explicitly. Both tests are required by name, with at
+least 49 headless and two lifetime registrations; the core minimum remains 37.
+
+Build the native probe and focused collection fixtures in a separate Release directory:
+
+```powershell
+cmake --build $build --config Release --target xui_collection_host_probe xui_collections_window_tests xui_grid_window_tests xui_collection_presentation_window_tests xui_scroll_tests
+& ".\$build\Release\xui_collection_host_probe.exe"
+& ".\$build\Release\xui_collections_window_tests.exe" --case 1 96
+& ".\$build\Release\xui_grid_window_tests.exe"
+```
+
+The probe measures actual Window synchronization/publication/painting for one million
+collection rows, 100,000 grid rows and 10,000 legacy rows. It checks unchanged editor
+text/font/selection on scroll-only updates, a coalesced one-message update queue,
+bounded nonempty selections, stable four peers/five child HWNDs/one target, and teardown.
+Its controlled partial materialization failure attaches a collection before the grid
+source throws, then requires explicit failure and complete native/renderer retirement.
+Each process performs 32,768 scroll synchronizations, 8,192 selection publications,
+8,192 source publications and 256 actual painted frames. It verifies exact final
+offsets/selected keys, every selection callback and both source identity transitions,
+and emits source-work counters and deterministic checksums. Owning-thread CPU includes
+the raw kernel/user `GetThreadTimes` inputs; the runner validates these against derived
+CPU, exact phase counts, actual work and resource bounds before accepting a sample.
+It is not physical input/IME/Narrator latency evidence. Other desktop fixtures retain
+their own foreground, pixel and UIA requirements and must not be silently skipped.
+
+For an immutable pre-refactor source export/build and a fresh candidate build, compile
+the **same current probe** against both libraries without modifying either build:
+
+```powershell
+$evidence = @{
+    BaselineSource = "build\stage3a-baseline-source"
+    BaselineBuild = "build\stage3a-baseline-final"
+    CandidateBuild = $build
+    EvidenceDirectory = "build\collection-host-comparison"
+}
+.\tests\collection-host-evidence.ps1 -Mode Build @evidence
+# Reserve a quiet block with other users/coordinators first; no competing builds/tests/UI.
+.\tests\collection-host-evidence.ps1 -Mode Measure @evidence -Warmups 2 -Samples 7
+```
+
+This x64 MSVC procedure retains exact `/O2 /MT /GL` compile and full `/LTCG` link
+responses, compiler versions, source/library/executable hashes, every warmup/recorded
+process and raw logs, including UTC start/completion endpoints. Revision order is
+counterbalanced each round; `-CandidateFirst` reverses the initial order for a pre-agreed
+independent block. A completed process beyond the 90-second elapsed budget also fails
+even when its wait reports success. Measured-work mismatches stop immediately after
+preserving parsed/raw data; do not restart or silently exclude failed samples.
+Report phase wall and owning-thread CPU separately, exact work and allocations, distributions, retained
+resources, and persistent regressions; do not call model throughput or paint wait time
+application input latency. The [3a ledger](docs/llm/stage3a-collection-host.md) records
+the immediate merged-stage-2 baseline and the unchanged failing desktop cases.
+
 ### Performance regression checks
 
 #### Baseline/candidate acceptance protocol

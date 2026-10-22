@@ -10,7 +10,9 @@
 #include "composition_presenter.hpp"
 #include "platform.hpp"
 #include "wheel.hpp"
-#include "list_peer.hpp"
+#include "collection_host.hpp"
+#include "grid_host.hpp"
+#include "file_list_host.hpp"
 #include "layout_styling.hpp"
 #include "context_menu.hpp"
 #include "shell_commands_internal.hpp"
@@ -84,11 +86,10 @@ std::unique_ptr<WindowIcons> file_type_icons(const std::wstring& extension, bool
 }
 }
 
-struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
-    struct Peer {
-        Impl& host;
-        std::shared_ptr<Control> control;
-        HWND window{}, caption{};
+struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServices {
+    using Peer = HostPeer;
+    struct UnextractedPeer final : Peer {
+        HWND caption{};
         std::wstring caption_text;
         std::unique_ptr<NativeEditBridge> edit;
         std::shared_ptr<Button> clear_button;
@@ -98,72 +99,162 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::unique_ptr<NativeRuntimeHost> runtime;
         std::unique_ptr<NativeSwapChainHost> swap_chain;
         std::unique_ptr<Drawing> overlay_drawing;
-        bool native() const { return edit || document; }
-        std::unique_ptr<ListPeer> list;
         std::unique_ptr<ImagePeer> image;
         std::unique_ptr<RowImages> row_images;
         std::shared_ptr<ControlAccessibility> accessibility = std::make_shared<ControlAccessibility>();
-        IRawElementProviderSimple* provider{};
         std::shared_ptr<ControlAccessibility> caption_accessibility;
         IRawElementProviderSimple* caption_provider{};
-        bool tracking{}, surface{};
         bool repeating{}, repeat_cycle{};
         bool native_occluded{};
-        bool suppress_popup_click{};
         std::wstring typeahead;
         ULONGLONG typeahead_time{};
-        Rect paint_bounds{};
-        RECT placed_bounds{};
-        bool placed{};
         HWND scroll_content{};
         RECT scroll_placed_bounds{};
         bool scroll_placed{};
-        Rect arranged_bounds{};
-        Rect absolute_bounds{};
-        bool arranged{};
-        Peer* parent{};
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
         bool dragging{};
         float drag_y{}, drag_offset{};
-        bool wheel_motion{};
-        double wheel_start{}, wheel_target{}, wheel_last{};
-        Animation::Clock::time_point wheel_started{};
-        std::weak_ptr<const CollectionIndex> wheel_source;
-        int grid_drag{};
-        bool grid_single_click{};
-        std::weak_ptr<const GridSource> grid_press_source;
-        std::optional<RowKey> grid_press_key;
-        Microsoft::WRL::ComPtr<IDropTarget> file_target;
-        std::size_t grid_drop{};
-        std::size_t grid_column{};
-        bool collection_drag{}, collection_scroll{}, collection_additive{};
-        std::optional<ItemKey> collection_anchor;
-        std::optional<Point> command_pointer;
         std::optional<Point> tab_pointer;
         std::optional<std::uint64_t> pressed_tab;
         POINT tab_press{};
         std::optional<std::size_t> hovered_choice;
         std::optional<std::uint64_t> pressed_choice;
-        CollectionSelection collection_before;
-        AdaptiveLayout* adaptive{};
-        Peer(Impl& owner, std::shared_ptr<Control> value) : host(owner), control(std::move(value)) {}
-        ~Peer() {
-            host.peer_lookup.erase(control.get());
-            if (file_target && window) RevokeDragDrop(window);
-            file_target.Reset();
+
+        UnextractedPeer(Impl& owner, std::shared_ptr<Control> value)
+            : Peer(owner, HostFamily::unextracted, std::move(value)) {}
+        ~UnextractedPeer() override {
+            host.forget_peer(*this);
             if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
-            runtime.reset();
-            swap_chain.reset();
-            overlay_drawing.reset();
-            if (list) window = nullptr;
-            if (window && IsWindow(window)) DestroyWindow(window);
+            runtime.reset(); swap_chain.reset(); overlay_drawing.reset();
+            retire_native();
             if (caption && IsWindow(caption)) DestroyWindow(caption);
-            disconnect_control(accessibility, provider);
-            if (provider) provider->Release();
+            disconnect_accessibility();
             if (caption_accessibility) disconnect_control(caption_accessibility, caption_provider);
             if (caption_provider) caption_provider->Release();
         }
+        void attach(HWND, int) override;
+        void sync(UINT, const Palette&) override { publish_accessibility(); }
+        void publish_accessibility() override { publish_control(accessibility, provider, *control, window); }
+        void disconnect_accessibility() override { disconnect_control(accessibility, provider); }
+        void detach_owner() override {
+            if (image) image->detach();
+            if (row_images) row_images->clear();
+            if (runtime) runtime->cancel_owner();
+            if (swap_chain) swap_chain->cancel_owner();
+        }
+        void cancel_input() override {
+            if (edit) edit->dismiss_suggestions();
+            dragging = false;
+            if (auto* range = dynamic_cast<RangeInput*>(control.get())) range->cancel_drag();
+            control->cancel();
+            pressed_choice.reset(); pressed_tab.reset(); hovered_choice.reset();
+            KillTimer(window, repeat_timer); repeating = repeat_cycle = false;
+        }
+        bool capture_active() const override {
+            const auto* range = dynamic_cast<const RangeInput*>(control.get());
+            return pressed_choice || pressed_tab || dragging || (range && range->dragging());
+        }
+        void paint(const HostPaintContext&) override;
+        std::optional<LRESULT> input(UINT, WPARAM, LPARAM, const HostInputContext&) override { return {}; }
+        bool image_sync_required() const override {
+            return image || dynamic_cast<const TabStrip*>(control.get());
+        }
+        bool image_work(RowImageWork&) override;
+        bool sync_images(RowImageWork work, UINT dpi, const std::shared_ptr<TaskWake>& wake,
+            std::vector<std::uint64_t>& retained, std::size_t&) override {
+            return row_images->sync_visuals(std::move(work.rows), dpi, wake, retained, 16);
+        }
+        std::size_t metric(PeerMetric metric) const override {
+            return metric == PeerMetric::retained_images && row_images ? row_images->count() : 0;
+        }
+        NativeEditBridge* edit_bridge() const override { return edit.get(); }
+        NativeDocumentBridge* document_bridge() const override { return document.get(); }
+        NativeRuntimeHost* runtime_host() const override { return runtime.get(); }
+        NativeSwapChainHost* swap_chain_host() const override { return swap_chain.get(); }
+        Drawing* overlay_surface() const override { return overlay_drawing.get(); }
+        ImagePeer* image_peer() const override { return image.get(); }
+        HWND caption_window() const override { return caption; }
+        HWND child_content_window() const override { return scroll_content; }
     };
+    static Impl& owner(Peer& peer) { return static_cast<Impl&>(peer.host); }
+    static const Impl& owner(const Peer& peer) { return static_cast<const Impl&>(peer.host); }
+    static UnextractedPeer* unextracted_if(Peer& peer) {
+        return peer.family == HostFamily::unextracted ? static_cast<UnextractedPeer*>(&peer) : nullptr;
+    }
+    static const UnextractedPeer* unextracted_if(const Peer& peer) {
+        return peer.family == HostFamily::unextracted ? static_cast<const UnextractedPeer*>(&peer) : nullptr;
+    }
+    static UnextractedPeer& unextracted(Peer& peer) {
+        auto* value = unextracted_if(peer);
+        if (!value) throw std::logic_error("Control does not have unextracted host state");
+        return *value;
+    }
+    static const UnextractedPeer& unextracted(const Peer& peer) {
+        const auto* value = unextracted_if(peer);
+        if (!value) throw std::logic_error("Control does not have unextracted host state");
+        return *value;
+    }
+    static std::shared_ptr<Button> clear_adornment(const Peer& peer) {
+        const auto* value = unextracted_if(peer);
+        return value ? value->clear_button : nullptr;
+    }
+    static std::shared_ptr<Control> clear_owner(const Peer& peer) {
+        const auto* value = unextracted_if(peer);
+        return value ? value->clear_owner.lock() : nullptr;
+    }
+    static bool is_clear_adornment(const Peer& peer) {
+        const auto* value = unextracted_if(peer);
+        return value && !value->clear_owner.expired();
+    }
+
+    HWND create_input_surface(Peer& peer, HWND native_parent, int id) override {
+        const DWORD tab = peer.control->focusable() && peer.control->tab_stop() &&
+            !is_caption_button(*peer.control) ? WS_TABSTOP : 0;
+        const auto result = CreateWindowExW(WS_EX_TRANSPARENT, control_class, peer.control->name().c_str(),
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | tab, 0, 0, 1, 1, native_parent,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), &peer);
+        win32_require(result != nullptr, "Create control");
+        return result;
+    }
+    LRESULT dispatch_input(Peer& peer, HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept override {
+        InputScope scope(*this);
+        try { return control_message(peer, hwnd, message, wparam, lparam); }
+        catch (...) { fail(); return 0; }
+    }
+    bool input_enabled(const Peer& peer) const override { return enabled(peer); }
+    bool input_visible(const Peer& peer) const override { return visible(peer); }
+    bool owner_open() const override { return ready && !closing && window; }
+    bool focus_peer(Peer& peer, bool accessibility) override { return focus(peer, accessibility); }
+    void reveal_peer(Peer& peer) override {
+        if (GetFocus() == peer.window) last_focus = peer.window;
+        reveal(peer);
+    }
+    void update_peer_state() override { update(); }
+    void invalidate_peer_paint() override { invalidate(Invalidation::paint); }
+    bool wheel_animation_allowed() const override {
+        return smooth_scrolling && client_animation && !palette.high_contrast;
+    }
+    void offer_row_tooltip(Peer& peer) override {
+        if (tooltip_target && tooltip_target != peer.control->id()) hide_tooltip();
+        offer_tooltip(peer);
+    }
+    bool file_drag_eligible(const Control& control, HWND hwnd) const override {
+        const auto it = peer_lookup.find(&control);
+        return it != peer_lookup.end() && it->second->window == hwnd && owner_open() &&
+            enabled(*it->second) && visible(*it->second) && in_top_popup(*it->second);
+    }
+    void deliver_file_drop(std::function<void()> callback) noexcept override {
+        InputScope scope(*this);
+        try { callback(); } catch (...) { fail(); }
+    }
+    std::shared_ptr<PeerHostServices> acquire_owner_lease() override {
+        return std::shared_ptr<PeerHostServices>(shared_from_this(), this);
+    }
+    void forget_peer(Peer& peer) noexcept override {
+        const auto it = peer_lookup.find(peer.control.get());
+        if (it != peer_lookup.end() && it->second == &peer) peer_lookup.erase(it);
+    }
+    void peer_failure() noexcept override { fail(); }
 
     WindowOptions options;
     std::wstring error;
@@ -337,7 +428,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     // Panels inside popups compose above the overlay layer, so only window-level panels need it.
     bool active_panel() const {
         return std::any_of(peers.begin(), peers.end(), [&](const auto& peer) {
-            return peer->swap_chain && peer->swap_chain->active() && !popup_owner(peer.get());
+            return peer->swap_chain_host() && peer->swap_chain_host()->active() && !popup_owner(peer.get());
         });
     }
     struct HitShape {
@@ -416,7 +507,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         backdrop_presented = presented;
         root_drawing.discard();
         for (const auto& peer : peers)
-            if (peer->edit || peer->document) platform::opaque_native_paint(peer->window, presented);
+            if (peer->edit_bridge() || peer->document_bridge()) platform::opaque_native_paint(peer->window, presented);
         InvalidateRect(window, nullptr, FALSE);
     }
     std::function<void(HWND)> native_created;
@@ -454,8 +545,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (auto& task : samples) task->cancel();
         for (auto& task : tasks) task->cancel();
         for (const auto& peer : peers) {
-            if (peer->runtime) peer->runtime->cancel_owner();
-            if (peer->swap_chain) peer->swap_chain->cancel_owner();
+            if (peer->runtime_host()) peer->runtime_host()->cancel_owner();
+            if (peer->swap_chain_host()) peer->swap_chain_host()->cancel_owner();
             if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
         }
         try { hide_tooltip(); }
@@ -466,7 +557,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         root_drawing.discard();
         composition_overlay.discard();
-        for (const auto& peer : peers) if (peer->overlay_drawing) peer->overlay_drawing->discard();
+        for (const auto& peer : peers) if (peer->overlay_surface()) peer->overlay_surface()->discard();
         if (window) DestroyWindow(window);
         destroying = false;
     }
@@ -476,12 +567,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (auto label = std::dynamic_pointer_cast<Label>(peer.control)) label->set_wrapped_text_measurer({});
         if (auto* columns = dynamic_cast<MillerColumns*>(peer.control.get())) columns->on_focus_column({});
         if (auto combo = std::dynamic_pointer_cast<ComboBox>(peer.control)) combo->choices()->on_accept({});
-        if (peer.image) peer.image->detach();
-        if (peer.row_images) peer.row_images->clear();
+        peer.detach_owner();
         if (auto* map = dynamic_cast<MapView*>(peer.control.get())) map->cancel_request();
-        if (peer.list) peer.list->detach_thumbnails();
-        if (peer.runtime) peer.runtime->cancel_owner();
-        if (peer.swap_chain) peer.swap_chain->cancel_owner();
     }
     void detach() {
         stop_progress_animation();
@@ -599,28 +686,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::optional<bool> allowed;
         const auto now = Animation::Clock::now();
         for (const auto& peer : peers) {
-            if (peer->wheel_motion) {
-                auto* collection = dynamic_cast<VirtualCollection*>(peer->control.get());
-                auto* grid = dynamic_cast<DataGrid*>(peer->control.get());
-                const double current = collection ? collection->offset() : grid->offset();
-                const CollectionIndex* source = collection ? static_cast<const CollectionIndex*>(collection->source().get()) :
-                    static_cast<const CollectionIndex*>(grid->source().get());
-                if (current != peer->wheel_last || peer->wheel_source.lock().get() != source) peer->wheel_motion = false;
-                else {
-                    const bool stop = settle || !showing || !visible(*peer) || !enabled(*peer) ||
-                        !smooth_scrolling || !client_animation || palette.high_contrast;
-                    const double t = stop ? 1 : std::clamp(std::chrono::duration<double, std::milli>(
-                        now - peer->wheel_started).count() / 140.0, 0.0, 1.0);
-                    if (tick || stop) {
-                        const double value = peer->wheel_start + (peer->wheel_target - peer->wheel_start) *
-                            (1 - std::pow(1 - t, 3));
-                        if (collection) collection->set_offset(value);
-                        else grid->set_offset(value, grid->horizontal_offset());
-                        peer->wheel_last = collection ? collection->offset() : grid->offset();
-                        peer->wheel_motion = t < 1;
-                    }
-                    active = active || peer->wheel_motion;
-                }
+            if (peer->family == HostFamily::collection || peer->family == HostFamily::grid) {
+                const bool stop = settle || !showing || !visible(*peer) || !enabled(*peer) ||
+                    !smooth_scrolling || !client_animation || palette.high_contrast;
+                active = peer->advance_wheel(now, stop, tick) || active;
             }
             auto* animation = dynamic_cast<Animation*>(peer->control.get());
             if (!animation || !animation->animating()) continue;
@@ -716,10 +785,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(peer));
         }
         if (!peer) return DefWindowProcW(hwnd, message, wparam, lparam);
-        auto* host = &peer->host;
-        InputScope scope(*host);
-        try { return peer->host.control_message(*peer, hwnd, message, wparam, lparam); }
-        catch (...) { host->fail(); return 0; }
+        return peer->host.dispatch_input(*peer, hwnd, message, wparam, lparam);
     }
     static LRESULT CALLBACK scroll_content_procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         auto* peer = reinterpret_cast<Peer*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -728,36 +794,36 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(peer));
         }
         if (!peer) return DefWindowProcW(hwnd, message, wparam, lparam);
-        InputScope scope(peer->host);
+        InputScope scope(owner(*peer));
         try {
             if (message == WM_ERASEBKGND) return 1;
             if (message == WM_PAINT) { ValidateRect(hwnd, nullptr); return 0; }
-            if (message == WM_LBUTTONDOWN && peer->host.focus_edit_at(hwnd, lparam)) return 0;
+            if (message == WM_LBUTTONDOWN && owner(*peer).focus_edit_at(hwnd, lparam)) return 0;
             if (message == WM_MOUSEWHEEL) {
-                peer->host.scroll_wheel(*peer, wparam);
+                owner(*peer).scroll_wheel(*peer, wparam);
                 return 0;
             }
             if (message == WM_COMMAND || message == WM_NOTIFY || message == WM_CTLCOLOREDIT ||
                 message == WM_CTLCOLORSTATIC || message == WM_NEXTDLGCTL)
                 return SendMessageW(peer->window, message, wparam, lparam);
-        } catch (...) { peer->host.fail(); return 0; }
+        } catch (...) { owner(*peer).fail(); return 0; }
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
     static LRESULT CALLBACK native_clip_procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
         UINT_PTR id, DWORD_PTR data) noexcept {
-        auto& peer = *reinterpret_cast<Peer*>(data);
-        InputScope scope(peer.host);
-        if (message == WM_SETFOCUS && !peer.host.enabled(peer)) {
-            try { peer.host.traverse(false); } catch (...) { peer.host.fail(); }
+        auto& peer = unextracted(*reinterpret_cast<Peer*>(data));
+        InputScope scope(owner(peer));
+        if (message == WM_SETFOCUS && !owner(peer).enabled(peer)) {
+            try { owner(peer).traverse(false); } catch (...) { owner(peer).fail(); }
             return 0;
         }
-        if (!peer.host.enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
+        if (!owner(peer).enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
             message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
             message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
-        if (message == WM_NCHITTEST && peer.host.drag_hit(lparam)) return HTCAPTION;
-        if (message == WM_NCLBUTTONDOWN && wparam == HTCAPTION && peer.host.options.transparent)
-            return SendMessageW(peer.host.window, message, wparam, lparam);
-        const bool caption = hwnd == peer.caption;
+        if (message == WM_NCHITTEST && owner(peer).drag_hit(lparam)) return HTCAPTION;
+        if (message == WM_NCLBUTTONDOWN && wparam == HTCAPTION && owner(peer).options.transparent)
+            return SendMessageW(owner(peer).window, message, wparam, lparam);
+        const bool caption = hwnd == peer.caption_window();
         // Keep STATIC for EDIT's accessible name, but paint its text in the retained frame.
         if (caption && message == WM_ERASEBKGND) return 1;
         if (caption && message == WM_PAINT) {
@@ -766,7 +832,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (caption && (message == WM_PRINTCLIENT || message == WM_PRINT)) return 0;
         auto* provider = caption ? peer.caption_provider : peer.provider;
-        if ((message == WM_PRINTCLIENT || message == WM_PRINT) && peer.native_occluded && !peer.host.composing_native) {
+        if ((message == WM_PRINTCLIENT || message == WM_PRINT) && unextracted(peer).native_occluded && !owner(peer).composing_native) {
             const auto dc = reinterpret_cast<HDC>(wparam);
             const auto region = CreateRectRgn(0, 0, 0, 0);
             const auto saved = SaveDC(dc);
@@ -793,9 +859,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (message == control_action_message) {
             if (wparam != peer.control->id()) return UIA_E_ELEMENTNOTAVAILABLE;
             if (caption) return UIA_E_INVALIDOPERATION;
-            if (!peer.host.enabled(peer)) return UIA_E_ELEMENTNOTENABLED;
-            try { return peer.host.focus(peer, true) ? S_OK : UIA_E_INVALIDOPERATION; }
-            catch (...) { peer.host.fail(); return E_FAIL; }
+            if (!owner(peer).enabled(peer)) return UIA_E_ELEMENTNOTENABLED;
+            try { return owner(peer).focus(peer, true) ? S_OK : UIA_E_INVALIDOPERATION; }
+            catch (...) { owner(peer).fail(); return E_FAIL; }
         }
         if (message == WM_NCDESTROY) {
             RemoveWindowSubclass(hwnd, native_clip_procedure, id);
@@ -835,7 +901,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         } else return {};
         Control* target{};
         for (const auto& peer : peers)
-            if (peer->window == source || peer->caption == source) { target = peer->control.get(); break; }
+            if (peer->window == source || peer->caption_window() == source) { target = peer->control.get(); break; }
         if (position) {
             for (auto it = peers.rbegin(); it != peers.rend(); ++it) {
                 const auto bounds = (*it)->control->bounds();
@@ -855,38 +921,38 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     static LRESULT CALLBACK navigation_procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
         UINT_PTR id, DWORD_PTR data) noexcept {
         auto& peer = *reinterpret_cast<Peer*>(data);
-        InputScope scope(peer.host);
-        if (message == WM_WINDOWPOSCHANGING && peer.host.syncing) {
+        InputScope scope(owner(peer));
+        if (message == WM_WINDOWPOSCHANGING && owner(peer).syncing) {
             // The root presents all peers together after layout. USER must not copy
             // old child pixels or repaint intermediate positions between those frames.
             reinterpret_cast<WINDOWPOS*>(lparam)->flags |= SWP_NOREDRAW | SWP_NOCOPYBITS;
         }
         try {
-            if (auto result = peer.host.inspect_pointer(hwnd, message, wparam, lparam)) return *result;
-        } catch (...) { peer.host.fail(); return 0; }
-        if (message == WM_SETFOCUS && !peer.host.enabled(peer)) {
-            try { peer.host.traverse(false); } catch (...) { peer.host.fail(); }
+            if (auto result = owner(peer).inspect_pointer(hwnd, message, wparam, lparam)) return *result;
+        } catch (...) { owner(peer).fail(); return 0; }
+        if (message == WM_SETFOCUS && !owner(peer).enabled(peer)) {
+            try { owner(peer).traverse(false); } catch (...) { owner(peer).fail(); }
             return 0;
         }
-        if (!peer.host.enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
+        if (!owner(peer).enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
             message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
             message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
         if (message == WM_SETFOCUS) {
-            try { peer.host.dismiss_adaptive_outside(peer); }
-            catch (...) { peer.host.fail(); return 0; }
+            try { owner(peer).dismiss_adaptive_outside(peer); }
+            catch (...) { owner(peer).fail(); return 0; }
         }
-        if (peer.document && (message == WM_SETFOCUS || message == WM_KILLFOCUS)) {
+        if (peer.document_bridge() && (message == WM_SETFOCUS || message == WM_KILLFOCUS)) {
             try {
                 peer.control->set_focused(message == WM_SETFOCUS);
-                if (message == WM_SETFOCUS) { peer.host.last_focus = hwnd; peer.host.reveal(peer); }
-            } catch (...) { peer.host.fail(); return 0; }
+                if (message == WM_SETFOCUS) { owner(peer).last_focus = hwnd; owner(peer).reveal(peer); }
+            } catch (...) { owner(peer).fail(); return 0; }
         }
-        if (peer.host.titlebar) {
+        if (owner(peer).titlebar) {
             if (message == WM_NCHITTEST) {
-                const auto hit = peer.host.caption_hit(peer.host.window, lparam);
+                const auto hit = owner(peer).caption_hit(owner(peer).window, lparam);
                 if (hit != HTCLIENT) return hit;
             }
-            if (peer.host.is_caption_button(*peer.control)) {
+            if (owner(peer).is_caption_button(*peer.control)) {
                 try {
                     if (message == WM_NCMOUSEMOVE) {
                         peer.control->pointer_move(wparam == HTMINBUTTON || wparam == HTMAXBUTTON || wparam == HTCLOSE);
@@ -896,73 +962,73 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         peer.control->pointer_move(false);
                     } else if ((message == WM_NCLBUTTONDOWN || message == WM_NCLBUTTONDBLCLK) &&
                         (wparam == HTMINBUTTON || wparam == HTMAXBUTTON || wparam == HTCLOSE)) {
-                        if (peer.host.enabled(peer) && peer.host.visible(peer)) {
-                            peer.host.hide_tooltip();
+                        if (owner(peer).enabled(peer) && owner(peer).visible(peer)) {
+                            owner(peer).hide_tooltip();
                             peer.control->pointer_move(true);
                             if (peer.control->pointer_down()) SetCapture(hwnd);
                         }
                         return 0;
                     }
-                } catch (...) { peer.host.fail(); return 0; }
+                } catch (...) { owner(peer).fail(); return 0; }
             }
             if (message == WM_NCLBUTTONDOWN || message == WM_NCLBUTTONUP || message == WM_NCLBUTTONDBLCLK ||
                 message == WM_NCRBUTTONUP || message == WM_NCMOUSEMOVE || message == WM_NCMOUSELEAVE) {
                 LRESULT result{};
-                if (DwmDefWindowProc(peer.host.window, message, wparam, lparam, &result)) return result;
-                return DefWindowProcW(peer.host.window, message, wparam, lparam);
+                if (DwmDefWindowProc(owner(peer).window, message, wparam, lparam, &result)) return result;
+                return DefWindowProcW(owner(peer).window, message, wparam, lparam);
             }
         }
         if (message == WM_LBUTTONDOWN) {
-            peer.suppress_popup_click = (!peer.host.popups.empty() && peer.host.popups.back().anchor == peer.control) ||
-                peer.host.menu_bar_popup_anchor(peer);
-            try { peer.host.light_dismiss(&peer); }
-            catch (...) { peer.host.fail(); return 0; }
+            peer.suppress_popup_click = (!owner(peer).popups.empty() && owner(peer).popups.back().anchor == peer.control) ||
+                owner(peer).menu_bar_popup_anchor(peer);
+            try { owner(peer).light_dismiss(&peer); }
+            catch (...) { owner(peer).fail(); return 0; }
         }
         if ((message == WM_SETFOCUS || message == WM_MOUSEMOVE) && !dynamic_cast<NavigationList*>(peer.control.get())) {
-            try { peer.host.offer_tooltip(peer); }
-            catch (...) { peer.host.fail(); return 0; }
+            try { owner(peer).offer_tooltip(peer); }
+            catch (...) { owner(peer).fail(); return 0; }
         }
         if (message == WM_MOUSEMOVE && !peer.tracking) {
             TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
             peer.tracking = TrackMouseEvent(&track) != 0;
         }
-        if (message == WM_MOUSEMOVE && peer.host.options.visual_style == VisualStyle::winui) {
-            try { peer.host.hover_edit(peer.host.edit_at(hwnd, lparam), hwnd); }
-            catch (...) { peer.host.fail(); return 0; }
+        if (message == WM_MOUSEMOVE && owner(peer).options.visual_style == VisualStyle::winui) {
+            try { owner(peer).hover_edit(owner(peer).edit_at(hwnd, lparam), hwnd); }
+            catch (...) { owner(peer).fail(); return 0; }
         }
-        if (message == WM_MOUSELEAVE && peer.host.hovered_edit_source == hwnd) {
-            try { peer.host.hover_edit(nullptr, nullptr); }
-            catch (...) { peer.host.fail(); return 0; }
+        if (message == WM_MOUSELEAVE && owner(peer).hovered_edit_source == hwnd) {
+            try { owner(peer).hover_edit(nullptr, nullptr); }
+            catch (...) { owner(peer).fail(); return 0; }
         }
         if (message == WM_MOUSELEAVE) peer.tracking = false;
         if (message == WM_KILLFOCUS || message == WM_MOUSELEAVE || message == WM_KEYDOWN ||
             message == WM_SYSKEYDOWN || message == WM_CHAR || message == WM_IME_STARTCOMPOSITION) {
-            try { peer.host.hide_tooltip(); }
-            catch (...) { peer.host.fail(); return 0; }
+            try { owner(peer).hide_tooltip(); }
+            catch (...) { owner(peer).fail(); return 0; }
         }
         if (message == WM_KILLFOCUS) {
-            try { peer.host.focus_departing(reinterpret_cast<HWND>(wparam)); }
-            catch (...) { peer.host.fail(); return 0; }
+            try { owner(peer).focus_departing(reinterpret_cast<HWND>(wparam)); }
+            catch (...) { owner(peer).fail(); return 0; }
         }
-        if (message == WM_CONTEXTMENU && peer.edit && peer.control->has_context_menu()) {
-            if (peer.edit->composing()) return 0;
-            auto* host = &peer.host;
+        if (message == WM_CONTEXTMENU && peer.edit_bridge() && peer.control->has_context_menu()) {
+            if (peer.edit_bridge()->composing()) return 0;
+            auto* host = &owner(peer);
             try { show_control_menu(*peer.control, hwnd, lparam, host->palette, host->dpi); }
             catch (...) { host->fail(); }
             return 0;
         }
         try {
-            if (auto result = peer.host.navigation_message(hwnd, message, wparam, lparam)) return *result;
-        } catch (...) { peer.host.fail(); return 0; }
+            if (auto result = owner(peer).navigation_message(hwnd, message, wparam, lparam)) return *result;
+        } catch (...) { owner(peer).fail(); return 0; }
         if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, navigation_procedure, id);
-        if (peer.edit && (message == WM_IME_STARTCOMPOSITION || message == WM_IME_ENDCOMPOSITION)) {
-            auto* host = &peer.host;
+        if (peer.edit_bridge() && (message == WM_IME_STARTCOMPOSITION || message == WM_IME_ENDCOMPOSITION)) {
+            auto* host = &owner(peer);
             const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
             host->invalidate(Invalidation::layout);
             return result;
         }
-        if (peer.edit && peer.parent && peer.parent->control->role() == ControlRole::numeric_input &&
-            peer.control->visual_style() == VisualStyle::winui && !peer.edit->composing() &&
+        if (peer.edit_bridge() && peer.parent && peer.parent->control->role() == ControlRole::numeric_input &&
+            peer.control->visual_style() == VisualStyle::winui && !peer.edit_bridge()->composing() &&
             (message == WM_SETFOCUS || (message == WM_LBUTTONDOWN && GetFocus() != hwnd))) {
             const auto input = peer.control;
             const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
@@ -987,14 +1053,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     void prepare_popup_surface(Peer& peer) {
         // Composition windows draw popups in their own composition layers, not child HWND surfaces.
         if (options.composition) return;
-        if (peer.control->role() != ControlRole::popup || peer.overlay_drawing ||
-            std::none_of(peers.begin(), peers.end(), [](const auto& item) { return bool(item->swap_chain); })) return;
+        if (peer.control->role() != ControlRole::popup || peer.overlay_surface() ||
+            std::none_of(peers.begin(), peers.end(), [](const auto& item) { return bool(item->swap_chain_host()); })) return;
         auto surface = std::make_unique<Drawing>();
         surface->initialize(options.visual_style);
         const auto style = GetWindowLongPtrW(peer.window, GWL_EXSTYLE);
         win32_require(SetWindowLongPtrW(peer.window, GWL_EXSTYLE, style & ~WS_EX_TRANSPARENT) != 0,
             "Enable popup rendering surface");
-        peer.overlay_drawing = std::move(surface);
+        unextracted(peer).overlay_drawing = std::move(surface);
     }
     void apply_typography(Element& element) {
         if (!presentation_font) return;
@@ -1031,6 +1097,64 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         // Keep ownership and typography, but do not allocate HWNDs for unopened content.
         claim_deferred_tree(reveal->content());
         return true;
+    }
+    void attach_unextracted(UnextractedPeer& peer, HWND native_parent, int id) {
+        const auto role = peer.control->role();
+        if (role == ControlRole::document_text || role == ControlRole::password_input || role == ControlRole::date_time) {
+            peer.document = std::make_unique<NativeDocumentBridge>(peer.control);
+            peer.document->on_failure([this] { fail(); });
+            peer.document->attach(native_parent, id);
+            peer.window = peer.document->window();
+            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
+            peer.provider = create_native_clip_provider(peer.accessibility);
+            win32_require(SetWindowSubclass(peer.window, native_clip_procedure, 2,
+                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native document clipping provider");
+        } else if (role == ControlRole::text_input) {
+            auto& input = static_cast<TextInput&>(*peer.control);
+            // The preceding native STATIC supplies EDIT's accessible name.
+            peer.caption = CreateWindowExW(WS_EX_TRANSPARENT, L"STATIC", peer.control->name().c_str(),
+                WS_CHILD | (input.caption_visible() ? WS_VISIBLE : 0) | SS_LEFT | SS_NOPREFIX, 0, 0, 1, 1, native_parent,
+                nullptr, GetModuleHandleW(nullptr), nullptr);
+            win32_require(peer.caption != nullptr, "Create text input label");
+            peer.caption_text = input.name();
+            peer.edit = std::make_unique<NativeEditBridge>();
+            peer.edit->set_font_family(drawing().edit_font_family());
+            peer.edit->on_failure([this] { fail(); });
+            peer.edit->set_placeholder(input.placeholder());
+            peer.edit->set_insets({input.search_style() ? 40.0f : 12.0f, 10,
+                input.shortcut_hint().empty() ? 12.0f : 78.0f, 10});
+            peer.edit->attach(native_parent, id);
+            peer.window = peer.edit->window();
+            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
+            peer.provider = create_native_clip_provider(peer.accessibility);
+            win32_require(SetWindowSubclass(peer.window, native_clip_procedure, 2,
+                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native input focus and clipping provider");
+            peer.caption_accessibility = std::make_shared<ControlAccessibility>();
+            peer.caption_accessibility->snapshot.window = peer.caption;
+            peer.caption_accessibility->snapshot.id = peer.control->id();
+            peer.caption_provider = create_native_clip_provider(peer.caption_accessibility);
+            win32_require(SetWindowSubclass(peer.caption, native_clip_procedure, 2,
+                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native caption clipping provider");
+        } else {
+            peer.window = create_input_surface(peer, native_parent, id);
+            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
+            peer.provider = role == ControlRole::tab_strip || role == ControlRole::split_view || role >= ControlRole::popup ||
+                    dynamic_cast<MenuBar*>(peer.control.get()) || dynamic_cast<MenuBar::Heading*>(peer.control.get()) ?
+                create_workspace_provider(peer.accessibility) : create_control_provider(peer.accessibility);
+        }
+        if (auto runtime = std::dynamic_pointer_cast<RuntimeHost>(peer.control))
+            peer.runtime = std::make_unique<NativeRuntimeHost>(runtime, peer.window, [this] { fail(); }, [this] {
+                return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
+                    [](const auto* layout) { return layout->overlay_active(); });
+            });
+        if (auto panel = std::dynamic_pointer_cast<SwapChainPanel>(peer.control))
+            peer.swap_chain = std::make_unique<NativeSwapChainHost>(panel, peer.window, [this] {
+                return !closing && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
+                    [](const auto* layout) { return layout->overlay_active(); });
+            }, presenter, window);
+        if (backdrop_presented && (peer.edit || peer.document)) platform::opaque_native_paint(peer.window, true);
+        if (options.composition && (peer.edit || peer.document)) platform::layered_child(peer.window);
+        prepare_popup_surface(peer);
     }
     void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
         claim(element);
@@ -1069,107 +1193,35 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             collect_clear_button(*peer);
             return;
         }
-        auto peer = std::make_unique<Peer>(*this, std::move(control));
+        std::unique_ptr<Peer> peer;
+        const auto role = control->role();
+        if (role == ControlRole::file_list) {
+            auto list = std::dynamic_pointer_cast<FileList>(control);
+            if (!list) throw std::invalid_argument("The file-list role requires a FileList control");
+            peer = std::make_unique<FileListHostPeer>(*this, std::move(list));
+        } else if (role == ControlRole::data_grid) {
+            auto grid = std::dynamic_pointer_cast<DataGrid>(control);
+            if (!grid) throw std::invalid_argument("The data-grid role requires a DataGrid control");
+            peer = std::make_unique<GridHostPeer>(*this, std::move(grid));
+        } else if (role == ControlRole::items_view || role == ControlRole::tree_view || role == ControlRole::command_menu) {
+            auto collection = std::dynamic_pointer_cast<VirtualCollection>(control);
+            if (!collection) throw std::invalid_argument("The collection role requires a VirtualCollection control");
+            peer = std::make_unique<CollectionHostPeer>(*this, std::move(collection));
+        } else peer = std::make_unique<UnextractedPeer>(*this, std::move(control));
         peer->surface = surface;
         peer->adaptive = adaptive;
         peer->parent = parent;
-        const HWND native_parent = parent ? (parent->scroll_content ? parent->scroll_content : parent->window) : window;
-        const auto role = peer->control->role();
-        if (role == ControlRole::file_list) {
-            auto list = std::dynamic_pointer_cast<FileList>(peer->control);
-            if (!list) throw std::invalid_argument("The file-list role requires a FileList control");
-            peer->list = std::make_unique<ListPeer>(std::move(list), [this] { fail(); },
-                [this, target = peer.get()](HWND hwnd) { last_focus = hwnd; reveal(*target); });
-            peer->list->attach(native_parent, static_cast<int>(100 + peers.size()));
-            peer->window = peer->list->window();
-        } else if (role == ControlRole::document_text || role == ControlRole::password_input || role == ControlRole::date_time) {
-            peer->document = std::make_unique<NativeDocumentBridge>(peer->control);
-            peer->document->on_failure([this] { fail(); });
-            peer->document->attach(native_parent, static_cast<int>(100 + peers.size()));
-            peer->window = peer->document->window();
-            publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
-            peer->provider = create_native_clip_provider(peer->accessibility);
-            win32_require(SetWindowSubclass(peer->window, native_clip_procedure, 2,
-                reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach native document clipping provider");
-        } else if (role == ControlRole::text_input) {
-            auto& input = static_cast<TextInput&>(*peer->control);
-            // The preceding native STATIC supplies EDIT's accessible name.
-            peer->caption = CreateWindowExW(WS_EX_TRANSPARENT, L"STATIC", peer->control->name().c_str(),
-                WS_CHILD | (input.caption_visible() ? WS_VISIBLE : 0) | SS_LEFT | SS_NOPREFIX, 0, 0, 1, 1, native_parent,
-                nullptr, GetModuleHandleW(nullptr), nullptr);
-            win32_require(peer->caption != nullptr, "Create text input label");
-            peer->caption_text = input.name();
-            peer->edit = std::make_unique<NativeEditBridge>();
-            peer->edit->set_font_family(drawing().edit_font_family());
-            peer->edit->on_failure([this] { fail(); });
-            peer->edit->set_placeholder(input.placeholder());
-            peer->edit->set_insets({input.search_style() ? 40.0f : 12.0f, 10,
-                input.shortcut_hint().empty() ? 12.0f : 78.0f, 10});
-            peer->edit->attach(native_parent, static_cast<int>(100 + peers.size()));
-            peer->window = peer->edit->window();
-            {
-                publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
-                peer->provider = create_native_clip_provider(peer->accessibility);
-                win32_require(SetWindowSubclass(peer->window, native_clip_procedure, 2,
-                    reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach native input focus and clipping provider");
-                peer->caption_accessibility = std::make_shared<ControlAccessibility>();
-                peer->caption_accessibility->snapshot.window = peer->caption;
-                peer->caption_accessibility->snapshot.id = peer->control->id();
-                peer->caption_provider = create_native_clip_provider(peer->caption_accessibility);
-                win32_require(SetWindowSubclass(peer->caption, native_clip_procedure, 2,
-                    reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach native caption clipping provider");
-            }
-        } else {
-            const DWORD tab = peer->control->focusable() && peer->control->tab_stop() && !is_caption_button(*peer->control) ? WS_TABSTOP : 0;
-            peer->window = CreateWindowExW(WS_EX_TRANSPARENT, control_class, peer->control->name().c_str(),
-                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | tab,
-                0, 0, 1, 1, native_parent,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(100 + peers.size())),
-                GetModuleHandleW(nullptr), peer.get());
-            win32_require(peer->window != nullptr, "Create control");
-            publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
-            peer->provider = role == ControlRole::data_grid ? create_grid_provider(peer->accessibility) :
-                role == ControlRole::items_view || role == ControlRole::tree_view || role == ControlRole::command_menu ? create_collection_provider(peer->accessibility) :
-                role == ControlRole::tab_strip || role == ControlRole::split_view || role >= ControlRole::popup ||
-                    dynamic_cast<MenuBar*>(peer->control.get()) || dynamic_cast<MenuBar::Heading*>(peer->control.get()) ?
-                create_workspace_provider(peer->accessibility) : create_control_provider(peer->accessibility);
-        }
-        if (auto runtime = std::dynamic_pointer_cast<RuntimeHost>(peer->control))
-            peer->runtime = std::make_unique<NativeRuntimeHost>(runtime, peer->window, [this] { fail(); }, [this] {
-                return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
-                    [](const auto* layout) { return layout->overlay_active(); });
-            });
-        if (auto panel = std::dynamic_pointer_cast<SwapChainPanel>(peer->control))
-            peer->swap_chain = std::make_unique<NativeSwapChainHost>(panel, peer->window, [this] {
-                return !closing && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
-                    [](const auto* layout) { return layout->overlay_active(); });
-            }, presenter, window);
-        if (backdrop_presented && (peer->edit || peer->document)) platform::opaque_native_paint(peer->window, true);
-        if (options.composition && (peer->edit || peer->document)) platform::layered_child(peer->window);
-        prepare_popup_surface(*peer);
-        if (auto grid = std::dynamic_pointer_cast<DataGrid>(peer->control)) {
-            const std::weak_ptr<Impl> weak = shared_from_this();
-            const std::weak_ptr<DataGrid> weak_grid = grid;
-            peer->file_target = files::drop_target(peer->window, grid, [weak, weak_grid] {
-                auto host = weak.lock(); auto control = weak_grid.lock();
-                const auto* target = host && control ? host->find_peer(control.get()) : nullptr;
-                return target && !host->closing && host->ready && host->enabled(*target) &&
-                    host->visible(*target) && host->in_top_popup(*target);
-            }, [weak](std::function<void()> callback) {
-                if (auto host = weak.lock()) {
-                    InputScope scope(*host);
-                    try { callback(); } catch (...) { host->fail(); }
-                }
-            });
-        }
+        const HWND native_parent = parent ? (parent->child_content_window() ?
+            parent->child_content_window() : parent->window) : window;
+        peer->attach(native_parent, static_cast<int>(100 + peers.size()));
         win32_require(SetWindowSubclass(peer->window, navigation_procedure, 3,
             reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach browser navigation input");
-        if (peer->caption)
-            win32_require(SetWindowSubclass(peer->caption, navigation_procedure, 3,
+        if (peer->caption_window())
+            win32_require(SetWindowSubclass(peer->caption_window(), navigation_procedure, 3,
                 reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach caption navigation input");
         auto* added = peer.get();
         if (role == ControlRole::image) {
-            peer->image = std::make_unique<ImagePeer>(static_cast<Image&>(*peer->control));
+            unextracted(*peer).image = std::make_unique<ImagePeer>(static_cast<Image&>(*peer->control));
             has_images = true;
         }
         if (role == ControlRole::label || role == ControlRole::button || role == ControlRole::toggle)
@@ -1186,8 +1238,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     auto typography = *values;
                     typography.wrapping = label->wrapping();
                     typography.maximum_lines = static_cast<uint32_t>(std::min<std::size_t>(label->maximum_lines(), UINT32_MAX));
-                    added->text_layout = drawing().styled_layout(text, style, typography, measured);
-                } else added->text_layout = values ? drawing().styled_layout(text, style, *values, measured) :
+                    unextracted(*added).text_layout = drawing().styled_layout(text, style, typography, measured);
+                } else unextracted(*added).text_layout = values ? drawing().styled_layout(text, style, *values, measured) :
                     drawing().layout(text, style, measured);
                 return measured;
             });
@@ -1216,17 +1268,17 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     auto typography = *values;
                     typography.wrapping = label.wrapping();
                     typography.maximum_lines = static_cast<uint32_t>(std::min<std::size_t>(lines, UINT32_MAX));
-                    added->text_layout = drawing().styled_layout(text, style, typography, measured, width, lines);
-                } else added->text_layout = drawing().layout(text, style, measured, width, lines);
+                    unextracted(*added).text_layout = drawing().styled_layout(text, style, typography, measured, width, lines);
+                } else unextracted(*added).text_layout = drawing().layout(text, style, measured, width, lines);
                 return measured;
             });
         peers.push_back(std::move(peer));
         peer_lookup.emplace(added->control.get(), added);
         if (role == ControlRole::scroll_view) {
-            added->scroll_content = CreateWindowExW(WS_EX_TRANSPARENT, scroll_content_class, L"",
+            unextracted(*added).scroll_content = CreateWindowExW(WS_EX_TRANSPARENT, scroll_content_class, L"",
                 WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, added->window, nullptr, GetModuleHandleW(nullptr), added);
-            win32_require(added->scroll_content != nullptr, "Create scroll content window");
-            win32_require(SetWindowSubclass(added->scroll_content, navigation_procedure, 1,
+            win32_require(added->child_content_window() != nullptr, "Create scroll content window");
+            win32_require(SetWindowSubclass(added->child_content_window(), navigation_procedure, 1,
                 reinterpret_cast<DWORD_PTR>(added)) != 0, "Attach scroll content navigation");
         }
         if (!defer_reveal_children(added->control))
@@ -1244,14 +1296,20 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         collect_clear_button(*added);
     }
-    bool can_clear(const Peer& peer) const {
+    bool can_clear(const Peer& value) const {
+        const auto* state = unextracted_if(value);
+        if (!state) return false;
+        const auto& peer = *state;
         if (!peer.edit || options.visual_style != VisualStyle::winui || peer.edit->composing()) return false;
         const auto& input = static_cast<const TextInput&>(*peer.control);
         return !input.search_style() && !input.shortcut_visible(input.bounds().width) &&
             (!peer.parent || (peer.parent->control->role() != ControlRole::numeric_input &&
                 peer.parent->control->role() != ControlRole::combo_box));
     }
-    void sync_clear_button(Peer& peer) {
+    void sync_clear_button(Peer& value) {
+        auto* state = unextracted_if(value);
+        if (!state) return;
+        auto& peer = *state;
         if (!peer.clear_button) return;
         const auto& input = static_cast<const TextInput&>(*peer.control);
         const bool focused = GetFocus() == peer.window || (peer.clear_window && GetFocus() == peer.clear_window);
@@ -1264,7 +1322,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         peer.clear_button->arrange({bounds.x + std::max(0.0f, bounds.width - 31), bounds.y + header + 1,
             std::min(30.0f, bounds.width), std::max(0.0f, bounds.height - header - 2)});
     }
-    void collect_clear_button(Peer& peer) {
+    void collect_clear_button(Peer& value) {
+        auto* state = unextracted_if(value);
+        if (!state) return;
+        auto& peer = *state;
         if (!peer.edit) return;
         if (!peer.clear_button && can_clear(peer) && GetFocus() == peer.window &&
             !static_cast<const TextInput&>(*peer.control).text().empty()) {
@@ -1281,7 +1342,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 auto* input_peer = control ? find_peer(control.get()) : nullptr;
                 if (!input_peer || !can_clear(*input_peer) || !enabled(*input_peer) || !visible(*input_peer)) return;
                 const auto edit = input_peer->window;
-                input_peer->edit->focus(false);
+                input_peer->edit_bridge()->focus(false);
                 if (closing || !window || !IsWindow(edit) || GetFocus() != edit) return;
                 SendMessageW(edit, EM_SETSEL, 0, -1);
                 SendMessageW(edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
@@ -1293,7 +1354,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         collect(peer.clear_button, peer.surface, peer.parent, peer.adaptive);
         if (!peer.clear_window) {
             auto* clear_peer = find_peer(peer.clear_button.get());
-            clear_peer->clear_owner = peer.control;
+            unextracted(*clear_peer).clear_owner = peer.control;
             peer.clear_window = clear_peer->window;
         }
     }
@@ -1310,7 +1371,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     }
     bool in_popup_surface(const Peer& peer) const {
         for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent)
-            if (ancestor->overlay_drawing) return true;
+            if (ancestor->overlay_surface()) return true;
         return false;
     }
     std::uint64_t adaptive_owner(const AdaptiveLayout* layout) const {
@@ -1386,8 +1447,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         visit(*element, intersect(element->bounds(), clip));
         for (const auto& child : element->owned_children()) visit_visual_tree(child, visit, child_clip);
-        if (auto* peer = find_peer(dynamic_cast<Control*>(element.get())); peer && peer->clear_button)
-            visit_visual_tree(peer->clear_button, visit, child_clip);
+        if (auto* peer = find_peer(dynamic_cast<Control*>(element.get())); peer && clear_adornment(*peer))
+            visit_visual_tree(clear_adornment(*peer), visit, child_clip);
     }
     std::vector<Peer*> visual_peer_order() {
         std::vector<Peer*> ordered;
@@ -1415,7 +1476,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto ordered = visual_peer_order();
         std::unordered_map<HWND, HWND> previous;
         for (auto it = ordered.rbegin(); it != ordered.rend(); ++it) {
-            for (const auto hwnd : {(*it)->window, (*it)->caption}) {
+            for (const auto hwnd : {(*it)->window, (*it)->caption_window()}) {
                 if (!hwnd) continue;
                 auto& above = previous[GetParent(hwnd)];
                 if (GetWindow(hwnd, GW_HWNDPREV) != above)
@@ -1454,7 +1515,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const auto owner = popup_owner(peer.get());
             const auto inline_begin = std::find_if(inline_surfaces.begin(), inline_surfaces.end(),
                 [&](const auto& surface) { return surface.peer == peer.get(); });
-            if (!peer->native_occluded) {
+            if (!unextracted(*peer).native_occluded) {
                 const auto bounds = clipped_bounds(*peer);
                 if (bounds.width <= 0 || bounds.height <= 0) continue;
                 const auto overlaps = [&](Rect overlay) {
@@ -1477,7 +1538,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (!covered) continue;
             }
             bool clipped{};
-            for (const auto hwnd : {peer->window, peer->caption}) {
+            for (const auto hwnd : {peer->window, peer->caption_window()}) {
                 if (!hwnd) continue;
                 RECT rect{};
                 GetWindowRect(hwnd, &rect);
@@ -1527,13 +1588,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 clipped = clipped || occluded;
             }
-            peer->native_occluded = clipped;
+            unextracted(*peer).native_occluded = clipped;
         }
     }
     void offer_tooltip(Peer& peer) {
         for (const auto& item : peers)
-            if ((item->runtime && item->runtime->active()) ||
-                (item->swap_chain && item->swap_chain->active() && !options.composition)) {
+            if ((item->runtime_host() && item->runtime_host()->active()) ||
+                (item->swap_chain_host() && item->swap_chain_host()->active() && !options.composition)) {
                 hide_tooltip(); return;
             }
         if (!window || !ready || !onscreen(peer) || !enabled(peer) || !in_top_popup(peer) ||
@@ -1591,8 +1652,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto range = std::dynamic_pointer_cast<RangeInput>(peer->control)) notify([&] { range->cancel_drag(); });
             if (owner != closed.end() && owner->popup->is_open()) continue;
             peer->control->cancel();
-            if (peer->edit) peer->edit->dismiss_suggestions();
-            KillTimer(peer->window, repeat_timer); peer->repeating = false;
+            if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            KillTimer(peer->window, repeat_timer); if (auto* state = unextracted_if(*peer)) state->repeating = false;
             ShowWindow(peer->window, SW_HIDE);
             if (GetCapture() == peer->window) ReleaseCapture();
         }
@@ -1652,7 +1713,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (!target) layout->set_navigation_open(false);
         }
     }
-    void repeat_start(Peer& peer, bool activate) {
+    void repeat_start(UnextractedPeer& peer, bool activate) {
         auto* button = dynamic_cast<Button*>(peer.control.get());
         if (!button || button->behavior() != ButtonBehavior::repeat || !enabled(peer) || !visible(peer)) return;
         peer.repeat_cycle = true;
@@ -1672,7 +1733,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (replacing && !retains(anchor))
             throw std::invalid_argument("Popup anchor is being retired");
         for (const auto& peer : peers)
-            if (peer->runtime && peer->runtime->active())
+            if (peer->runtime_host() && peer->runtime_host()->active())
                 throw std::logic_error("Detach native media and web content before opening an XUI popup");
         auto* anchor_peer = find_peer(&anchor);
         if (!anchor_peer || !enabled(*anchor_peer) || !onscreen(*anchor_peer))
@@ -1793,7 +1854,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         content_ids(root, live);
         for (const auto& entry : popups) content_ids(entry.popup, live);
         for (const auto& peer : peers)
-            if (peer->clear_button && live.contains(peer->control->id())) live.insert(peer->clear_button->id());
+            if (clear_adornment(*peer) && live.contains(peer->control->id())) live.insert(clear_adornment(*peer)->id());
         std::set<Peer*> retired;
         for (const auto& peer : peers) {
             const auto owner = popup_owner(peer.get());
@@ -1810,7 +1871,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto retiring_window = [&](HWND hwnd) {
             if (!hwnd) return false;
             return std::any_of(retired.begin(), retired.end(), [hwnd](const auto* peer) {
-                return hwnd == peer->window || hwnd == peer->caption || IsChild(peer->window, hwnd);
+                return hwnd == peer->window || hwnd == peer->caption_window() || IsChild(peer->window, hwnd);
             });
         };
         if (std::any_of(retired.begin(), retired.end(), [&](const auto* peer) { return peer->control->id() == tooltip_target; }))
@@ -1825,11 +1886,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (retiring_window(GetFocus())) SetFocus(nullptr);
         for (const auto& peer : peers) if (retired.contains(peer.get())) {
             KillTimer(peer->window, repeat_timer);
-            peer->repeating = false;
+            if (auto* state = unextracted_if(*peer)) state->repeating = false;
             if (auto range = std::dynamic_pointer_cast<RangeInput>(peer->control)) range->cancel_drag();
             peer->control->cancel();
             peer->control->pointer_move(false);
-            if (peer->edit) peer->edit->dismiss_suggestions();
+            if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
             detach_peer(*peer);
         }
         // Remove peers from lookups before DestroyWindow sends synchronous notifications.
@@ -1966,14 +2027,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             DEFAULT_QUALITY, DEFAULT_PITCH, drawing().edit_font_family());
         win32_require(next_font != nullptr, "Create input caption font");
         for (const auto& peer : peers) {
-            if (peer->list) peer->list->set_theme(dpi, palette);
-            if (peer->document) {
-                peer->document->update(dpi, palette);
-                publish_control(peer->accessibility, nullptr, *peer->control, peer->window);
-            } else if (peer->edit) {
-                peer->edit->set_font_family(drawing().edit_font_family());
-                peer->edit->set_dpi(dpi);
-                SendMessageW(peer->caption, WM_SETFONT, reinterpret_cast<WPARAM>(next_font), TRUE);
+            peer->set_theme(dpi, palette);
+            if (peer->document_bridge()) {
+                peer->document_bridge()->update(dpi, palette);
+                publish_control(unextracted(*peer).accessibility, nullptr, *peer->control, peer->window);
+            } else if (peer->edit_bridge()) {
+                peer->edit_bridge()->set_font_family(drawing().edit_font_family());
+                peer->edit_bridge()->set_dpi(dpi);
+                SendMessageW(peer->caption_window(), WM_SETFONT, reinterpret_cast<WPARAM>(next_font), TRUE);
                 InvalidateRect(peer->window, nullptr, FALSE);
             }
         }
@@ -2121,14 +2182,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     }
                 }
             } batch;
-            for (const auto& peer : peers) if (peer->clear_button) sync_clear_button(*peer);
+            for (const auto& peer : peers) if (clear_adornment(*peer)) sync_clear_button(*peer);
             for (const auto& peer : peers) {
                 auto bounds = peer->control->bounds();
-                if (peer->edit && peer->arranged &&
+                if (peer->edit_bridge() && peer->arranged &&
                     (bounds.x != peer->absolute_bounds.x || bounds.y != peer->absolute_bounds.y))
-                    peer->edit->dismiss_suggestions();
+                    peer->edit_bridge()->dismiss_suggestions();
                 peer->absolute_bounds = bounds;
-                if (peer->scroll_content) {
+                if (peer->child_content_window()) {
                     // One native translation moves the retained editors without recreating them
                     // or sending placement notifications to every descendant.
                     const auto& scroll = static_cast<const ScrollView&>(*peer->control);
@@ -2138,18 +2199,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         static_cast<LONG>(std::lround((content.y - bounds.y) * scale)),
                         static_cast<LONG>(std::lround(content.width * scale)),
                         static_cast<LONG>(std::lround(content.height * scale))};
-                    if (!peer->scroll_placed || !EqualRect(&target, &peer->scroll_placed_bounds)) {
+                    if (!unextracted(*peer).scroll_placed || !EqualRect(&target, &unextracted(*peer).scroll_placed_bounds)) {
                         auto& group = batch.for_parent(peer->window);
-                        group = DeferWindowPos(group, peer->scroll_content, nullptr,
+                        group = DeferWindowPos(group, peer->child_content_window(), nullptr,
                             target.left, target.top, target.right, target.bottom,
                             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOCOPYBITS);
                         win32_require(group != nullptr, "Arrange scroll content window");
-                        peer->scroll_placed_bounds = target;
-                        peer->scroll_placed = true;
+                        unextracted(*peer).scroll_placed_bounds = target;
+                        unextracted(*peer).scroll_placed = true;
                     }
                 }
                 if (peer->parent) {
-                    const auto parent = peer->parent->scroll_content ?
+                    const auto parent = peer->parent->child_content_window() ?
                         static_cast<const ScrollView&>(*peer->parent->control).content()->bounds() :
                         peer->parent->control->bounds();
                     bounds.x -= parent.x;
@@ -2171,7 +2232,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     bounds.width = std::max(0.0f, static_cast<float>(
                         std::lround((bounds.x + bounds.width) * scale) - std::lround(bounds.x * scale)) / scale);
                 }
-                if (peer->document) {
+                if (peer->document_bridge()) {
                     if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed())
                         bounds.height = std::max(0.0f, bounds.height - password->reveal_extent());
                     const auto* field_style = peer->control->effective_control_style_values(StylePart::root);
@@ -2197,7 +2258,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                             platform::place(peer->window, bounds, dpi); peer->placed_bounds = target; peer->placed = true;
                         }
                     }
-                } else if (peer->edit) {
+                } else if (peer->edit_bridge()) {
                     const bool search = static_cast<TextInput&>(*peer->control).search_style();
                     const auto& input = static_cast<TextInput&>(*peer->control);
                     const bool winui = options.visual_style == VisualStyle::winui;
@@ -2207,24 +2268,24 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     const auto* field_style = input.effective_control_style_values(StylePart::root);
                     auto insets = input.field_insets({search ? 40.0f : winui && !combo ? 11.0f : 12.0f, winui ? 6.0f : 10.0f,
                         input.shortcut_visible(bounds.width) ? input.shortcut_size().width + 28.0f :
-                            peer->clear_button && peer->clear_button->visible() ? 37.0f :
+                            clear_adornment(*peer) && clear_adornment(*peer)->visible() ? 37.0f :
                             winui ? reserved_end ? 1.0f : 7.0f : 12.0f, winui ? 7.0f : 10.0f});
                     if (field_style && field_style->padding) {
                         if (search) insets.left += 28;
                         if (input.shortcut_visible(bounds.width)) insets.right += input.shortcut_size().width + 16;
-                        else if (peer->clear_button && peer->clear_button->visible()) insets.right += 30;
+                        else if (clear_adornment(*peer) && clear_adornment(*peer)->visible()) insets.right += 30;
                     }
-                    peer->edit->set_insets(insets);
+                    peer->edit_bridge()->set_insets(insets);
                     const bool caption_visible = input.caption_visible() && visible(*peer);
-                    if (((GetWindowLongPtrW(peer->caption, GWL_STYLE) & WS_VISIBLE) != 0) != caption_visible)
-                        ShowWindow(peer->caption, caption_visible ? SW_SHOWNA : SW_HIDE);
+                    if (((GetWindowLongPtrW(peer->caption_window(), GWL_STYLE) & WS_VISIBLE) != 0) != caption_visible)
+                        ShowWindow(peer->caption_window(), caption_visible ? SW_SHOWNA : SW_HIDE);
                     if (input.caption_visible()) {
                         const float caption_height = input.caption_height();
-                        platform::place(peer->caption, {bounds.x, bounds.y, bounds.width, std::min(caption_height, bounds.height)}, dpi);
+                        platform::place(peer->caption_window(), {bounds.x, bounds.y, bounds.width, std::min(caption_height, bounds.height)}, dpi);
                         bounds.y += input.caption_extent();
                         bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
                     }
-                    peer->edit->arrange(bounds);
+                    peer->edit_bridge()->arrange(bounds);
                 } else if (has_images || animation_timer_running || !arrange_layout) {
                     const float scale = dpi / 96.0f;
                     RECT target{static_cast<LONG>(std::lround(bounds.x * scale)),
@@ -2255,7 +2316,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 auto* peer = find_peer(entry.popup.get());
                 win32_require(SetWindowPos(peer->window, HWND_TOP, 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW) != 0, "Raise popup input surface");
-                if (peer->overlay_drawing) {
+                if (peer->overlay_surface()) {
                     RECT bounds{};
                     win32_require(GetClientRect(peer->window, &bounds) != 0, "Read popup surface bounds");
                     const auto* style = entry.popup->effective_control_style_values(StylePart::root);
@@ -2283,29 +2344,29 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (auto* peer : update_peers) {
             const auto& control = *peer->control;
             if (!visible(*peer)) {
-                peer->text_layout.Reset();
+                if (auto* state = unextracted_if(*peer)) state->text_layout.Reset();
                 if (auto label = std::dynamic_pointer_cast<Label>(peer->control)) label->discard_wrapped_text();
             }
-            if (peer->runtime) {
-                peer->runtime->sync(visible(*peer) && onscreen(*peer) && IsWindowVisible(window) && !IsIconic(window), dpi);
+            if (peer->runtime_host()) {
+                peer->runtime_host()->sync(visible(*peer) && onscreen(*peer) && IsWindowVisible(window) && !IsIconic(window), dpi);
                 if (!window || closing) return;
-                if (peer->runtime->active()) hide_tooltip();
+                if (peer->runtime_host()->active()) hide_tooltip();
             }
-            if (peer->swap_chain) {
+            if (peer->swap_chain_host()) {
                 auto clip = clipped_bounds(*peer);
                 const bool shown = visible(*peer) && clip.width > 0 && clip.height > 0 &&
                     IsWindowVisible(window) && !IsIconic(window);
                 clip.x -= peer->paint_bounds.x;
                 clip.y -= peer->paint_bounds.y;
-                peer->swap_chain->sync(shown, dpi, clip, popup_owner(peer) != 0);
+                peer->swap_chain_host()->sync(shown, dpi, clip, popup_owner(peer) != 0);
                 if (!window || closing) return;
-                if (peer->swap_chain->active() && !options.composition) hide_tooltip();
+                if (peer->swap_chain_host()->active() && !options.composition) hide_tooltip();
             }
             if (scroll_only) {
                 // UIA reads native bounds on demand. Only scroll state changed; do not rewrite
                 // native text, fonts, selection, or the unchanged accessibility snapshots.
                 if (control.role() == ControlRole::scroll_view)
-                    publish_control(peer->accessibility, peer->provider, control, peer->window);
+                    peer->publish_accessibility();
                 continue;
             }
             if ((!visible(*peer) || !IsWindowVisible(window)) && dynamic_cast<MapView*>(peer->control.get()))
@@ -2321,76 +2382,68 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if ((!enabled(*peer) || !visible(*peer)) &&
                 (GetFocus() == peer->window || focus_before_layout == peer->window)) disabled_focus = peer->window;
             const auto range = dynamic_cast<const RangeInput*>(&control);
-            if (auto* split = dynamic_cast<SplitView*>(peer->control.get()); split && peer->dragging &&
+            if (auto* split = dynamic_cast<SplitView*>(peer->control.get()); split && unextracted(*peer).dragging &&
                 (!split->divider_dragging() || split->divider().width <= 0)) {
-                peer->dragging = false;
+                unextracted(*peer).dragging = false;
                 split->set_style_dragging(false);
             }
-            if (!peer->list && !control.captured() && !peer->pressed_choice && !peer->pressed_tab &&
-                !(range && range->dragging()) && !peer->dragging && !peer->grid_drag &&
-                !peer->collection_drag && !peer->collection_scroll && GetCapture() == peer->window) ReleaseCapture();
+            if (!control.captured() && !peer->capture_active() && GetCapture() == peer->window) ReleaseCapture();
             if (!has_images || (IsWindowEnabled(peer->window) != FALSE) != enabled(*peer))
                 EnableWindow(peer->window, enabled(*peer));
             peer->control->set_control_style_context_enabled(enabled(*peer));
             if (!enabled(*peer) || !visible(*peer)) {
-                if (auto range_input = std::dynamic_pointer_cast<RangeInput>(peer->control)) range_input->cancel_drag();
-                peer->control->cancel();
+                peer->cancel_input();
                 peer->control->pointer_move(false);
-                peer->pressed_choice.reset();
-                peer->pressed_tab.reset();
-                peer->hovered_choice.reset();
-                peer->dragging = false;
                 if (GetCapture() == peer->window) ReleaseCapture();
             }
-            if (peer->repeating && (!enabled(*peer) || !visible(*peer) || !control.pressed() || !IsWindowVisible(window))) {
-                KillTimer(peer->window, repeat_timer); peer->repeating = false;
+            if (auto* state = unextracted_if(*peer); state && state->repeating &&
+                (!enabled(*peer) || !visible(*peer) || !control.pressed() || !IsWindowVisible(window))) {
+                KillTimer(peer->window, repeat_timer); state->repeating = false;
             }
-            if (peer->document) {
-                peer->document->update(dpi, palette);
-                publish_control(peer->accessibility, nullptr, control, peer->window);
-            } else if (peer->edit) {
-                if ((IsWindowEnabled(peer->caption) != FALSE) != enabled(*peer))
-                    EnableWindow(peer->caption, enabled(*peer));
+            if (peer->document_bridge()) {
+                peer->document_bridge()->update(dpi, palette);
+                publish_control(unextracted(*peer).accessibility, nullptr, control, peer->window);
+            } else if (peer->edit_bridge()) {
+                if ((IsWindowEnabled(peer->caption_window()) != FALSE) != enabled(*peer))
+                    EnableWindow(peer->caption_window(), enabled(*peer));
                 auto& input = static_cast<TextInput&>(*peer->control);
-                peer->edit->sync_suggestions(input);
-                peer->edit->set_suggestion_colors(platform::native_color(palette.field),
+                peer->edit_bridge()->sync_suggestions(input);
+                peer->edit_bridge()->set_suggestion_colors(platform::native_color(palette.field),
                     platform::native_color(palette.text), platform::native_color(palette.secondary));
                 SendMessageW(peer->window, EM_SETLIMITTEXT, input.maximum_length(), 0);
-                peer->edit->set_placeholder(input.placeholder());
+                peer->edit_bridge()->set_placeholder(input.placeholder());
                 const auto* placeholder = input.effective_control_style_values(StylePart::placeholder);
-                peer->edit->set_placeholder_color(platform::native_color(placeholder && placeholder->foreground && !palette.high_contrast ?
+                peer->edit_bridge()->set_placeholder_color(platform::native_color(placeholder && placeholder->foreground && !palette.high_contrast ?
                     D2D1::ColorF(placeholder->foreground->resolve(palette.mode)) : enabled(*peer) ? palette.secondary : palette.disabled));
-                peer->edit->set_colors(platform::native_color(input_ink(*peer)), platform::native_color(input_fill(*peer)));
+                peer->edit_bridge()->set_colors(platform::native_color(input_ink(*peer)), platform::native_color(input_fill(*peer)));
                 const auto* text_style = input.effective_control_style_values(StylePart::text);
                 const PartStyleValues default_text;
                 const auto native_font = Drawing::font_descriptor(text_style ? *text_style : default_text,
                     drawing().edit_font_family(), 14.0f);
-                peer->edit->set_font(native_font.family_name(), native_font.size, static_cast<int>(native_font.weight),
+                peer->edit_bridge()->set_font(native_font.family_name(), native_font.size, static_cast<int>(native_font.weight),
                     native_font.style == StyleFontStyle::italic);
                 const auto* header_values = input.effective_control_style_values(StylePart::header);
-                peer->edit->set_caption_font(peer->caption, header_values, font,
+                peer->edit_bridge()->set_caption_font(peer->caption_window(), header_values, font,
                     drawing().edit_font_family(), palette.style == VisualStyle::winui ? VisualMetrics::body_size : VisualMetrics::caption_size);
-                peer->edit->set_caption_color(peer->caption, platform::native_color(header_values && header_values->foreground &&
+                peer->edit_bridge()->set_caption_color(peer->caption_window(), platform::native_color(header_values && header_values->foreground &&
                     !palette.high_contrast ? D2D1::ColorF(header_values->foreground->resolve(palette.mode)) :
                     enabled(*peer) ? palette.text : palette.disabled));
-                if (!peer->edit->composing() && peer->edit->text() != input.text())
-                    peer->edit->set_model_text(input.text());
-                if (peer->caption_text != input.name()) {
-                    SetWindowTextW(peer->caption, input.name().c_str());
-                    peer->caption_text = input.name();
+                if (!peer->edit_bridge()->composing() && peer->edit_bridge()->text() != input.text())
+                    peer->edit_bridge()->set_model_text(input.text());
+                if (unextracted(*peer).caption_text != input.name()) {
+                    SetWindowTextW(peer->caption_window(), input.name().c_str());
+                    unextracted(*peer).caption_text = input.name();
                 }
-                if (peer->provider) publish_control(peer->accessibility, nullptr, control, peer->window);
-            } else if (peer->list) {
-                if (GetFocus() == peer->window) last_focus = peer->window;
-                peer->list->update(dpi, palette);
+                if (peer->provider) publish_control(unextracted(*peer).accessibility, nullptr, control, peer->window);
             } else {
-                publish_control(peer->accessibility, peer->provider, control, peer->window);
+                if (peer->family == HostFamily::file_list && GetFocus() == peer->window) last_focus = peer->window;
+                peer->sync(dpi, palette);
             }
         }
         if (disabled_focus) {
             bool repaired{};
             for (const auto& peer : peers) if (peer->window == disabled_focus) {
-                if (const auto owner = peer->clear_owner.lock())
+                if (const auto owner = clear_owner(*peer))
                     if (auto* input = find_peer(owner.get())) repaired = focus(*input, false);
                 for (auto* parent = peer->parent; parent && !repaired; parent = parent->parent)
                     if (auto* expander = dynamic_cast<Expander*>(parent->control.get()); expander && !expander->expanded()) {
@@ -2486,12 +2539,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if ((msg.message != WM_KEYDOWN && msg.message != WM_SYSKEYDOWN) || (msg.hwnd != window && !IsChild(window, msg.hwnd))) return false;
         for (const auto& peer : peers)
-            if (peer->runtime && peer->control->role() == ControlRole::web_content && peer->runtime->contains_native(msg.hwnd)) return false;
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->edit) {
-            if (peer->edit->composing()) return false;
-            if (peer->edit->suggestion_key(msg.wParam)) return true;
+            if (peer->runtime_host() && peer->control->role() == ControlRole::web_content && peer->runtime_host()->contains_native(msg.hwnd)) return false;
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->edit_bridge()) {
+            if (peer->edit_bridge()->composing()) return false;
+            if (peer->edit_bridge()->suggestion_key(msg.wParam)) return true;
         }
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->document && peer->document->composing()) return false;
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->document_bridge() && peer->document_bridge()->composing()) return false;
         if (translate_menu_bar(msg)) return true;
         Control* target{};
         for (const auto& peer : peers) if (peer->window == msg.hwnd) target = peer->control.get();
@@ -2509,7 +2562,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 (GetKeyState(VK_SHIFT) & 0x8000) != 0, target, alt, text_input})) return true;
             // Redirect before TranslateMessage so dead keys, Unicode and IME stay in the native editor.
             if (text_input && GetFocus() != msg.hwnd) {
-                for (const auto& peer : peers) if (peer->window == GetFocus() && peer->edit && enabled(*peer)) {
+                for (const auto& peer : peers) if (peer->window == GetFocus() && peer->edit_bridge() && enabled(*peer)) {
                     msg.hwnd = peer->window;
                     return false;
                 }
@@ -2554,7 +2607,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             // Application shortcuts cannot activate controls behind a modal dialog.
             return false;
         }
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->edit && peer->parent) {
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->edit_bridge() && peer->parent) {
             if (auto* numeric = dynamic_cast<NumericInput*>(peer->parent->control.get());
                 numeric && (msg.wParam == VK_UP || msg.wParam == VK_DOWN)) {
                 numeric->step(msg.wParam == VK_UP ? 1 : -1); return true;
@@ -2577,7 +2630,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (msg.wParam == VK_PRIOR || msg.wParam == VK_NEXT) {
             if (dynamic_cast<DocumentText*>(target) || dynamic_cast<RangeInput*>(target) || dynamic_cast<RadioGroup*>(target) ||
                 dynamic_cast<VirtualCollection*>(target) || dynamic_cast<DataGrid*>(target)) return false;
-            for (const auto& peer : peers) if (peer->window == msg.hwnd && !peer->list)
+            for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->family != HostFamily::file_list)
                 return scroll_key(*peer, msg.wParam);
         }
         return false;
@@ -2718,27 +2771,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         update();
         return true;
     }
-    void wheel_scroll(Peer& peer, double delta, bool precise = false) {
-        auto* collection = dynamic_cast<VirtualCollection*>(peer.control.get());
-        auto* grid = dynamic_cast<DataGrid*>(peer.control.get());
-        const double current = collection ? collection->offset() : grid->offset();
-        const double maximum = collection ? collection->maximum_offset() : grid->maximum_offset();
-        const double target = std::clamp((peer.wheel_motion && current == peer.wheel_last ?
-            peer.wheel_target : current) + delta, 0.0, maximum);
-        if (precise || !smooth_scrolling || !client_animation || palette.high_contrast) {
-            peer.wheel_motion = false;
-            if (collection) collection->set_offset(target);
-            else grid->set_offset(target, grid->horizontal_offset());
-            return;
-        }
-        peer.wheel_start = peer.wheel_last = current;
-        peer.wheel_target = target;
-        peer.wheel_started = Animation::Clock::now();
-        peer.wheel_source = collection ? std::static_pointer_cast<const CollectionIndex>(collection->source()) :
-            std::static_pointer_cast<const CollectionIndex>(grid->source());
-        peer.wheel_motion = current != target;
-        invalidate(Invalidation::paint);
-    }
+
     bool scroll_wheel(Peer& peer, WPARAM wparam) {
         auto* owner = peer.control->role() == ControlRole::scroll_view ? &peer : peer.parent;
         while (owner && owner->control->role() != ControlRole::scroll_view) owner = owner->parent;
@@ -2889,15 +2922,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (expander) drawing().push_clip(expander->content_bounds());
             for (const auto& child : control->owned_children()) paint_content_surface(child, paint_peer, owner, adaptive);
-            if (paint_peer && peer && peer->clear_button)
-                if (auto* clear = find_peer(peer->clear_button.get())) paint_peer(clear);
+            if (paint_peer && peer && clear_adornment(*peer))
+                if (auto* clear = find_peer(clear_adornment(*peer).get())) paint_peer(clear);
             if (expander) drawing().pop_clip();
             drawing().pop_clip();
         }
     }
     void update_paint_bounds() {
         for (const auto& peer : peers) {
-            if (peer->edit) continue;
+            if (peer->edit_bridge()) continue;
             RECT pixels{};
             win32_require(GetWindowRect(peer->window, &pixels) != 0, "Read control paint bounds");
             MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&pixels), 2);
@@ -2947,7 +2980,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (palette.style == VisualStyle::winui && keyboard_focus_visible)
                     for (const auto& peer : peers)
                         if (peer->control->focused() && enabled(*peer) && visible(*peer) &&
-                            !is_caption_button(*peer->control) && peer->clear_owner.expired()) {
+                            !is_caption_button(*peer->control) && !is_clear_adornment(*peer)) {
                             const auto* toggle = dynamic_cast<const Toggle*>(peer->control.get());
                             const auto* radios = dynamic_cast<const RadioGroup*>(peer->control.get());
                             const auto* combo = dynamic_cast<const ComboBox*>(peer->control.get());
@@ -2996,9 +3029,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                                 const auto& item = radios->items()[i];
                                 if (radios->selected() != item.id || !item.enabled) continue;
                                 auto bounds = radios->item_bounds(i);
-                                const bool hovered = peer->hovered_choice == i;
+                                const bool hovered = unextracted(*peer).hovered_choice == i;
                                 const auto style = radios->item_style_values(StylePart::item, i,
-                                    hovered, hovered && peer->pressed_choice == item.id);
+                                    hovered, hovered && unextracted(*peer).pressed_choice == item.id);
                                 bounds.x += peer->paint_bounds.x;
                                 bounds.y += peer->paint_bounds.y;
                                 const bool horizontal = radios->horizontal_presentation();
@@ -3008,7 +3041,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                             }
                         }
                         else if (const auto* toggle = dynamic_cast<const Toggle*>(peer->control.get()))
-                            drawing().winui_toggle_focus(*toggle, peer->paint_bounds, palette, peer->text_layout.Get());
+                            drawing().winui_toggle_focus(*toggle, peer->paint_bounds, palette, unextracted(*peer).text_layout.Get());
                         else if (const auto* expander = dynamic_cast<const Expander*>(peer->control.get())) {
                             auto bounds = expander->header_bounds();
                             bounds.x += peer->paint_bounds.x - expander->bounds().x;
@@ -3021,7 +3054,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                             drawing().winui_focus_ring(layout_style::content(*range, peer->paint_bounds), palette, 4, 7,
                                 Drawing::SurfaceCorners::all, 0);
                     }
-                    else if (peer->document) {
+                    else if (peer->document_bridge()) {
                         const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
                         if (root_style) {
                             const auto bounds = peer->control->bounds();
@@ -3063,7 +3096,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                             drawing().pop_clip();
                         }
                     }
-                    else if (peer->edit) paint_edit(*peer);
+                    else if (peer->edit_bridge()) paint_edit(*peer);
                     else {
                         const auto bounds = peer->paint_bounds;
                         auto clip = bounds;
@@ -3079,8 +3112,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                         }
                         drawing().push_clip(clip);
                         drawing().origin(bounds.x, bounds.y);
-                        if (peer->list) peer->list->paint(drawing());
-                        else paint_control(*peer, peer != external_focus);
+                        paint_control(*peer, peer != external_focus);
                         drawing().origin(0, 0);
                         drawing().pop_clip();
                     }
@@ -3216,7 +3248,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (paint_overlays) for (const auto& [entry, generation] : popup_frames) {
                     if (closing || !entry.popup->current(generation)) continue;
                     const auto* peer = find_peer(entry.popup.get());
-                    if (peer && !peer->overlay_drawing) paint_popup(entry, false);
+                    if (peer && !peer->overlay_surface()) paint_popup(entry, false);
                 }
                 if (paint_overlays && tooltip_shown) {
                     for (const auto& peer : peers) if (peer->control->id() == tooltip_target) {
@@ -3263,13 +3295,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 if (composed && !closing) for (const auto& [entry, generation] : popup_frames) {
                     auto* surface = find_peer(entry.popup.get());
-                    if (closing || !surface || !surface->overlay_drawing || !entry.popup->current(generation)) continue;
+                    if (closing || !surface || !surface->overlay_surface() || !entry.popup->current(generation)) continue;
                     struct DrawingScope {
                         Impl& host;
                         Drawing* previous;
                         DrawingScope(Impl& value, Drawing& next) : host(value), previous(value.paint_drawing) { host.paint_drawing = &next; }
                         ~DrawingScope() { host.paint_drawing = previous; }
-                    } selection(*this, *surface->overlay_drawing);
+                    } selection(*this, *surface->overlay_surface());
                     drawing().set_visual_style(options.visual_style);
                     const auto bounds = surface->paint_bounds;
                     if (!drawing().begin(surface->window, static_cast<float>(dpi),
@@ -3297,7 +3329,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 // WS_CLIPCHILDREN protects opaque native EDIT pixels.
                 for (const auto& peer : peers) {
                     if (!peer->native()) ValidateRect(peer->window, nullptr);
-                    if (peer->caption) ValidateRect(peer->caption, nullptr);
+                    if (peer->caption_window()) ValidateRect(peer->caption_window(), nullptr);
                 }
             }
         } catch (...) { EndPaint(window, &paint); throw; }
@@ -3309,146 +3341,40 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     bool sync_images(bool window_shown = true) {
         bool changed{};
         std::vector<std::uint64_t> retained;
-        struct RowWork {
-            Peer* peer;
-            Rect clip;
-            bool shown;
-            std::shared_ptr<const CollectionIndex> source;
-            std::vector<RowVisual> rows;
-            bool tabs{};
-        };
-        std::vector<RowWork> work;
-        for (const auto& peer : peers) if (peer->image || dynamic_cast<VirtualCollection*>(peer->control.get()) ||
-            dynamic_cast<TabStrip*>(peer->control.get()) ||
-            dynamic_cast<DataGrid*>(peer->control.get()) || (peer->list &&
-            (static_cast<FileList&>(*peer->control).thumbnails() || peer->list->thumbnail_count()))) {
+        std::vector<RowImageWork> work;
+        for (const auto& peer : peers) {
+            if (!peer->image_sync_required()) continue;
             Rect rect = peer->control->bounds();
             const auto intersect = [&](Rect clip) {
                 const auto right = std::min(rect.x + rect.width, clip.x + clip.width);
                 const auto bottom = std::min(rect.y + rect.height, clip.y + clip.height);
-                rect.x = std::max(rect.x, clip.x);
-                rect.y = std::max(rect.y, clip.y);
+                rect.x = std::max(rect.x, clip.x); rect.y = std::max(rect.y, clip.y);
                 rect.width = std::max(0.0f, right - rect.x);
                 rect.height = std::max(0.0f, bottom - rect.y);
             };
             intersect(root->bounds());
-            for (auto* parent = peer->parent; parent; parent = parent->parent)
-                intersect(viewport(*parent));
+            for (auto* parent = peer->parent; parent; parent = parent->parent) intersect(viewport(*parent));
             const bool shown = window_shown && IsWindowVisible(window) && !IsIconic(window) &&
                 visible(*peer) && rect.width > 0 && rect.height > 0;
-            if (peer->image) {
-                peer->image->sync(shown, wake);
-                if (peer->image->pixels) retained.push_back(peer->image->pixels->id);
-            } else if (peer->list) {
-                rect.y -= peer->control->bounds().y;
-                work.push_back({peer.get(), rect, shown});
-            } else if (const auto* tabs = dynamic_cast<TabStrip*>(peer->control.get())) {
-                if (!peer->row_images) peer->row_images = std::make_unique<RowImages>();
-                rect.x -= tabs->bounds().x; rect.y -= tabs->bounds().y;
-                std::vector<RowVisual> rows;
-                if (shown) for (std::size_t i = 0; i < tabs->tabs().size(); ++i) {
-                    const auto b = tabs->tab_bounds(i);
-                    if (b.width <= 0 || b.height <= 0 || b.x + b.width <= rect.x || b.x >= rect.x + rect.width ||
-                        b.y + b.height <= rect.y || b.y >= rect.y + rect.height) continue;
-                    const auto& tab = tabs->tabs()[i];
-                    rows.push_back({{tab.id, 0}, {tab.icon, tab.image_path}});
-                    if (rows.size() == RowImages::maximum_rows) break;
-                }
-                work.push_back({peer.get(), rect, shown, {}, std::move(rows), true});
+            if (auto* image = peer->image_peer()) {
+                image->sync(shown, wake);
+                if (image->pixels) retained.push_back(image->pixels->id);
             } else {
-                if (!peer->row_images) peer->row_images = std::make_unique<RowImages>();
-                rect.x -= peer->control->bounds().x; rect.y -= peer->control->bounds().y;
-                std::vector<RowVisual> rows;
-                std::shared_ptr<const CollectionIndex> source;
-                if (shown) if (auto* collection = dynamic_cast<VirtualCollection*>(peer->control.get())) {
-                    source = collection->source();
-                    for (const auto& row : collection->visible_content()) {
-                        if (rows.size() == RowImages::maximum_rows) break;
-                        const auto b = detail::CollectionPresentationAccess::get(*collection) ?
-                            detail::CollectionPresentationAccess::clip(*collection, row.index) : row.bounds;
-                        if (b.y + b.height <= rect.y || b.y >= rect.y + rect.height ||
-                            b.x + b.width <= rect.x || b.x >= rect.x + rect.width) continue;
-                        auto visual = collection->source()->visual(row.index);
-                        if (visual.icon == ButtonIcon::none) visual.icon = row.content.icon;
-                        if (visual.image_path.empty()) visual.image_path = row.content.image_path;
-                        if (row.navigation && !visual.image_path.empty() && visual.icon == ButtonIcon::none)
-                            visual.icon = ButtonIcon::folder;
-                        float image_dips{};
-                        const auto* tree = dynamic_cast<const TreeView*>(collection);
-                        if (collection->presentation() == ItemsPresentation::gallery || tree) {
-                            const auto state = collection_row_style_state(row, collection->selection().contains(row.key),
-                                collection->focused() && collection->selection().focused() == row.key, enabled(*peer),
-                                !GetCapture() && collection->hovered() && peer->command_pointer &&
-                                    collection->hit_test(*peer->command_pointer) == row.index);
-                            if (collection->presentation() == ItemsPresentation::gallery)
-                                image_dips = std::clamp(collection->gallery_layout(row, state).image.width,
-                                    1.0f, float(ImageLimits::output_dimension));
-                            else if (!tree->detail_columns().empty()) {
-                                auto visual_row = row;
-                                visual_row.content.icon = visual.icon; visual_row.content.image_path = visual.image_path;
-                                image_dips = std::clamp(tree->details_layout(visual_row, state).icon.width,
-                                    1.0f, float(ImageLimits::output_dimension));
-                            } else if (tree->has_control_styling()) {
-                                if (const auto extent = tree->row_style_values(StylePart::icon, row, state).size)
-                                    image_dips = std::clamp(*extent, 1.0f, float(ImageLimits::output_dimension));
-                            }
-                        }
-                        rows.push_back({row.key, std::move(visual), row.navigation, image_dips});
-                    }
-                    if (const auto& frame = detail::CollectionPresentationAccess::get(*collection)) {
-                        const auto viewport = collection->content_viewport();
-                        for (const auto& exit : frame->outgoing()) {
-                            if (rows.size() == RowImages::maximum_rows) break;
-                            const auto painted = exit.bounds.intersect(exit.clip).intersect(
-                                {0, collection->offset(), viewport.width, viewport.height});
-                            if (painted.width <= 0 || painted.height <= 0) continue;
-                            const auto b = painted.in_view(viewport, collection->offset());
-                            if (b.y + b.height <= rect.y || b.y >= rect.y + rect.height ||
-                                b.x + b.width <= rect.x || b.x >= rect.x + rect.width) continue;
-                            const auto& frozen = *exit.frozen;
-                            rows.push_back({frozen.row.key, frozen.visual, frozen.row.navigation});
-                        }
-                    }
-                } else if (auto* grid = dynamic_cast<DataGrid*>(peer->control.get())) {
-                    source = grid->source();
-                    const auto column = grid->display_column(0);
-                    float x = grid->geometry().left - static_cast<float>(grid->horizontal_offset());
-                    if (column) for (size_t i = 0; i < *column; ++i) x += grid->columns()[i].width;
-                    if (column && x < rect.x + rect.width && x + grid->columns()[*column].width > rect.x) {
-                        const auto [begin, end] = grid->visible_rows();
-                        for (auto row = begin; row < end && rows.size() < RowImages::maximum_rows; ++row) {
-                            const auto box = grid->row_bounds(row);
-                            if (box.y + box.height <= rect.y || box.y >= rect.y + rect.height) continue;
-                            rows.push_back({grid->source()->key(row), grid->source()->visual(row, 0)});
-                        }
-                    }
-                }
-                work.push_back({peer.get(), rect, shown, std::move(source), std::move(rows)});
+                RowImageWork item{peer.get(), rect, shown};
+                if (peer->image_work(item)) work.push_back(std::move(item));
             }
         }
         std::size_t remaining = 48;
-        // Cancel hidden rows before visible controls compete for queue space.
+        // Preserve hidden cancellation before visible admission across all families.
         for (const bool shown : {false, true}) for (auto& item : work) {
-            auto& peer = *item.peer;
             if (item.shown != shown) continue;
-            if (peer.list) {
-                changed = peer.list->sync_thumbnails(item.shown, item.clip, wake, retained, remaining) || changed;
-            } else {
-                if (item.tabs)
-                    changed = peer.row_images->sync_visuals(std::move(item.rows), dpi, wake, retained, 16) || changed;
-                else {
-                    const auto* collection = dynamic_cast<VirtualCollection*>(peer.control.get());
-                    const bool retain_on_source_change = dynamic_cast<NavigationList*>(peer.control.get()) != nullptr ||
-                        (collection && (collection->stable_image_identity() || detail::CollectionPresentationAccess::get(*collection)));
-                    changed = peer.row_images->sync(std::move(item.source), std::move(item.rows), dpi, wake, retained,
-                        retain_on_source_change, collection && collection->stable_image_identity()) || changed;
-                }
-                has_images = has_images || peer.row_images->count() != 0;
-            }
+            auto* peer = item.peer;
+            changed = peer->sync_images(std::move(item), dpi, wake, retained, remaining) || changed;
+            has_images = has_images || peer->metric(PeerMetric::retained_images) != 0;
         }
         drawing().keep_images(retained);
         if (composition_overlay_ready) composition_overlay.keep_images(retained);
-        for (const auto& peer : peers) if (peer->overlay_drawing) peer->overlay_drawing->keep_images(retained);
+        for (const auto& peer : peers) if (peer->overlay_surface()) peer->overlay_surface()->keep_images(retained);
         return changed;
     }
     void deliver_images() {
@@ -3456,7 +3382,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         window_icon.deliver(window);
         if (!ready || closing || layout_pending) return;
         bool changed{};
-        for (const auto& peer : peers) if (peer->image) changed = peer->image->deliver() || changed;
+        for (const auto& peer : peers) if (peer->image_peer()) changed = peer->image_peer()->deliver() || changed;
         changed = sync_images() || changed;
         if (changed) invalidate(Invalidation::paint);
     }
@@ -3473,13 +3399,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return enabled(peer) ? palette.text : palette.disabled;
     }
     D2D1_COLOR_F input_fill(const Peer& peer) const {
-        if (peer.edit) {
+        if (peer.edit_bridge()) {
             const auto* editor_style = peer.control->effective_control_style_values(StylePart::root);
             if (editor_style && editor_style->background && !palette.high_contrast)
                 return D2D1::ColorF(editor_style->background->resolve(palette.mode));
         }
         const auto* owner = &peer;
-        if (peer.edit && peer.parent && (peer.parent->control->role() == ControlRole::numeric_input ||
+        if (peer.edit_bridge() && peer.parent && (peer.parent->control->role() == ControlRole::numeric_input ||
             peer.parent->control->role() == ControlRole::combo_box)) owner = peer.parent;
         if (owner->control->role() == ControlRole::numeric_input || owner->control->role() == ControlRole::combo_box) {
             const auto* owner_field = owner->control->effective_control_style_values(StylePart::field);
@@ -3490,7 +3416,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         for (const auto& child : owner->control->owned_children())
             if (const auto* control = dynamic_cast<const Control*>(child.get())) hovered |= control->hovered();
         const auto focused = GetFocus() == owner->window || IsChild(owner->window, GetFocus()) ||
-            (owner->clear_window && GetFocus() == owner->clear_window);
+            (unextracted(*owner).clear_window && GetFocus() == unextracted(*owner).clear_window);
         return palette.input_fill(enabled(*owner), focused, hovered, owner->surface);
     }
     void paint_edit(Peer& peer) {
@@ -3512,7 +3438,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         drawing().push_clip(bounds);
         const auto number = peer.parent ? dynamic_cast<NumericInput*>(peer.parent->control.get()) : nullptr;
         const bool invalid = number && !number->valid();
-        const bool focused = GetFocus() == peer.window || (peer.clear_window && GetFocus() == peer.clear_window);
+        const bool focused = GetFocus() == peer.window || (unextracted(peer).clear_window && GetFocus() == unextracted(peer).clear_window);
         const bool composite = peer.parent && (number || dynamic_cast<ComboBox*>(peer.parent->control.get())) &&
             (palette.style == VisualStyle::winui || peer.parent->control->has_control_styling());
         const auto* style = input.effective_control_style_values(StylePart::root);
@@ -3566,6 +3492,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         else drawing().text(text, area, ink, true);
     }
     void paint_control(Peer& peer, bool include_focus = true) {
+        const bool fluent = palette.style == VisualStyle::winui;
+        peer.paint({drawing(), palette, enabled(peer),
+            include_focus && peer.control->focused() && (!fluent || keyboard_focus_visible)});
+    }
+    void paint_unextracted(UnextractedPeer& peer, bool include_focus = true) {
         auto& canvas = drawing();
         auto& control = *peer.control;
         const auto bounds = peer.paint_bounds;
@@ -3817,78 +3748,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return;
             }
         }
-        if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-            const bool commands = control.role() == ControlRole::command_menu;
-            const auto* items = dynamic_cast<ItemsView*>(collection);
-            const bool trailing_shortcuts = items && items->trailing_shortcut_badges();
-            const auto* miller = dynamic_cast<MillerColumnList*>(collection);
-            const auto hovered = !enabled(peer) || GetCapture() ? std::optional<std::size_t>{} :
-                miller ? miller->hovered_row() : control.hovered() && peer.command_pointer ?
-                collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
-            const auto hovered_key = hovered ?
-                std::optional{collection->source()->key(*hovered)} : std::optional<ItemKey>{};
-            const auto collection_background = commands || (fluent && peer.surface) ? palette.surface :
-                palette.backdrop ? D2D1::ColorF(0, 0.0f) : palette.background;
-            if (collection->has_control_styling())
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette,
-                    collection->resolve_control_style_part(StylePart::root, 0), collection_background, palette.border, 0, {});
-            else canvas.fill({0, 0, bounds.width, bounds.height}, collection_background);
-            const auto viewport = collection->content_viewport();
-            const auto& presentation = detail::CollectionPresentationAccess::get(*collection);
-            canvas.push_clip(viewport);
-            for (auto row : collection->visible_content()) {
-                if (peer.command_pointer) row.hovered = row.content.enabled && enabled(peer) && hovered_key == row.key;
-                if (peer.row_images) {
-                    const auto visual = peer.row_images->visual(row.key);
-                    row.content.icon = visual.icon;
-                    row.content.image_path = visual.image_path;
-                }
-                if (presentation) canvas.push_clip(detail::CollectionPresentationAccess::clip(*collection, row.index));
-                canvas.collection_row(row, collection->selection().contains(row.key),
-                    control.focused() && collection->selection().focused() == row.key, enabled(peer), palette,
-                    row.content.enabled && enabled(peer) && hovered_key == row.key,
-                    peer.row_images ? peer.row_images->pixels(row.key) : nullptr, trailing_shortcuts, commands, collection,
-                    peer.row_images && peer.row_images->loading(row.key));
-                if (presentation) canvas.pop_clip();
-            }
-            bool outgoing_visible{};
-            if (presentation) for (const auto& exit : presentation->outgoing()) {
-                const auto painted = exit.bounds.intersect(exit.clip).intersect(
-                    {0, collection->offset(), viewport.width, viewport.height});
-                if (painted.width <= 0 || painted.height <= 0) continue;
-                outgoing_visible = true;
-                const auto& frozen = *exit.frozen;
-                auto row = frozen.row;
-                row.bounds = exit.bounds.in_view(viewport, collection->offset());
-                row.content.icon = frozen.visual.icon; row.content.image_path = frozen.visual.image_path;
-                canvas.push_clip(painted.in_view(viewport, collection->offset()));
-                canvas.collection_row(row, frozen.selected, false, enabled(peer), palette, false,
-                    peer.row_images ? peer.row_images->pixels(row.key) : nullptr, trailing_shortcuts, commands, collection,
-                    peer.row_images && peer.row_images->loading(row.key));
-                canvas.pop_clip();
-            }
-            if ((!collection->source() || !collection->source()->size()) &&
-                !outgoing_visible)
-                if (collection->has_control_styling()) {
-                    const auto values = collection->resolve_control_style_part(StylePart::empty, 0);
-                    canvas.styled_text(commands ? L"No matching commands" : L"No matching items",
-                        {viewport.x + 12, viewport.y + 10, std::max(0.0f, viewport.width - 24), 32},
-                        values.foreground && !palette.high_contrast ? D2D1::ColorF(values.foreground->resolve(palette.mode)) : palette.secondary, values);
-                } else canvas.text(commands ? L"No matching commands" : L"No matching items",
-                    {12, 10, std::max(0.0f, bounds.width - 24), 32}, palette.secondary);
-            canvas.pop_clip(); const auto thumb = collection->thumb();
-            if (thumb.height) {
-                if (collection->has_control_styling()) {
-                    const auto track = collection->resolve_control_style_part(StylePart::scrollbar_track, 0);
-                    canvas.styled_surface({viewport.x + viewport.width, viewport.y, collection->scrollbar_width(), viewport.height},
-                        palette, track, collection_background, palette.border, 0, {});
-                    const auto values = collection->resolve_control_style_part(StylePart::scrollbar_thumb, 0);
-                    canvas.styled_surface(thumb, palette, values, enabled(peer) ? palette.secondary : palette.disabled, palette.border, 3, {});
-                } else if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging, enabled(peer));
-                else canvas.rounded(thumb, palette.secondary, 3);
-            }
-            return;
-        }
+
         if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
             if (choices->has_control_styling() || choices->horizontal_presentation()) {
                 const PartStyleValues empty;
@@ -4233,270 +4093,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             } else canvas.text(text, caption, foundation_text, true);
             return;
         }
-        if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
-            if (grid->has_control_styling()) {
-                const auto g = grid->geometry();
-                const auto view = g.viewport();
-                const auto grid_root_values = grid->part_style(StylePart::root);
-                const auto ink = [&](const PartStyleValues& values, D2D1_COLOR_F fallback) {
-                    return Drawing::style_foreground(values, palette, fallback);
-                };
-                const auto inset = [](Rect box, const PartStyleValues& values, Insets fallback) {
-                    const auto p = values.padding.value_or(fallback), b = values.border_thickness.value_or(Insets{});
-                    const auto left = p.left + b.left, top = p.top + b.top;
-                    return Rect{box.x + left, box.y + top, std::max(0.0f, box.width - left - p.right - b.right),
-                        std::max(0.0f, box.height - top - p.bottom - b.bottom)};
-                };
-                const auto text = [&](std::wstring_view value, Rect box, PartStyleValues values, D2D1_COLOR_F fallback, bool numeric) {
-                    if (numeric && !values.horizontal_alignment) values.horizontal_alignment = StyleAlignment::end;
-                    canvas.styled_text(value, box, ink(values, fallback), values, TextStyle::caption);
-                };
-                const auto check = [&](Rect box, const PartStyleValues& values, bool checked, bool mixed) {
-                    if (values.empty() || palette.high_contrast) {
-                        canvas.check_indicator(box, palette, checked, enabled(peer), mixed);
-                        return;
-                    }
-                    const auto fallback = checked || mixed ? palette.accent : palette.field;
-                    canvas.styled_surface(box, palette, values, fallback, palette.border, 2, {1, 1, 1, 1});
-                    if (checked || mixed) canvas.text(mixed ? L"\u2212" : L"\u2713", inset(box, values, {}),
-                        ink(values, checked || mixed ? palette.selection_text : foundation_text));
-                };
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, grid_root_values,
-                    fluent ? palette.surface : palette.background, palette.border, fluent ? 4.0f : 0.0f,
-                    fluent ? Insets{1, 1, 1, 1} : Insets{});
-                const auto [first, end] = grid->visible_rows();
-                const auto& source = grid->source();
-                canvas.push_clip(view);
-                for (auto row = first; row < end; ++row) {
-                    const auto state = grid->row_style_states(row, enabled(peer), peer.grid_drag != 0);
-                    const bool selected = (state & style_states::selected) != 0, hovered = (state & style_states::hovered) != 0;
-                    const auto values = grid->row_style(StylePart::row, row, enabled(peer), peer.grid_drag != 0);
-                    const auto row_box = g.row(row);
-                    auto face = row_box;
-                    if (fluent) face = {face.x + 2, face.y + 2, std::max(0.0f, face.width - 4), std::max(0.0f, face.height - 4)};
-                    canvas.styled_surface(face, palette, values,
-                        selected ? palette.selection : hovered ? palette.hover : !fluent && row % 2 ? palette.surface : D2D1::ColorF(0, 0.0f),
-                        palette.border, fluent ? 4.0f : 0.0f, {});
-                    if (fluent && selected) canvas.rounded({view.x + 2, row_box.y + 9, 3, std::max(0.0f, row_box.height - 18)}, palette.accent, 1.5f);
-                    for (std::size_t c = 0; c < grid->columns().size(); ++c) {
-                        const auto source_column = grid->source_column(c);
-                        const auto cell = grid->cell_bounds(row, source_column);
-                        if (cell.x + cell.width <= view.x || cell.x >= view.x + view.width) continue;
-                        const auto& column = grid->columns()[c];
-                        canvas.push_clip(cell);
-                        auto content = inset(cell, values, {12, 0, 12, 0});
-                        const auto line = grid->row_style(StylePart::grid_line, row, enabled(peer), peer.grid_drag != 0);
-                        if (!line.empty()) {
-                            content.width = std::max(0.0f, content.width - line.thickness.value_or(1));
-                            content.height = std::max(0.0f, content.height - line.thickness.value_or(1));
-                        }
-                        const auto cell_values = grid->row_style(StylePart::cell, row, enabled(peer), peer.grid_drag != 0);
-                        const auto fallback = !enabled(peer) ? palette.disabled : selected ? palette.selection_text : palette.text;
-                        if (column.checkable) {
-                            check({cell.x + 10, cell.y + (cell.height - 16) / 2, 16, 16},
-                                grid->row_style(StylePart::indicator, row, enabled(peer), peer.grid_drag != 0), selected, false);
-                            content.x += 24; content.width = std::max(0.0f, content.width - 24);
-                        }
-                        if (source_column == 0 && peer.row_images) {
-                            const auto item_key = source->key(row);
-                            const auto visual = peer.row_images->visual(item_key);
-                            if (visual.icon != ButtonIcon::none || !visual.image_path.empty()) {
-                                canvas.item_visual(visual, peer.row_images->pixels(item_key),
-                                    {content.x, content.y + (content.height - 24) / 2, 24, 24}, ink(cell_values, fallback),
-                                    false, peer.row_images->loading(item_key));
-                                content.x += 32; content.width = std::max(0.0f, content.width - 32);
-                            }
-                        }
-                        text(source->text(row, source_column), content, cell_values, fallback, column.numeric);
-                        if (!line.empty() && line.thickness.value_or(1) > 0) {
-                            const auto thickness = line.thickness.value_or(1);
-                            const auto right = cell.x + cell.width - thickness / 2, bottom = cell.y + cell.height - thickness / 2;
-                            canvas.line(right, cell.y, right, cell.y + cell.height, ink(line, palette.border), thickness);
-                            canvas.line(cell.x, bottom, cell.x + cell.width, bottom, ink(line, palette.border), thickness);
-                        }
-                        canvas.pop_clip();
-                    }
-                    if (state & style_states::focused) canvas.focus_ring({row_box.x + 1, row_box.y + 1,
-                        std::max(0.0f, row_box.width - 2), std::max(0.0f, row_box.height - 2)}, palette);
-                    else if (hovered && palette.high_contrast) canvas.outline(face, palette.text);
-                }
-                if (!source || !source->size()) canvas.text(L"No matching rows",
-                    {view.x + 16, view.y + 14, std::max(0.0f, view.width - 32), 40}, palette.secondary);
-                canvas.pop_clip();
-                canvas.push_clip(g.header());
-                canvas.fill(g.header(), palette.surface);
-                for (std::size_t c = 0; c < grid->columns().size(); ++c) {
-                    const auto column = grid->source_column(c);
-                    const auto box = g.column(grid->columns(), c);
-                    const bool dragging = peer.grid_drag >= 3 && peer.grid_column == c;
-                    const auto state = grid->header_style_states(column, enabled(peer), dragging);
-                    const auto values = grid->header_style(StylePart::header, column, enabled(peer), dragging);
-                    canvas.push_clip(box);
-                    canvas.styled_surface(box, palette, values, palette.surface, palette.border, 0, {});
-                    auto content = inset(box, values, {12, 0, 12, 0});
-                    const auto line = grid->header_style(StylePart::grid_line, column, enabled(peer), dragging);
-                    const auto thickness = line.thickness.value_or(1);
-                    content.width = std::max(0.0f, content.width - thickness);
-                    content.height = std::max(0.0f, content.height - thickness);
-                    const auto& definition = grid->columns()[c];
-                    if (definition.checkable) { content.x += 24; content.width = std::max(0.0f, content.width - 24); }
-                    if (definition.filterable) content.width = std::max(0.0f, content.width - 20);
-                    if (state & style_states::sorted) {
-                        const auto sort = grid->header_style(StylePart::sort_icon, column, enabled(peer), dragging);
-                        canvas.symbol(grid->descending() ? Symbol::down : Symbol::up,
-                            {content.x + std::max(0.0f, content.width - 20), content.y, 20, content.height}, ink(sort, foundation_text), 12);
-                        content.width = std::max(0.0f, content.width - 20);
-                    }
-                    text(definition.name, content, values, enabled(peer) ? palette.secondary : palette.disabled, definition.numeric);
-                    if (definition.checkable) check({box.x + 10, box.y + (box.height - 16) / 2, 16, 16},
-                        grid->header_style(StylePart::indicator, column, enabled(peer), dragging),
-                        (state & style_states::checked) != 0, (state & style_states::mixed) != 0);
-                    if (definition.filterable) {
-                        const auto filter = grid->header_style(StylePart::filter_icon, column, enabled(peer), dragging);
-                        canvas.symbol(Symbol::filter, grid->header_part_bounds(column, GridHeaderPart::filter),
-                            ink(filter, state & style_states::filtered ? palette.accent : palette.secondary), 12);
-                    }
-                    if (thickness > 0) {
-                        const auto right = box.x + box.width - thickness / 2, bottom = box.y + box.height - thickness / 2;
-                        canvas.line(right, box.y + 8, right, box.y + std::max(8.0f, box.height - 8), ink(line, palette.border), thickness);
-                        canvas.line(box.x, bottom, box.x + box.width, bottom, ink(line, palette.border), thickness);
-                    }
-                    if (state & style_states::focused) canvas.focus_ring(grid->header_part_bounds(column, grid->header_part()), palette);
-                    canvas.pop_clip();
-                }
-                if (peer.grid_drag == 5) {
-                    float marker = g.left - static_cast<float>(grid->horizontal_offset());
-                    for (std::size_t c = 0; c < std::min(peer.grid_drop, grid->columns().size()); ++c) marker += grid->columns()[c].width;
-                    const auto values = grid->part_style(StylePart::reorder_marker, style_states::dragging);
-                    const auto thickness = values.thickness.value_or(3);
-                    if (thickness > 0) canvas.fill({marker - thickness / 2, g.top + 2, thickness, std::max(0.0f, g.header_height - 4)}, ink(values, palette.accent));
-                }
-                canvas.pop_clip();
-                for (bool vertical : {true, false}) {
-                    const bool dragging = peer.grid_drag == (vertical ? 1 : 2);
-                    const auto state = dragging ? style_states::dragging : 0;
-                    const auto track = grid->part_style(StylePart::scrollbar_track, state);
-                    canvas.styled_surface(vertical ? g.vertical_track() : g.horizontal_track(), palette, track,
-                        ink(track, D2D1::ColorF(0, 0.0f)), palette.border, 0, {});
-                    const auto thumb = vertical ? grid->vertical_thumb() : grid->horizontal_thumb();
-                    if (thumb.width <= 0 || thumb.height <= 0) continue;
-                    const auto values = grid->part_style(StylePart::scrollbar_thumb, state);
-                    if (values.empty()) canvas.scrollbar_thumb(thumb, palette, dragging, enabled(peer));
-                    else canvas.styled_surface(thumb, palette, values, ink(values, enabled(peer) ? palette.secondary : palette.disabled), palette.border, 3, {});
-                }
-                return;
-            }
-            canvas.fill({0, 0, bounds.width, bounds.height}, fluent ? palette.surface : palette.background);
-            canvas.push_clip({0, 0, grid->viewport_width(), bounds.height});
-            const auto [first, end] = grid->visible_rows();
-            const auto& source = grid->source();
-            const auto hovered = enabled(peer) && !peer.grid_drag ? grid->hovered_row() : std::optional<std::size_t>{};
-            canvas.push_clip({0, DataGrid::header_height, grid->viewport_width(), grid->viewport_height()});
-            for (auto row = first; row < end; ++row) {
-                const float y = DataGrid::header_height + static_cast<float>(row * double(DataGrid::row_height) - grid->offset());
-                const bool selected = grid->selection().contains(source->key(row));
-                if (fluent) {
-                    if (selected) {
-                        canvas.rounded({2, y + 2, std::max(0.0f, grid->viewport_width() - 4), DataGrid::row_height - 4}, palette.selection, 4);
-                        canvas.rounded({2, y + 9, 3, DataGrid::row_height - 18}, palette.accent, 1.5f);
-                    } else if (hovered == row)
-                        canvas.rounded({2, y + 2, std::max(0.0f, grid->viewport_width() - 4), DataGrid::row_height - 4}, palette.hover, 4);
-                } else if (selected || hovered == row || row % 2) canvas.fill({0, y, grid->viewport_width(), DataGrid::row_height},
-                    selected ? palette.selection : hovered == row ? palette.hover : palette.surface);
-                float x = -static_cast<float>(grid->horizontal_offset());
-                for (std::size_t c = 0; c < grid->columns().size(); ++c) {
-                    const auto& column = grid->columns()[c];
-                    if (x + column.width > 0 && x < grid->viewport_width()) {
-                        const auto ink = !enabled(peer) ? palette.disabled : selected ? palette.selection_text : palette.text;
-                        if (column.checkable) {
-                            if (fluent) canvas.check_indicator({x + 10, y + 8, 16, 16}, palette, selected, enabled(peer));
-                            else {
-                                canvas.rounded({x + 10, y + 8, 16, 16}, ink, 2, true);
-                                if (selected) canvas.text(L"\u2713", {x + 10, y, 20, DataGrid::row_height}, ink);
-                            }
-                        }
-                        float left = column.checkable ? 36.0f : 12.0f;
-                        canvas.push_clip({x, y, column.width, DataGrid::row_height});
-                        if (grid->source_column(c) == 0 && peer.row_images) {
-                            const auto row_key = source->key(row);
-                            const auto visual = peer.row_images->visual(row_key);
-                            if (visual.icon != ButtonIcon::none || !visual.image_path.empty()) {
-                                canvas.item_visual(visual, peer.row_images->pixels(row_key), {x + left, y + 4, 24, 24}, ink,
-                                    false, peer.row_images->loading(row_key));
-                                left += 32;
-                            }
-                        }
-                        canvas.cell_text(source->text(row, grid->source_column(c)), {x + left, y,
-                            std::max(0.0f, column.width - left - 12), DataGrid::row_height}, ink, column.numeric);
-                        canvas.pop_clip();
-                    }
-                    x += column.width;
-                }
-                if (grid->selected() == source->key(row) && control.focused() && !grid->header_focus()) {
-                    const Rect face{1, y + 1, std::max(0.0f, grid->viewport_width() - 2), DataGrid::row_height - 2};
-                    if (fluent) canvas.focus_ring(face, palette);
-                    else canvas.outline(face, palette.accent);
-                } else if (!selected && hovered == row && palette.high_contrast)
-                    canvas.outline({1, y + 1, std::max(0.0f, grid->viewport_width() - 2), DataGrid::row_height - 2}, palette.text);
-            }
-            if (!source || !source->size()) canvas.text(L"No matching rows", {16, 52, grid->viewport_width() - 32, 40}, palette.secondary);
-            canvas.pop_clip();
-            canvas.fill({0, 0, grid->viewport_width(), DataGrid::header_height}, palette.surface);
-            float x = -static_cast<float>(grid->horizontal_offset());
-            for (std::size_t c = 0; c < grid->columns().size(); ++c) {
-                const auto& column = grid->columns()[c];
-                const bool sorted = grid->source_column(c) == grid->sort_column();
-                const float sort_space = fluent && sorted ? 20.0f : 0.0f;
-                const float text_right = x + column.width - (column.filterable ? 32 : 12);
-                canvas.cell_text(column.name + (!fluent && sorted ? (grid->descending() ? L" \u2193" : L" \u2191") : L""),
-                    {x + (column.checkable ? 36 : 12), 0, std::max(0.0f, text_right - x - (column.checkable ? 36 : 12) - sort_space),
-                    DataGrid::header_height}, palette.secondary, column.numeric);
-                if (fluent && sorted)
-                    canvas.symbol(grid->descending() ? Symbol::down : Symbol::up,
-                        {text_right - 20, 0, 20, DataGrid::header_height}, foundation_text, 12);
-                if (column.checkable) {
-                    const auto state = grid->check_state();
-                    if (fluent) canvas.check_indicator({x + 10, 11, 16, 16}, palette, state == SelectionState::all,
-                        enabled(peer), state == SelectionState::mixed);
-                    else {
-                        canvas.rounded({x + 10, 11, 16, 16}, foundation_text, 2, true);
-                        if (state != SelectionState::none) canvas.text(state == SelectionState::all ? L"\u2713" : L"\u2212", {x + 10, 0, 20, DataGrid::header_height}, foundation_text);
-                    }
-                }
-                if (column.filterable) {
-                    const auto ink = grid->filters()[grid->source_column(c)].empty() ? palette.secondary : palette.accent;
-                    const Rect filter{x + column.width - 28, 0, 24, DataGrid::header_height};
-                    if (fluent) canvas.symbol(Symbol::filter, filter, ink, 12);
-                    else canvas.text(L"\u25bd", filter, ink);
-                }
-                canvas.line(x + column.width, 8, x + column.width, DataGrid::header_height - 8, palette.border);
-                if (control.focused() && grid->header_focus() && grid->focused_column() == c) {
-                    const auto b = grid->header_part_bounds(grid->source_column(c), grid->header_part());
-                    const Rect face{b.x + 1, 1, std::max(0.0f, b.width - 2), DataGrid::header_height - 2};
-                    if (fluent) canvas.focus_ring(face, palette);
-                    else canvas.outline(face, palette.accent);
-                }
-                x += column.width;
-            }
-            if (peer.grid_drag == 5) {
-                float marker = -static_cast<float>(grid->horizontal_offset());
-                for (std::size_t c = 0; c < std::min(peer.grid_drop, grid->columns().size()); ++c) marker += grid->columns()[c].width;
-                marker = std::clamp(marker, 2.0f, std::max(2.0f, grid->viewport_width() - 2));
-                canvas.fill({marker - 1, 2, 3, DataGrid::header_height - 4}, palette.accent);
-            }
-            canvas.pop_clip();
-            canvas.line(0, DataGrid::header_height, grid->viewport_width(), DataGrid::header_height, palette.border);
-            const auto vertical = grid->vertical_thumb(), horizontal = grid->horizontal_thumb();
-            if (fluent) {
-                if (vertical.height) canvas.scrollbar_thumb(vertical, palette, peer.grid_drag == 1, enabled(peer));
-                if (horizontal.width) canvas.scrollbar_thumb(horizontal, palette, peer.grid_drag == 2, enabled(peer));
-                canvas.rounded({0.5f, 0.5f, std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)}, palette.border, 4, true);
-            } else {
-                if (vertical.height) canvas.rounded(vertical, palette.secondary, 3);
-                if (horizontal.width) canvas.rounded(horizontal, palette.secondary, 3);
-            }
-            return;
-        }
+
         if (auto* chart = dynamic_cast<HistoryChart*>(&control)) {
             const auto plot = chart->plot_bounds();
             const auto chart_root_values = chart->part_style(StylePart::root), title = chart->part_style(StylePart::title),
@@ -4861,10 +4458,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             SetForegroundWindow(window);
         }
         SetFocus(peer.window);
-        if (window && !closing && peer.runtime && peer.runtime->active())
+        if (window && !closing && peer.runtime_host() && peer.runtime_host()->active())
             if (auto* web = dynamic_cast<WebContent*>(peer.control.get())) web->focus_content();
-        return GetFocus() == peer.window || (peer.document && IsChild(peer.window, GetFocus())) ||
-            (peer.runtime && peer.runtime->contains_native(GetFocus()));
+        return GetFocus() == peer.window || (peer.document_bridge() && IsChild(peer.window, GetFocus())) ||
+            (peer.runtime_host() && peer.runtime_host()->contains_native(GetFocus()));
     }
     Peer* edit_at(HWND source, LPARAM position) const {
         POINT point{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
@@ -4872,7 +4469,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const float x = point.x * 96.0f / dpi, y = point.y * 96.0f / dpi;
         for (auto it = peers.rbegin(); it != peers.rend(); ++it) {
             auto& peer = **it;
-            if (!peer.edit || (GetParent(peer.window) != source && peer.window != source) ||
+            if (!peer.edit_bridge() || (GetParent(peer.window) != source && peer.window != source) ||
                 !visible(peer) || !enabled(peer) || !in_top_popup(peer)) continue;
             const auto rect = peer.control->bounds();
             if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height)
@@ -4903,15 +4500,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         std::vector<Peer*> snapshot;
         for (const auto& peer : peers) snapshot.push_back(peer.get());
         for (auto* peer : snapshot) {
-            if (peer->edit) peer->edit->dismiss_suggestions();
-            peer->grid_drag = 0;
-            peer->dragging = false;
-            if (auto range = std::dynamic_pointer_cast<RangeInput>(peer->control)) range->cancel_drag();
-            peer->control->cancel();
+            peer->cancel_input();
             peer->control->pointer_move(false);
-            peer->pressed_choice.reset();
-            peer->hovered_choice.reset();
-            KillTimer(peer->window, repeat_timer); peer->repeating = peer->repeat_cycle = false;
             if (GetCapture() == peer->window) ReleaseCapture();
         }
     }
@@ -4928,6 +4518,121 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return false;
     }
     LRESULT control_message(Peer& peer, HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+        if (auto* state = unextracted_if(peer))
+            return unextracted_control_message(*state, hwnd, message, wparam, lparam);
+        auto& control = *peer.control;
+        switch (message) {
+        case WM_COMMAND:
+        case WM_NOTIFY:
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLOREDIT:
+        case WM_NEXTDLGCTL:
+            return SendMessageW(window, message, wparam, lparam);
+        case WM_MOUSEWHEEL:
+            hide_tooltip();
+            if ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) &&
+                miller_wheel(peer, -GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
+            break;
+        case WM_MOUSEHWHEEL:
+            hide_tooltip();
+            if (miller_wheel(peer, GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
+            break;
+        case WM_ERASEBKGND: return 1;
+        case WM_PAINT:
+            ValidateRect(hwnd, nullptr);
+            return 0;
+        case WM_GETOBJECT:
+            if (static_cast<LONG>(lparam) == UiaRootObjectId && peer.provider)
+                return UiaReturnRawElementProvider(hwnd, wparam, lparam, peer.provider);
+            break;
+        case WM_SETFOCUS:
+            menu_bar_focused(peer, reinterpret_cast<HWND>(wparam));
+            last_focus = hwnd;
+            reveal(peer);
+            control.set_focused(true);
+            return 0;
+        case WM_KILLFOCUS:
+            peer.input(message, wparam, lparam, {dpi, palette});
+            control.set_focused(false);
+            if (GetCapture() == hwnd) ReleaseCapture();
+            return 0;
+        case WM_MOUSEMOVE:
+            if (menu_bar_hover(peer, row_pointer_inside(hwnd, lparam))) return 0;
+            break;
+        case WM_LBUTTONDOWN:
+            peer.cancel_wheel();
+            if (!enabled(peer) || !visible(peer)) return 0;
+            if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
+            hide_tooltip();
+            if (focus_edit_at(hwnd, lparam)) return 0;
+            if (peer.parent)
+                if (auto* columns = dynamic_cast<MillerColumns*>(peer.parent->control.get());
+                    columns && columns->focus_pointer(control,
+                        {GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) return 0;
+            break;
+        case WM_KEYDOWN:
+            if (!enabled(peer) || !visible(peer)) return 0;
+            if (menu_bar_key(peer, wparam, lparam)) return 0;
+            hide_tooltip();
+            if (peer.parent && (wparam == VK_LEFT || wparam == VK_RIGHT))
+                if (auto* breadcrumb = dynamic_cast<Breadcrumb*>(peer.parent->control.get())) {
+                    if (auto* next = breadcrumb->adjacent(control, wparam == VK_LEFT ? -1 : 1))
+                        if (auto* target = find_peer(next)) focus(*target, false);
+                    return 0;
+                }
+            if (wparam == VK_ESCAPE && !popups.empty()) {
+                auto popup = popups.back().popup;
+                dismiss_popup(*popup, PopupDismissReason::cancel);
+                return 0;
+            }
+            if (wparam == VK_ESCAPE && peer.adaptive && peer.adaptive->overlay_active()) {
+                peer.adaptive->set_navigation_open(false);
+                return 0;
+            }
+            break;
+        case WM_KEYUP:
+            if (wparam == VK_SPACE || wparam == VK_RETURN) {
+                activated(peer, control.key_up(wparam == VK_SPACE ? ActivationKey::space : ActivationKey::enter));
+                return 0;
+            }
+            break;
+        case WM_CHAR:
+            if (wparam == VK_SPACE || wparam == VK_RETURN) return 0;
+            break;
+        case control_action_message:
+            if (wparam != control.id()) return UIA_E_ELEMENTNOTAVAILABLE;
+            if (lparam == 6) { reveal(peer); return S_OK; }
+            if (!enabled(peer) || !visible(peer)) return UIA_E_ELEMENTNOTENABLED;
+            if (lparam == 1) return focus(peer, true) ? S_OK : UIA_E_INVALIDOPERATION;
+            return UIA_E_INVALIDOPERATION;
+        case foundation_action_message: return UIA_E_INVALIDOPERATION;
+        case WM_NCDESTROY:
+            peer.input(message, wparam, lparam, {dpi, palette});
+            control.cancel();
+            control.set_focused(false);
+            peer.disconnect_accessibility();
+            UiaReturnRawElementProvider(hwnd, 0, 0, nullptr);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            peer.window = nullptr;
+            return DefWindowProcW(hwnd, message, wparam, lparam);
+        }
+        if (const auto result = peer.input(message, wparam, lparam, {dpi, palette})) return *result;
+        if (message == WM_KEYDOWN) {
+            if (wparam == VK_ESCAPE) {
+                control.cancel();
+                if (GetCapture() == hwnd) ReleaseCapture();
+                return 0;
+            }
+            if (wparam == VK_SPACE || wparam == VK_RETURN) {
+                const auto accepted = control.key_down(wparam == VK_SPACE ? ActivationKey::space : ActivationKey::enter,
+                    (lparam & (1LL << 30)) != 0);
+                activated(peer, accepted && wparam == VK_RETURN);
+                return 0;
+            }
+        }
+        return DefWindowProcW(hwnd, message, wparam, lparam);
+    }
+    LRESULT unextracted_control_message(UnextractedPeer& peer, HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         auto& control = *peer.control;
         const auto gesture = [] {
             const bool ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0;
@@ -4969,13 +4674,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (dynamic_cast<HyperlinkButton*>(&control) && enabled(peer) && LOWORD(lparam) == HTCLIENT) {
                 SetCursor(LoadCursorW(nullptr, IDC_HAND)); return TRUE;
             }
-            if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && enabled(peer) && LOWORD(lparam) == HTCLIENT) {
-                POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd, &point);
-                const float x = point.x * 96.0f / dpi, y = point.y * 96.0f / dpi;
-                const auto cursor = peer.grid_drag == 3 || (y >= grid->geometry().top && y < grid->geometry().header_bottom() && grid->resize_boundary(x)) ?
-                    IDC_SIZEWE : peer.grid_drag == 5 ? IDC_SIZEALL : IDC_ARROW;
-                SetCursor(LoadCursorW(nullptr, cursor)); return TRUE;
-            }
+
             if (auto* split = dynamic_cast<SplitView*>(&control); split && enabled(peer) && split->expanded() &&
                 reinterpret_cast<HWND>(wparam) == hwnd && LOWORD(lparam) == HTCLIENT) {
                 POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd, &point);
@@ -5004,31 +4703,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 map->zoom_at(GET_WHEEL_DELTA_WPARAM(wparam) / 120.0,
                     {point.x * 96.0f / dpi, point.y * 96.0f / dpi}); return 0;
             }
-            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-                if (!enabled(peer)) return 0;
-                const int delta = GET_WHEEL_DELTA_WPARAM(wparam);
-                wheel_scroll(peer, -vertical_wheel_dips(wparam, collection->content_viewport().height),
-                    std::abs(delta) < WHEEL_DELTA); return 0;
-            }
-            if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
-                if (!enabled(peer)) return 0;
-                const int delta = GET_WHEEL_DELTA_WPARAM(wparam);
-                const double steps = static_cast<double>(delta) / WHEEL_DELTA;
-                if (GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT)
-                    grid->set_offset(grid->offset(), grid->horizontal_offset() - steps * 96);
-                else wheel_scroll(peer, -vertical_wheel_dips(wparam, grid->viewport_height()),
-                    std::abs(delta) < WHEEL_DELTA);
-                return 0;
-            }
+
             if (scroll_wheel(peer, wparam)) return 0;
             break;
         case WM_MOUSEHWHEEL:
             hide_tooltip();
             if (miller_wheel(peer, GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
-            if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
-                grid->set_offset(grid->offset(), grid->horizontal_offset() + GET_WHEEL_DELTA_WPARAM(wparam) * 0.8);
-                return 0;
-            }
+
             break;
         case WM_CONTEXTMENU:
             if (auto* tabs = dynamic_cast<TabStrip*>(&control)) {
@@ -5040,36 +4721,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 if (!tabs->prepare_context_menu(position)) return 0;
             }
-            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-                if (!enabled(peer)) return 0;
-                std::optional<Point> position;
-                if (lparam != -1) {
-                    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
-                    position = Point{point.x * 96.0f / dpi, point.y * 96.0f / dpi};
-                }
-                if (auto* list = dynamic_cast<MillerColumnList*>(collection)) {
-                    if (!list->prepare_context_menu(position)) return 0;
-                } else if (auto* nav = dynamic_cast<NavigationList*>(collection)) {
-                    if (!nav->prepare_context_menu(position)) return 0;
-                } else if (position) {
-                    if (const auto row = collection->hit_test(*position)) {
-                        const auto source = collection->source();
-                        const auto item_key = source->key(*row);
-                        if (!collection->select(item_key) || collection->source() != source) return 0;
-                    } else collection->set_selection({});
-                }
-                if (!ready || closing || !focus(peer, false)) return 0;
-            }
-            if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
-                grid->hover_pointer({});
-                SetFocus(hwnd);
-                std::optional<Point> position;
-                if (lparam != -1) {
-                    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
-                    position = Point{point.x * 96.0f / dpi, point.y * 96.0f / dpi};
-                }
-                grid->prepare_context_menu(position);
-            }
+
             show_control_menu(control, hwnd, lparam, palette, dpi); return 0;
         case WM_ERASEBKGND: return 1;
         case WM_PAINT:
@@ -5087,7 +4739,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             control.set_focused(true);
             return 0;
         case WM_KILLFOCUS:
-            peer.grid_drag = 0;
+
             peer.dragging = false;
             if (auto* range = dynamic_cast<RangeInput*>(&control)) range->cancel_drag();
             control.set_focused(false);
@@ -5109,32 +4761,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return 0;
             }
             if (menu_bar_hover(peer, inside())) return 0;
-            if (peer.grid_drag == 6) {
-                auto grid = std::static_pointer_cast<DataGrid>(peer.control);
-                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
-                if (!(wparam & MK_LBUTTON) || !enabled(peer) || !visible(peer)) {
-                    peer.grid_drag = 0; grid->end_file_press(false);
-                    if (GetCapture() == hwnd) ReleaseCapture();
-                    return 0;
-                }
-                const Size threshold{GetSystemMetricsForDpi(SM_CXDRAG, dpi) * 96.0f / dpi,
-                    GetSystemMetricsForDpi(SM_CYDRAG, dpi) * 96.0f / dpi};
-                if (!grid->file_drag_threshold(point, threshold)) return 0;
-                // Clear our gesture before releasing capture and entering OLE's nested message loop.
-                peer.grid_drag = 0; grid->end_file_press(false);
-                if (GetCapture() == hwnd) ReleaseCapture();
-                auto paths = grid->file_drag_paths();
-                if (!paths.empty() && !closing && IsWindow(hwnd)) {
-                    auto host = shared_from_this();
-                    const auto effect = files::drag(hwnd, paths, [host, grid, hwnd] {
-                        auto* current = host->find_peer(grid.get());
-                        return host->closing || !host->ready || !current || current->window != hwnd ||
-                            !host->enabled(*current) || !host->visible(*current);
-                    });
-                    if (!closing && IsWindow(hwnd)) grid->file_drag_completed(effect);
-                }
-                return 0;
-            }
+
             if (auto* columns = dynamic_cast<MillerColumns*>(&control); columns && peer.dragging) {
                 const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
                 const float distance = track.width - thumb.width;
@@ -5156,78 +4783,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const auto hit = inside() ? choice_hit(*choices) : std::nullopt;
                 if (peer.hovered_choice != hit) { peer.hovered_choice = hit; invalidate(Invalidation::paint); }
             }
-            if (auto* grid = dynamic_cast<DataGrid*>(&control)) {
-                const bool hovering = enabled(peer) && !peer.grid_drag && !GetCapture() &&
-                    !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
-                grid->hover_pointer(hovering ? std::optional{Point{GET_X_LPARAM(lparam) * 96.0f / dpi,
-                    GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
-            }
-            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) {
-                const bool hovering = enabled(peer) && !GetCapture() &&
-                    !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
-                list->hover_pointer(hovering ? std::optional{Point{GET_X_LPARAM(lparam) * 96.0f / dpi,
-                    GET_Y_LPARAM(lparam) * 96.0f / dpi}} : std::nullopt);
-            }
-            if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) {
-                if (tooltip_target && tooltip_target != control.id()) hide_tooltip();
-                const bool hovering = enabled(peer) && !GetCapture() && !(wparam & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON));
-                const auto row = hovering ? nav_list->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi,
-                    GET_Y_LPARAM(lparam) * 96.0f / dpi}) : std::nullopt;
-                nav_list->hover_item(row ? std::optional{nav_list->source()->key(*row)} : std::nullopt);
-                offer_tooltip(peer);
-            }
+
             if (auto* map = dynamic_cast<MapView*>(&control); map && peer.dragging) {
                 const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
                 map->pan(x - peer.drag_offset, y - peer.drag_y); peer.drag_offset = x; peer.drag_y = y; return 0;
             }
-            if (auto* collection = dynamic_cast<VirtualCollection*>(&control); collection && (peer.collection_drag || peer.collection_scroll)) {
-                const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                if (peer.collection_scroll) {
-                    const auto track = collection->content_viewport().height - collection->thumb().height;
-                    if (track > 0) collection->set_offset(peer.drag_offset + (y - peer.drag_y) * collection->maximum_offset() / track);
-                } else if (peer.collection_anchor) {
-                    const auto viewport = collection->content_viewport();
-                    if (const auto row = collection->hit_test({std::clamp(x, viewport.x, viewport.x + std::max(0.0f, viewport.width - 1)),
-                        std::clamp(y, viewport.y, viewport.y + std::max(0.0f, viewport.height - 1))})) {
-                        collection->set_selection(peer.collection_before);
-                        collection->select_rectangle(*peer.collection_anchor, collection->source()->key(*row), peer.collection_additive);
-                    }
-                }
-                return 0;
-            }
+
             if (auto* range = dynamic_cast<RangeInput*>(&control); range && range->dragging()) {
                 range->drag(range_fraction(*range, lparam)); return 0;
             }
-            if (peer.grid_drag) {
-                auto& grid = static_cast<DataGrid&>(control);
-                const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                if (peer.grid_drag == 3) grid.resize_column(peer.grid_column, peer.drag_offset + x - peer.drag_y);
-                else if (peer.grid_drag >= 4) {
-                    if (peer.grid_drag == 4 && (std::abs(x - peer.drag_y) >= 6 || std::abs(y - peer.drag_offset) >= 6))
-                        peer.grid_drag = 5;
-                    if (peer.grid_drag == 5) {
-                        const auto view = grid.geometry().viewport();
-                        if (x < view.x + 24 || x > view.x + view.width - 24)
-                            grid.set_offset(grid.offset(), grid.horizontal_offset() + (x < view.x + 24 ? -32 : 32));
-                        float edge = view.x - static_cast<float>(grid.horizontal_offset());
-                        peer.grid_drop = 0;
-                        for (const auto& column : grid.columns()) {
-                            if (x < edge + column.width / 2) break;
-                            edge += column.width; ++peer.grid_drop;
-                        }
-                        SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
-                        invalidate(Invalidation::paint);
-                    }
-                }
-                else if (peer.grid_drag == 1) {
-                    const float track = grid.viewport_height() - grid.vertical_thumb().height;
-                    if (track > 0) grid.set_offset(peer.drag_offset + (y - peer.drag_y) * grid.maximum_offset() / track, grid.horizontal_offset());
-                } else {
-                    const float track = grid.viewport_width() - grid.horizontal_thumb().width;
-                    if (track > 0) grid.set_offset(grid.offset(), peer.drag_offset + (x - peer.drag_y) * grid.maximum_horizontal() / track);
-                }
-                return 0;
-            }
+
             if (peer.dragging) {
                 if (auto split = dynamic_cast<SplitView*>(&control)) {
                     if (split->divider().width <= 0 || !split->divider_dragging()) {
@@ -5252,12 +4817,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 update();
                 return 0;
             }
-            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
-                const auto previous = peer.command_pointer ? collection->hit_test(*peer.command_pointer) : std::optional<std::size_t>{};
-                peer.command_pointer = point;
-                if (previous != collection->hit_test(point)) invalidate(Invalidation::paint);
-            }
+
             control.pointer_move(inside());
             if (control.captured() && control.hovered() && peer.repeat_cycle && !peer.repeating) repeat_start(peer, false);
             if (!peer.tracking) {
@@ -5266,14 +4826,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             return 0;
         case WM_MOUSELEAVE:
-            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
-            if (auto* grid = dynamic_cast<DataGrid*>(&control)) grid->hover_pointer({});
-            if (auto* nav_list = dynamic_cast<NavigationList*>(&control)) nav_list->hover_item({});
+
             if (peer.hovered_choice) { peer.hovered_choice.reset(); invalidate(Invalidation::paint); }
-            peer.tracking = false; peer.command_pointer.reset(); peer.tab_pointer.reset(); control.pointer_move(false); return 0;
+            peer.tracking = false;  peer.tab_pointer.reset(); control.pointer_move(false); return 0;
         case WM_LBUTTONDOWN:
-            peer.wheel_motion = false;
-            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
+
             if (!enabled(peer) || !visible(peer)) return 0;
             if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
             hide_tooltip();
@@ -5305,42 +4862,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (dynamic_cast<MapView*>(vector)) { peer.dragging = true; peer.drag_offset = p.x; peer.drag_y = p.y; SetCapture(hwnd); }
                 return 0;
             }
-            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-                SetFocus(hwnd);
-                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
-                const auto viewport = collection->content_viewport();
-                if (point.x >= viewport.x + viewport.width && point.x < viewport.x + viewport.width + collection->scrollbar_width() &&
-                    point.y >= viewport.y && point.y < viewport.y + viewport.height) {
-                    const auto thumb = collection->thumb();
-                    if (thumb.height && point.y >= thumb.y && point.y < thumb.y + thumb.height) {
-                        peer.collection_scroll = true; peer.drag_y = point.y; peer.drag_offset = static_cast<float>(collection->offset()); SetCapture(hwnd);
-                    } else collection->set_offset(collection->offset() +
-                        (point.y < thumb.y ? -collection->content_viewport().height : collection->content_viewport().height));
-                } else if (const auto index = collection->hit_test(point)) {
-                    const auto source = collection->source(); const auto item_key = source->key(*index);
-                    const auto info = source->hierarchy(*index); const auto b = collection->item_bounds(*index);
-                    const auto* nav_list = dynamic_cast<NavigationList*>(collection);
-                    const bool disclosure = nav_list ? nav_list->disclosure_hit(point) :
-                        collection->disclosure_hit(*index, point);
-                    if (disclosure) { collection->disclose(item_key, !info.expanded); return 0; }
-                    if (b.width >= 160 && point.x >= b.x + b.width - 74 && !source->item(*index).action.empty()) {
-                        collection->activate_item(item_key, true); return 0;
-                    }
-                    if (auto* menu = dynamic_cast<CommandMenu*>(collection)) { menu->execute(item_key.id); return 0; }
-                    peer.collection_before = collection->selection();
-                    const bool ctrl = (wparam & MK_CONTROL) != 0, shift = (wparam & MK_SHIFT) != 0;
-                    const bool single_click = collection->single_click_activation() && !ctrl && !shift && !info.group;
-                    if (collection->wraps_items() && !shift && !single_click) {
-                        peer.collection_drag = true; peer.collection_anchor = item_key; peer.collection_additive = ctrl; SetCapture(hwnd);
-                    }
-                    const bool selected = collection->select(item_key, shift ? (ctrl ? SelectionGesture::add_range : SelectionGesture::extend) :
-                        ctrl ? SelectionGesture::toggle : SelectionGesture::replace);
-                    if (single_click && selected && !closing && visible(peer) && enabled(peer) &&
-                        collection->single_click_activation() && collection->source() == source)
-                        collection->activate_item(item_key);
-                }
-                return 0;
-            }
+
             if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
                 SetFocus(hwnd);
                 const auto index = choice_hit(*choices);
@@ -5363,67 +4885,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (auto* expander = dynamic_cast<Expander*>(&control);
                 expander && GET_Y_LPARAM(lparam) * 96.0f / dpi >= expander->effective_header_height()) return 0;
-            if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && enabled(peer)) {
-                grid->hover_pointer({});
-                SetFocus(hwnd);
-                const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                const auto g = grid->geometry();
-                const auto vertical_track = g.vertical_track(), horizontal_track = g.horizontal_track();
-                const auto contains = [x, y](Rect box) { return x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height; };
-                if (contains(vertical_track)) {
-                    const auto thumb = grid->vertical_thumb();
-                    if (thumb.height && y >= thumb.y && y < thumb.y + thumb.height) {
-                        peer.grid_drag = 1; peer.drag_y = y; peer.drag_offset = static_cast<float>(grid->offset()); SetCapture(hwnd);
-                    } else grid->set_offset(grid->offset() + (y < thumb.y ? -grid->viewport_height() : grid->viewport_height()), grid->horizontal_offset());
-                } else if (contains(horizontal_track)) {
-                    const auto thumb = grid->horizontal_thumb();
-                    if (thumb.width && x >= thumb.x && x < thumb.x + thumb.width) {
-                        peer.grid_drag = 2; peer.drag_y = x; peer.drag_offset = static_cast<float>(grid->horizontal_offset()); SetCapture(hwnd);
-                    } else grid->set_offset(grid->offset(), grid->horizontal_offset() + (x < thumb.x ? -grid->viewport_width() : grid->viewport_width()));
-                } else if (contains(g.header())) {
-                    if (const auto c = grid->resize_boundary(x)) {
-                        peer.grid_drag = 3; peer.grid_column = *c; peer.drag_y = x; peer.drag_offset = grid->columns()[*c].width;
-                        SetCapture(hwnd); return 0;
-                    }
-                    if (const auto column = grid->column_at(x)) {
-                        grid->focus_header(true); grid->step_header(static_cast<int>(*column) - static_cast<int>(grid->focused_column()));
-                        const auto part = grid->header_part_at(x); grid->set_header_part(part);
-                        if (part == GridHeaderPart::check) { grid->toggle_check(); return 0; }
-                        if (part == GridHeaderPart::filter) { grid->open_filter(grid->source_column(*column)); return 0; }
-                        peer.grid_drag = 4; peer.grid_column = *column; peer.grid_drop = *column;
-                        peer.drag_y = x; peer.drag_offset = y; SetCapture(hwnd);
-                    }
-                } else if (const auto row = contains(g.viewport()) ? grid->row_at(y) : std::nullopt) {
-                    const auto column = grid->column_at(x);
-                    if (column && grid->columns()[*column].checkable && grid->header_part_at(x) == GridHeaderPart::check)
-                        grid->toggle_check(grid->source()->key(*row));
-                    else {
-                        const auto selection_gesture = (wparam & MK_SHIFT) ?
-                            ((wparam & MK_CONTROL) ? SelectionGesture::add_range : SelectionGesture::extend) :
-                            (wparam & MK_CONTROL) ? SelectionGesture::toggle : SelectionGesture::replace;
-                        if (grid->file_drag_enabled()) {
-                            const auto source = grid->source();
-                            const auto pressed = source->key(*row);
-                            if (grid->begin_file_press({x, y}, selection_gesture)) {
-                                peer.grid_single_click = selection_gesture == SelectionGesture::replace;
-                                peer.grid_press_source = source;
-                                peer.grid_press_key = pressed;
-                                peer.grid_drag = 6; SetCapture(hwnd);
-                            }
-                        } else {
-                            const auto source = grid->source();
-                            const auto pressed = source->key(*row);
-                            grid->select(pressed, selection_gesture, false);
-                            if (grid->single_click_activation() && !(wparam & (MK_CONTROL | MK_SHIFT)) &&
-                                !closing && visible(peer) && enabled(peer) && grid->source() == source &&
-                                grid->selected() == pressed)
-                                grid->activate_selected();
-                        }
-                    }
-                }
-                else grid->clear_selection();
-                return 0;
-            }
+
             if (auto tabs = dynamic_cast<TabStrip*>(&control); tabs && enabled(peer)) {
                 keyboard_focus_visible = false;
                 invalidate(Invalidation::paint);
@@ -5495,22 +4957,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (GetCapture() == hwnd) ReleaseCapture();
                 return 0;
             }
-            if (peer.grid_drag == 6) {
-                peer.grid_drag = 0;
-                auto& grid = static_cast<DataGrid&>(control);
-                const auto source = peer.grid_press_source.lock();
-                const auto pressed = std::exchange(peer.grid_press_key, {});
-                peer.grid_press_source.reset();
-                const bool current = source && source == grid.source() && pressed &&
-                    grid.pending_file_press() == pressed && grid.selected() == pressed;
-                grid.end_file_press(current && enabled(peer) && inside());
-                if (GetCapture() == hwnd) ReleaseCapture();
-                if (current && control.single_click_activation() && peer.grid_single_click &&
-                    !(wparam & (MK_CONTROL | MK_SHIFT)) && !closing && visible(peer) && enabled(peer) && inside() &&
-                    grid.source() == source && grid.selected() == pressed)
-                    grid.activate_selected();
-                return 0;
-            }
+
             if (std::exchange(peer.suppress_popup_click, false)) return 0;
             if (auto* choices = dynamic_cast<RadioGroup*>(&control); choices && peer.pressed_choice) {
                 const auto pressed = std::exchange(peer.pressed_choice, std::nullopt);
@@ -5523,10 +4970,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 }
                 return 0;
             }
-            if (dynamic_cast<VirtualCollection*>(&control)) {
-                peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
-                if (GetCapture() == hwnd) ReleaseCapture(); return 0;
-            }
+
             if (auto* range = dynamic_cast<RangeInput*>(&control); range && range->dragging()) {
                 range->commit_drag();
                 if (GetCapture() == hwnd) ReleaseCapture();
@@ -5537,20 +4981,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (GetCapture() == hwnd) ReleaseCapture();
                 return 0;
             }
-            if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && peer.grid_drag >= 4 && enabled(peer)) {
-                const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                const auto header = grid->geometry().header();
-                if (y >= header.y && y < header.y + header.height && x >= header.x && x < header.x + header.width) {
-                    if (peer.grid_drag == 5) {
-                        const auto to = peer.grid_drop - (peer.grid_drop > peer.grid_column ? 1 : 0);
-                        grid->reorder_column(peer.grid_column, to);
-                        grid->step_header(0);
-                    } else if (peer.grid_column < grid->columns().size() && grid->column_at(x) == peer.grid_column)
-                        grid->sort(grid->source_column(peer.grid_column));
-                }
-                invalidate(Invalidation::paint);
-            }
-            peer.grid_drag = 0;
+
             peer.dragging = false;
             if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
             if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
@@ -5559,31 +4990,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (GetCapture() == hwnd) ReleaseCapture();
             return 0;
         case WM_LBUTTONDBLCLK:
-            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-                if (collection->single_click_activation()) return 0;
-                if (const auto row = collection->hit_test({GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) {
-                    const auto item_key = collection->source()->key(*row); const auto info = collection->source()->hierarchy(*row);
-                    if (info.expandable) collection->disclose(item_key, !info.expanded);
-                    else collection->activate_item(item_key);
-                }
-                return 0;
-            }
-            if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && enabled(peer)) {
-                if (grid->single_click_activation()) return 0;
-                if (auto row = grid->row_at(GET_Y_LPARAM(lparam) * 96.0f / dpi)) {
-                    grid->select(grid->source()->key(*row), false); grid->activate_selected();
-                }
-                return 0;
-            }
+
             return control_message(peer, hwnd, WM_LBUTTONDOWN, wparam, lparam);
         case WM_CANCELMODE:
             if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
             if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
-            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
+
             peer.pressed_choice.reset();
-            peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
+
             KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
-            peer.grid_drag = 0;
+
             peer.dragging = false;
             if (auto* range = dynamic_cast<RangeInput*>(&control)) range->cancel_drag();
             control.cancel();
@@ -5593,12 +5009,12 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             peer.pressed_tab.reset();
             if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
             if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
-            if (auto* list = dynamic_cast<MillerColumnList*>(&control)) list->hover_pointer({});
+
             peer.pressed_choice.reset();
-            peer.collection_drag = peer.collection_scroll = false; peer.collection_anchor.reset(); peer.collection_before = {};
+
             KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
             if (auto* range = dynamic_cast<RangeInput*>(&control)) range->cancel_drag();
-            peer.grid_drag = 0; peer.dragging = false; control.cancel(); invalidate(Invalidation::paint); return 0;
+             peer.dragging = false; control.cancel(); invalidate(Invalidation::paint); return 0;
         case WM_KEYDOWN:
             if (!enabled(peer) || !visible(peer)) return 0;
             if (menu_bar_key(peer, wparam, lparam)) return 0;
@@ -5624,31 +5040,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (wparam == VK_ESCAPE && peer.adaptive && peer.adaptive->overlay_active()) {
                 peer.adaptive->set_navigation_open(false); return 0;
             }
-            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-                if (wparam == VK_ESCAPE) {
-                    if (peer.collection_drag) collection->set_selection(peer.collection_before);
-                    peer.collection_drag = peer.collection_scroll = false;
-                    if (GetCapture() == hwnd) ReleaseCapture(); collection->cancel(); return 0;
-                }
-                if (wparam == 'A' && GetKeyState(VK_CONTROL) < 0) { collection->select_all(); return 0; }
-                if (wparam == VK_UP || wparam == VK_DOWN) {
-                    collection->step((wparam == VK_UP ? -1 : 1) * static_cast<int>(collection->columns()), gesture()); return 0;
-                }
-                if (wparam == VK_LEFT || wparam == VK_RIGHT) { collection->horizontal(wparam == VK_RIGHT, gesture()); return 0; }
-                if (wparam == VK_HOME || wparam == VK_END) { collection->edge(wparam == VK_END, gesture()); return 0; }
-                if (wparam == VK_PRIOR || wparam == VK_NEXT) {
-                    collection->step((wparam == VK_PRIOR ? -1 : 1) * std::max(1, static_cast<int>(collection->content_viewport().height / collection->item_size().height)) *
-                        static_cast<int>(collection->columns()), gesture()); return 0;
-                }
-                if (wparam == VK_SPACE && collection->selection().focused()) {
-                    if (!(lparam & (1LL << 30))) collection->select(*collection->selection().focused(), SelectionGesture::toggle);
-                    return 0;
-                }
-                if ((wparam == VK_RETURN || wparam == VK_F2) && collection->selection().focused()) {
-                    if (!(lparam & (1LL << 30))) collection->activate_item(*collection->selection().focused(), wparam == VK_F2);
-                    return 0;
-                }
-            }
+
             if (auto* range = dynamic_cast<RangeInput*>(&control)) {
                 if (wparam == VK_ESCAPE) { range->cancel_drag(); if (GetCapture() == hwnd) ReleaseCapture(); return 0; }
                 std::optional<RangeKey> range_key;
@@ -5684,56 +5076,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 if (expander->expanded() != (wparam == VK_RIGHT)) control.invoke();
                 return 0;
             }
-            if (auto* grid = dynamic_cast<DataGrid*>(&control); grid && enabled(peer)) {
-                if (wparam == 'A' && GetKeyState(VK_CONTROL) < 0) { grid->select_all(); return 0; }
-                if (wparam == VK_ESCAPE && peer.grid_drag) {
-                    if (peer.grid_drag == 3 && peer.grid_column < grid->columns().size()) grid->set_column_width(peer.grid_column, peer.drag_offset);
-                    peer.grid_drag = 0;
-                    if (GetCapture() == hwnd) ReleaseCapture();
-                    invalidate(Invalidation::paint); return 0;
-                }
-                if (peer.grid_drag) return 0;
-                if (wparam == VK_F6) { grid->focus_header(!grid->header_focus()); return 0; }
-                if (grid->header_focus()) {
-                    if (wparam == VK_F4) {
-                        if (!grid->columns().empty()) for (int step = 1; step <= 3; ++step) {
-                            const auto next = static_cast<GridHeaderPart>((static_cast<int>(grid->header_part()) + step) % 3);
-                            if (grid->header_part_bounds(grid->source_column(grid->focused_column()), next).width) {
-                                grid->set_header_part(next); break;
-                            }
-                        }
-                        return 0;
-                    }
-                    if (wparam == VK_LEFT || wparam == VK_RIGHT) {
-                        const int delta = wparam == VK_LEFT ? -1 : 1;
-                        if (GetKeyState(VK_CONTROL) < 0 && !grid->columns().empty()) {
-                            const auto column = grid->focused_column();
-                            if (GetKeyState(VK_SHIFT) < 0) {
-                                const auto to = static_cast<std::size_t>(std::clamp(static_cast<int>(column) + delta, 0, static_cast<int>(grid->columns().size() - 1)));
-                                grid->reorder_column(column, to);
-                            } else grid->resize_column(column, grid->columns()[column].width + delta * 16);
-                            grid->step_header(0);
-                        } else grid->step_header(delta);
-                        return 0;
-                    }
-                    if (wparam == VK_RETURN || wparam == VK_SPACE) {
-                        if (!(lparam & (1LL << 30)) && !grid->columns().empty()) {
-                            if (grid->header_part() == GridHeaderPart::check) grid->toggle_check();
-                            else if (grid->header_part() == GridHeaderPart::filter) grid->open_filter(grid->source_column(grid->focused_column()));
-                            else grid->sort(grid->source_column(grid->focused_column()));
-                        }
-                        return 0;
-                    }
-                    if (wparam == VK_DOWN) { grid->focus_header(false); grid->step(0); return 0; }
-                } else {
-                    if (wparam == VK_UP || wparam == VK_DOWN) { grid->step(wparam == VK_UP ? -1 : 1, gesture()); return 0; }
-                    if (wparam == VK_PRIOR || wparam == VK_NEXT) { grid->step((wparam == VK_PRIOR ? -1 : 1) * grid->page_rows(), gesture()); return 0; }
-                    if (wparam == VK_HOME || wparam == VK_END) { grid->edge(wparam == VK_END, gesture()); return 0; }
-                    if (wparam == VK_SPACE) { if (!(lparam & (1LL << 30)) && grid->selected()) grid->toggle_check(grid->selected()); return 0; }
-                    if (wparam == VK_RETURN) { if (!(lparam & (1LL << 30))) grid->activate_selected(); return 0; }
-                    if (wparam == VK_LEFT || wparam == VK_RIGHT) { grid->set_offset(grid->offset(), grid->horizontal_offset() + (wparam == VK_LEFT ? -80 : 80)); return 0; }
-                }
-            }
+
             if (auto tabs = dynamic_cast<TabStrip*>(&control); tabs && enabled(peer)) {
                 keyboard_focus_visible = true;
                 invalidate(Invalidation::paint);
@@ -5886,84 +5229,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             } else return UIA_E_INVALIDOPERATION;
             update(); return S_OK;
         }
-        case grid_action_message: {
-            if (wparam != control.id()) return UIA_E_ELEMENTNOTAVAILABLE;
-            auto* grid = dynamic_cast<DataGrid*>(&control);
-            GridAction action;
-            {
-                std::lock_guard lock(peer.accessibility->mutex);
-                auto it = peer.accessibility->grid_actions.find(static_cast<std::uint64_t>(lparam));
-                if (it == peer.accessibility->grid_actions.end()) return UIA_E_ELEMENTNOTAVAILABLE;
-                action = it->second; peer.accessibility->grid_actions.erase(it);
-            }
-            if (!enabled(peer) || !visible(peer)) return UIA_E_ELEMENTNOTENABLED;
-            if (auto* collection = dynamic_cast<VirtualCollection*>(&control)) {
-                if (action.key && (!collection->source() || !collection->source()->find(*action.key))) return UIA_E_ELEMENTNOTAVAILABLE;
-                if (action.kind == GridAction::scroll) collection->set_offset(action.y);
-                else if (action.kind == GridAction::select_all) collection->select_all();
-                else if (action.kind == GridAction::focus) {
-                    if (!focus(peer, true)) return UIA_E_INVALIDOPERATION;
-                    if (action.key) collection->select(*action.key, SelectionGesture::focus_only);
-                } else if (!action.key) return E_INVALIDARG;
-                else if (action.kind == GridAction::select) collection->select(*action.key);
-                else if (action.kind == GridAction::add || action.kind == GridAction::remove) {
-                    const bool selected = collection->selection().contains(*action.key);
-                    if (action.kind == GridAction::add && !collection->multiple_selection() &&
-                        !selected && !collection->selection().empty()) return UIA_E_INVALIDOPERATION;
-                    if (selected != (action.kind == GridAction::add)) {
-                        if (auto* nav_list = dynamic_cast<NavigationList*>(collection); nav_list && action.kind == GridAction::remove) {
-                            if (!nav_list->remove_selection(*action.key)) return UIA_E_INVALIDOPERATION;
-                        } else if (auto* miller_list = dynamic_cast<MillerColumnList*>(collection);
-                            miller_list && action.kind == GridAction::remove) {
-                            if (!miller_list->remove_selection(*action.key)) return UIA_E_INVALIDOPERATION;
-                        } else collection->select(*action.key, SelectionGesture::toggle);
-                    }
-                } else if (action.kind == GridAction::reveal) collection->reveal(*action.key);
-                else if (action.kind == GridAction::expand || action.kind == GridAction::collapse) {
-                    if (!collection->disclose(*action.key, action.kind == GridAction::expand)) return UIA_E_INVALIDOPERATION;
-                } else if (action.kind == GridAction::invoke || action.kind == GridAction::inline_action)
-                    collection->activate_item(*action.key, action.kind == GridAction::inline_action);
-                else return UIA_E_INVALIDOPERATION;
-                update(); return S_OK;
-            }
-            if (!grid) return UIA_E_INVALIDOPERATION;
-            if (action.kind == GridAction::filter) { grid->filter(action.column, action.text); update(); return S_OK; }
-            if (action.kind == GridAction::filter_open) { grid->open_filter(action.column); update(); return S_OK; }
-            if (action.kind == GridAction::check) { grid->toggle_check(action.key); update(); return S_OK; }
-            if (action.kind == GridAction::add || action.kind == GridAction::remove) {
-                if (!action.key || !grid->source() || !grid->source()->find(*action.key)) return UIA_E_ELEMENTNOTAVAILABLE;
-                if (grid->selection().contains(*action.key) != (action.kind == GridAction::add)) grid->toggle_check(action.key);
-                update(); return S_OK;
-            }
-            if (action.kind == GridAction::scroll) grid->set_offset(action.y, action.x);
-            else if (action.kind == GridAction::reveal) {
-                if (!action.key || !grid->reveal(*action.key)) return UIA_E_ELEMENTNOTAVAILABLE;
-            } else if (action.kind == GridAction::clear) {
-                if (!action.key || !grid->source() || !grid->source()->find(*action.key)) return UIA_E_ELEMENTNOTAVAILABLE;
-                if (grid->selection().contains(*action.key)) grid->toggle_check(action.key);
-            }
-            else if (action.kind == GridAction::sort) {
-                if (action.column >= grid->columns().size()) return UIA_E_ELEMENTNOTAVAILABLE;
-                grid->sort(action.column);
-            } else if (action.kind == GridAction::header_focus) {
-                const auto column = grid->display_column(action.column);
-                if (!column) return UIA_E_ELEMENTNOTAVAILABLE;
-                if (!focus(peer, true)) return UIA_E_INVALIDOPERATION;
-                grid->focus_header(true);
-                grid->step_header(static_cast<int>(*column) - static_cast<int>(grid->focused_column()));
-                grid->set_header_part(static_cast<GridHeaderPart>(static_cast<int>(action.x)));
-            } else if (action.kind == GridAction::focus && !action.key) {
-                if (!focus(peer, true)) return UIA_E_INVALIDOPERATION;
-            } else {
-                if (!action.key || !grid->select(*action.key, action.kind == GridAction::focus ?
-                    SelectionGesture::focus_only : SelectionGesture::replace)) return UIA_E_ELEMENTNOTAVAILABLE;
-                if (action.kind == GridAction::focus && !focus(peer, true)) return UIA_E_INVALIDOPERATION;
-                if (action.kind == GridAction::invoke) grid->activate_selected();
-            }
-            update(); return S_OK;
-        }
+
+        case grid_action_message: return UIA_E_INVALIDOPERATION;
         case WM_NCDESTROY:
-            if (peer.file_target) { RevokeDragDrop(hwnd); peer.file_target.Reset(); }
+
             peer.runtime.reset();
             peer.swap_chain.reset();
             control.cancel();
@@ -6131,11 +5400,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
             }
-            for (const auto& peer : peers) if (peer->edit) peer->edit->dismiss_suggestions();
+            for (const auto& peer : peers) if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
             for (auto& task : samples) task->suspend(wparam == SIZE_MINIMIZED);
             if (wparam == SIZE_MINIMIZED) for (const auto& peer : peers) {
-                if (peer->runtime) peer->runtime->suspend();
-                if (peer->swap_chain) peer->swap_chain->suspend();
+                if (peer->runtime_host()) peer->runtime_host()->suspend();
+                if (peer->swap_chain_host()) peer->swap_chain_host()->suspend();
                 if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
             }
             if (wparam != SIZE_MINIMIZED) invalidate(Invalidation::layout);
@@ -6151,8 +5420,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             for (auto& task : samples) task->suspend(!wparam || IsIconic(hwnd));
             if (!wparam) for (const auto& peer : peers) {
-                if (peer->runtime) peer->runtime->suspend();
-                if (peer->swap_chain) peer->swap_chain->suspend();
+                if (peer->runtime_host()) peer->runtime_host()->suspend();
+                if (peer->swap_chain_host()) peer->swap_chain_host()->suspend();
                 if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
             }
             else invalidate(Invalidation::paint);
@@ -6169,8 +5438,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_MOVE:
             hide_tooltip();
             if (!popups.empty()) invalidate(Invalidation::layout);
-            for (const auto& peer : peers) if (peer->edit) peer->edit->dismiss_suggestions();
-            for (const auto& peer : peers) if (peer->list) peer->list->publish();
+            for (const auto& peer : peers) if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            for (const auto& peer : peers) peer->native_moved();
             return 0;
         case update_message: if (pending) update(); return 0;
         case WM_DPICHANGED: {
@@ -6203,22 +5472,22 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             auto native_ink = IsWindowEnabled(reinterpret_cast<HWND>(lparam)) ? palette.text : palette.disabled;
             bool styled_field{};
             for (const auto& peer : peers) {
-                const bool caption = peer->caption == reinterpret_cast<HWND>(lparam);
+                const bool caption = peer->caption_window() == reinterpret_cast<HWND>(lparam);
                 if (!caption && (!peer->native() || peer->window != reinterpret_cast<HWND>(lparam))) continue;
                 on_surface = peer->surface;
                 const auto* text_style = peer->control->effective_control_style_values(caption ? StylePart::header : StylePart::text);
-                if (!caption && peer->edit) native_ink = input_ink(*peer);
+                if (!caption && peer->edit_bridge()) native_ink = input_ink(*peer);
                 else if (text_style && text_style->foreground && !palette.high_contrast)
                     native_ink = D2D1::ColorF(text_style->foreground->resolve(palette.mode));
                 if (!caption) {
-                    if (peer->edit) editable_fill = input_fill(*peer);
+                    if (peer->edit_bridge()) editable_fill = input_fill(*peer);
                     else {
                         const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
                         if (root_style && root_style->background && !palette.high_contrast)
                             editable_fill = D2D1::ColorF(root_style->background->resolve(palette.mode));
                     }
                     styled_field = peer->control->has_control_styling();
-                    if (peer->edit && peer->parent &&
+                    if (peer->edit_bridge() && peer->parent &&
                         (peer->parent->control->role() == ControlRole::numeric_input || peer->parent->control->role() == ControlRole::combo_box))
                         styled_field = styled_field || peer->parent->control->has_control_styling();
                 }
@@ -6239,18 +5508,18 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         case WM_NOTIFY: {
             const auto* notification = reinterpret_cast<const NMHDR*>(lparam);
             if (notification) for (const auto& peer : peers)
-                if (peer->document && peer->window == notification->hwndFrom) return enabled(*peer) ? peer->document->notify(*notification) : 0;
+                if (peer->document_bridge() && peer->window == notification->hwndFrom) return enabled(*peer) ? peer->document_bridge()->notify(*notification) : 0;
             break;
         }
         case WM_COMMAND:
-            for (const auto& peer : peers) if (peer->document && peer->window == reinterpret_cast<HWND>(lparam)) {
-                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer)) peer->document->changed();
+            for (const auto& peer : peers) if (peer->document_bridge() && peer->window == reinterpret_cast<HWND>(lparam)) {
+                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer)) peer->document_bridge()->changed();
                 return 0;
             }
-            for (const auto& peer : peers) if (peer->edit && peer->window == reinterpret_cast<HWND>(lparam)) {
-                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer) && !peer->edit->composing()) {
-                    static_cast<TextInput&>(*peer->control).commit_text(peer->edit->text());
-                    peer->edit->text_changed();
+            for (const auto& peer : peers) if (peer->edit_bridge() && peer->window == reinterpret_cast<HWND>(lparam)) {
+                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer) && !peer->edit_bridge()->composing()) {
+                    static_cast<TextInput&>(*peer->control).commit_text(peer->edit_bridge()->text());
+                    peer->edit_bridge()->text_changed();
                 }
                 if (HIWORD(wparam) == EN_SETFOCUS || HIWORD(wparam) == EN_KILLFOCUS)
                     peer->control->set_focused(HIWORD(wparam) == EN_SETFOCUS);
@@ -6306,8 +5575,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (wparam == 43) return presenter && presenter->overlay_visible() ? 1 : 0;
             if (wparam == 22 || wparam == 23) {
                 std::size_t count{};
-                for (const auto& peer : peers) if (peer->list)
-                    count += wparam == 22 ? peer->list->thumbnail_count() : peer->list->thumbnail_ready();
+                for (const auto& peer : peers)
+                    count += peer->metric(wparam == 22 ? PeerMetric::thumbnails : PeerMetric::ready_thumbnails);
                 return static_cast<LRESULT>(count);
             }
             if (wparam == 17) {
@@ -6332,16 +5601,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (wparam == 12) return static_cast<LRESULT>(Drawing::created_text_layouts());
             if (wparam == 13) {
                 size_t count{};
-                for (const auto& peer : peers) if (peer->text_layout) ++count;
+                for (const auto& peer : peers) if (const auto* state = unextracted_if(*peer); state && state->text_layout) ++count;
                 return static_cast<LRESULT>(count);
             }
             if (wparam == 0) {
                 return static_cast<LRESULT>(paints);
             }
             if (wparam == 1 || wparam == 8 || wparam == 9) {
-                for (const auto& peer : peers) if (peer->list) {
+                for (const auto& peer : peers) if (peer->family == HostFamily::file_list) {
                     const auto& list = static_cast<FileList&>(*peer->control);
-                    return static_cast<LRESULT>(wparam == 1 ? peer->list->rows() :
+                    return static_cast<LRESULT>(wparam == 1 ? peer->metric(PeerMetric::painted_rows) :
                         wparam == 8 ? list.model().visible_indices().size() : list.model().items()->size());
                 }
             }
@@ -6386,6 +5655,28 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
 };
+
+void Window::Impl::UnextractedPeer::attach(HWND parent, int id) { owner(*this).attach_unextracted(*this, parent, id); }
+void Window::Impl::UnextractedPeer::paint(const HostPaintContext& context) {
+    owner(*this).paint_unextracted(*this, context.focus_visible);
+}
+bool Window::Impl::UnextractedPeer::image_work(RowImageWork& work) {
+    const auto* tabs = dynamic_cast<TabStrip*>(control.get());
+    if (!tabs) return false;
+    if (!row_images) row_images = std::make_unique<RowImages>();
+    auto rect = work.clip;
+    rect.x -= tabs->bounds().x; rect.y -= tabs->bounds().y;
+    if (work.shown) for (std::size_t i = 0; i < tabs->tabs().size(); ++i) {
+        const auto b = tabs->tab_bounds(i);
+        if (b.width <= 0 || b.height <= 0 || b.x + b.width <= rect.x || b.x >= rect.x + rect.width ||
+            b.y + b.height <= rect.y || b.y >= rect.y + rect.height) continue;
+        const auto& tab = tabs->tabs()[i];
+        work.rows.push_back({{tab.id, 0}, {tab.icon, tab.image_path}});
+        if (work.rows.size() == RowImages::maximum_rows) break;
+    }
+    work.clip = rect; work.tabs = true;
+    return true;
+}
 
 Window::Window(WindowOptions options) : impl_(std::make_shared<Impl>(std::move(options))) { impl_->public_window = this; }
 Window::~Window() { impl_->public_window = nullptr; impl_->teardown(); }
@@ -6763,7 +6054,7 @@ bool Window::focus(Control& control, bool select_all) {
     // InputScope retains the peer itself across those synchronous updates.
     auto* peer = impl->find_peer(&control);
     if (!peer || !impl->focus(*peer, false)) return false;
-    if (peer->edit && select_all) SendMessageW(peer->window, EM_SETSEL, 0, -1);
+    if (peer->edit_bridge() && select_all) SendMessageW(peer->window, EM_SETSEL, 0, -1);
     return true;
 }
 void Window::show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial) {
@@ -6882,8 +6173,8 @@ void Window::close() {
     for (auto& task : impl->samples) task->cancel();
     for (auto& task : impl->tasks) task->cancel();
     for (const auto& peer : impl->peers) {
-        if (peer->runtime) peer->runtime->cancel_owner();
-        if (peer->swap_chain) peer->swap_chain->cancel_owner();
+        if (peer->runtime_host()) peer->runtime_host()->cancel_owner();
+        if (peer->swap_chain_host()) peer->swap_chain_host()->cancel_owner();
         if (auto* map = dynamic_cast<MapView*>(peer->control.get())) map->cancel_request();
     }
     if (impl->window) win32_require(PostMessageW(impl->window, WM_CLOSE, 0, 0) != FALSE, "Close native window");

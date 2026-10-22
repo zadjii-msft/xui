@@ -78,6 +78,41 @@ The shared backend uses `Drawing`, theme tokens, and `NativeEditBridge`.
 `src\controls.cpp` contains platform-independent behavior. `src\application.cpp` connects controls to Windows and drawing.
 `src\control_accessibility.cpp` contains the control providers.
 
+### Collection-family host boundary
+
+`src\host_peer.hpp/.cpp` defines the common materialized peer and the closed
+`PeerHostServices` needs implemented by `Window::Impl`. Common storage contains identity,
+native input/provider handles, topology and placement/paint caches, not row payloads.
+The family translation units do not receive or include `Window::Impl`.
+
+| Owner | Actual state and behavior |
+| --- | --- |
+| `src\collection_host.hpp/.cpp` | VirtualCollection capability, collection gesture/hover/selection/wheel and lazy row-image state; attach, shared-frame row paint/input, typed UIA publication, cancellation and detach. Includes NavigationList, MillerColumnList and CommandMenu row specialization. |
+| `src\grid_host.hpp/.cpp` | Grid gesture/header/resize/reorder/file-press/OLE target/wheel and lazy row-image state; attachment, grid painting/input, publication and retirement. The OLE owner lease aliases the existing window control block through restricted services. |
+| `src\file_list_host.hpp/.cpp` | Embeds the existing ListPeer without an extra adapter allocation or redundant generic UIA state; owns its Window lifecycle/theme/placement/thumbnail/shared-frame integration. |
+| `src\collection_accessibility.hpp/.cpp`, `src\grid_accessibility.hpp/.cpp` | Concrete immutable collection/grid snapshots, independently retained provider state and bounded value-only action mailboxes (32/64). `src\host_accessibility.hpp` shares identity and locked swap/disconnect mechanics, not family payload storage. |
+| Private `Window::Impl::UnextractedPeer` | Only remaining editor/document/image/runtime/basic/navigation/composite payloads. Collection/grid/list gesture, wheel and accessibility payloads are physically absent. The [finite stage-3 ledger](architecture-review-2026-10-21.md#finite-stage-3-family-ledger) assigns the remainder. |
+
+Window-wide focus/modal/popup coordination, exception/dispatch lifetime barriers,
+whole-window close, topology/borrowed-child traversal, shared Drawing, clipping and
+native-placement batching remain in the window host. It also preserves timer 43 and the
+single shared image pass: gather in peer order, cancel hidden work before visible
+admission, keep the existing cross-control thumbnail allowance and retain all active
+target images together. Offset-only synchronization still bypasses unchanged UIA
+publication and editor text/font/selection writes.
+Family image eligibility rejects a disabled, empty legacy thumbnail adapter before
+shared geometry/visibility work; retained slots keep it participating for cancellation.
+Collection/gallery style eligibility is queried only where used, not eagerly for
+every shared image participant.
+
+Concrete destructors retire native resources while their state is alive; lookup removal
+precedes synchronous native destruction. Providers copy typed snapshots under locks and
+use sources outside locks. Replaced/disconnected snapshots and queued actions retire
+outside the state mutex; retained children become unavailable after disconnection rather
+than retaining live controls. ListPeer likewise moves its old view out before disposal.
+The [3a companion](stage3a-collection-host.md) records storage, matched-source evidence
+and unresolved native/performance limits. This pilot does not complete finding 1.
+
 `src\list_peer.cpp` supplies list drawing, pointer input, keyboard navigation, scrolling, and the adapter for existing list providers.
 `src\accessibility.cpp` remains the single implementation of the virtual-list providers.
 Provider actions include the control identity and item identity. A recycled HWND cannot accept an old provider action.

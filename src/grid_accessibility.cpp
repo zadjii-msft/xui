@@ -13,22 +13,22 @@ class GridProvider final : public IRawElementProviderSimple, public IRawElementP
     public IToggleProvider, public IValueProvider {
     enum Kind { root, header, row, cell, header_filter, header_check };
     std::atomic<ULONG> refs_{1};
-    std::shared_ptr<ControlAccessibility> state_;
+    std::shared_ptr<GridAccessibility> state_;
     GridProvider* root_{};
     Kind kind_{root};
     RowKey key_{};
     std::size_t column_{};
 public:
-    explicit GridProvider(std::shared_ptr<ControlAccessibility> state) : state_(std::move(state)) {}
+    explicit GridProvider(std::shared_ptr<GridAccessibility> state) : state_(std::move(state)) {}
     GridProvider(GridProvider* owner, Kind kind, RowKey key, std::size_t column) :
         state_(owner->state_), root_(owner->root_ ? owner->root_ : owner), kind_(kind), key_(key), column_(column) { root_->AddRef(); }
     ~GridProvider() { if (root_) root_->Release(); }
     GridProvider* make(Kind kind, RowKey key = {}, std::size_t column = 0) { return new GridProvider(this, kind, key, column); }
-    std::size_t ordinal(const ControlSnapshot& s) const {
+    std::size_t ordinal(const GridSnapshot& s) const {
         return static_cast<std::size_t>(std::find(s.column_order.begin(), s.column_order.end(), column_) - s.column_order.begin());
     }
-    void changes(const ControlSnapshot& before, const ControlSnapshot& after) {
-        const auto active = [](const ControlSnapshot& s) {
+    void changes(const GridSnapshot& before, const GridSnapshot& after) {
+        const auto active = [](const GridSnapshot& s) {
             return s.grid && s.selected_row && s.grid->find(*s.selected_row) ? s.selected_row : std::nullopt;
         };
         const auto previous = active(before), current = active(after);
@@ -102,7 +102,7 @@ public:
     ULONG STDMETHODCALLTYPE Release() override { const auto n = --refs_; if (!n) delete this; return n; }
     template<class F> HRESULT with(F&& fn) const noexcept {
         try {
-            ControlSnapshot s;
+            GridSnapshot s;
             { std::lock_guard lock(state_->mutex); s = state_->snapshot; }
             if (!s.window) return UIA_E_ELEMENTNOTAVAILABLE;
             if ((kind_ == row || kind_ == cell) && (!s.grid || !s.grid->find(key_))) return UIA_E_ELEMENTNOTAVAILABLE;
@@ -144,7 +144,7 @@ public:
             return S_OK;
         });
     }
-    std::wstring name(const ControlSnapshot& s) const {
+    std::wstring name(const GridSnapshot& s) const {
         if (kind_ == root) return s.name;
         if (kind_ == header_filter) return s.columns[ordinal(s)].name + L" filter";
         if (kind_ == header_check) return L"Select all " + s.columns[ordinal(s)].name;
@@ -261,7 +261,7 @@ public:
             return S_OK;
         });
     }
-    void bounds(const ControlSnapshot& s, UiaRect& value) const {
+    void bounds(const GridSnapshot& s, UiaRect& value) const {
         value = {};
         RECT window{};
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &window)) return;
@@ -296,11 +296,12 @@ public:
         if (!value) return E_POINTER;
         *value = nullptr; return with([](const auto&) { return S_OK; });
     }
-    HRESULT send(const ControlSnapshot& s, GridAction action) {
+    HRESULT send(const GridSnapshot& s, GridAction action) {
         if (!s.enabled) return UIA_E_ELEMENTNOTENABLED;
         std::uint64_t token;
         { std::lock_guard lock(state_->mutex);
-          if (state_->snapshot.window != s.window || state_->grid_actions.size() >= 64) return UIA_E_ELEMENTNOTAVAILABLE;
+          if (state_->snapshot.window != s.window || state_->snapshot.id != s.id ||
+              state_->grid_actions.size() >= 64) return UIA_E_ELEMENTNOTAVAILABLE;
           token = ++state_->next_grid_action; state_->grid_actions.emplace(token, std::move(action)); }
         DWORD_PTR result{};
         const auto ok = SendMessageTimeoutW(s.window, grid_action_message, static_cast<WPARAM>(s.id),
@@ -465,7 +466,7 @@ public:
         return with([&](const auto& s) -> HRESULT { *value = SysAllocString(s.grid_filters[column_].c_str()); return *value ? S_OK : E_OUTOFMEMORY; });
     }
     HRESULT STDMETHODCALLTYPE get_IsReadOnly(BOOL* value) override { if (!value) return E_POINTER; *value = FALSE; return S_OK; }
-    static double maximum(const ControlSnapshot& s, bool horizontal) {
+    static double maximum(const GridSnapshot& s, bool horizontal) {
         double extent{};
         if (horizontal) { for (const auto& c : s.columns) extent += c.width; }
         else if (s.grid) extent = static_cast<double>(s.grid->size()) * s.grid_geometry.row_height;
@@ -511,10 +512,36 @@ public:
     }
 };
 }
-IRawElementProviderSimple* create_grid_provider(std::shared_ptr<ControlAccessibility> state) {
+void publish_grid(const std::shared_ptr<GridAccessibility>& state,
+    IRawElementProviderSimple* provider, const DataGrid& control, HWND window) {
+    GridSnapshot next;
+    static_cast<HostAccessibilityIdentity&>(next) = accessibility_identity(control, window);
+    next.grid = control.source();
+    next.full_source = control.full_source();
+    next.selection = control.selection();
+    next.columns = control.columns();
+    next.column_order = control.column_order();
+    next.selected_row = control.selected();
+    next.grid_x = control.horizontal_offset();
+    next.grid_y = control.offset();
+    next.grid_width = control.viewport_width();
+    next.grid_height = control.viewport_height();
+    next.grid_geometry = control.geometry();
+    next.sort_column = control.sort_column();
+    next.descending = control.descending();
+    next.header_column = control.columns().empty() ? 0 : control.source_column(control.focused_column());
+    next.header_focus = control.header_focus();
+    next.grid_filters = control.filters();
+    next.header_part = control.header_part();
+    GridSnapshot previous;
+    if (!replace_host_snapshot(state, std::move(next), previous)) return;
+    if (provider && previous.window && UiaClientsAreListening())
+        raise_grid_changes(provider, previous, read_host_snapshot(state));
+}
+IRawElementProviderSimple* create_grid_provider(std::shared_ptr<GridAccessibility> state) {
     return new GridProvider(std::move(state));
 }
-void raise_grid_changes(IRawElementProviderSimple* provider, const ControlSnapshot& before, const ControlSnapshot& after) {
+void raise_grid_changes(IRawElementProviderSimple* provider, const GridSnapshot& before, const GridSnapshot& after) {
     static_cast<GridProvider*>(provider)->changes(before, after);
 }
 }
