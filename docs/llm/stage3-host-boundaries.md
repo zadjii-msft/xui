@@ -6,7 +6,9 @@ Stage 3 extracts materialized Windows control hosts, not the public model tree.
 Collection/grid/legacy-list hosts landed in [#60](https://github.com/zadjii-msft/xui/pull/60).
 On October 22, 2026 the maintainer changed the delivery plan: finish the remaining
 stage-3 work directly in the architecture-review worktree, without child sessions,
-and submit one consolidated PR. Stages 4-8 are deferred.
+and submit one consolidated PR: [#61](https://github.com/zadjii-msft/xui/pull/61).
+Stages 4-8 are deferred. The PR is open for review, not merged or declared to have
+passed the unresolved performance/interactive acceptance criteria.
 
 The native editor commits were incorporated before the remaining family extraction.
 The former `Window::Impl::UnextractedPeer` and its window-owned paint/input dispatch
