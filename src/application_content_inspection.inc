@@ -40,9 +40,9 @@
             if (hwnd == window || !IsWindowVisible(hwnd) ||
                 (!IsChild(window, hwnd) && GetAncestor(hwnd, GA_ROOTOWNER) != window)) continue;
             const auto peer = std::find_if(peers.begin(), peers.end(),
-                [hwnd](const auto& value) { return value->window == hwnd || value->caption == hwnd; });
-            if (peer != peers.end() && !(*peer)->native() && !(*peer)->list && !(*peer)->runtime && !(*peer)->swap_chain &&
-                hwnd != (*peer)->caption) continue;
+                [hwnd](const auto& value) { return value->window == hwnd || value->caption_window() == hwnd; });
+            if (peer != peers.end() && !(*peer)->native() && (*peer)->family != HostFamily::file_list && !(*peer)->runtime_host() && !(*peer)->swap_chain_host() &&
+                hwnd != (*peer)->caption_window()) continue;
             RECT bounds{};
             win32_require(GetWindowRect(hwnd, &bounds) != 0, "Read opaque highlight surface");
             MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&bounds), 2);
@@ -80,7 +80,7 @@
             throw std::logic_error("Finish native menu or move input before inspecting content");
         if (GetCapture()) throw std::logic_error("Release native pointer capture before inspecting content");
         for (const auto& peer : peers)
-            if ((peer->edit && peer->edit->composing()) || (peer->document && peer->document->composing()))
+            if ((peer->edit_bridge() && peer->edit_bridge()->composing()) || (peer->document_bridge() && peer->document_bridge()->composing()))
                 throw std::logic_error("Finish native text composition before inspecting content");
     }
     void validate_inspection_ancestors(const inspection::HostPath& path) const {
@@ -119,7 +119,7 @@
         }
     }
     const Control* inspection_control(const Peer& peer) const {
-        const auto owner = peer.clear_owner.lock();
+        const auto owner = clear_owner(peer);
         return owner ? owner.get() : peer.control.get();
     }
     void validate_inspection_native(const ContentHost& host) const {
@@ -127,7 +127,7 @@
         content_ids(host.content(), members);
         const auto known = [&](HWND hwnd) {
             return std::any_of(peers.begin(), peers.end(), [&](const auto& peer) {
-                return (peer->window == hwnd || peer->caption == hwnd) &&
+                return (peer->window == hwnd || peer->caption_window() == hwnd) &&
                     members.contains(inspection_control(*peer)->id());
             });
         };
@@ -138,8 +138,8 @@
                 !IsChild(window, peer->window) ||
                 !GetWindowSubclass(peer->window, navigation_procedure, 3, &subclass) ||
                 subclass != reinterpret_cast<DWORD_PTR>(peer.get()) ||
-                (peer->caption && (GetParent(peer->caption) != expected ||
-                    !GetWindowSubclass(peer->caption, navigation_procedure, 3, &subclass) ||
+                (peer->caption_window() && (GetParent(peer->caption_window()) != expected ||
+                    !GetWindowSubclass(peer->caption_window(), navigation_procedure, 3, &subclass) ||
                     subclass != reinterpret_cast<DWORD_PTR>(peer.get()))))
                 throw std::invalid_argument("Pointer inspection requires the original native ancestry");
             std::vector<HWND> descendants;
@@ -157,7 +157,7 @@
         }, reinterpret_cast<LPARAM>(&all));
         for (const auto hwnd : all) {
             if (!IsWindowVisible(hwnd) || std::any_of(peers.begin(), peers.end(), [hwnd](const auto& peer) {
-                return peer->window == hwnd || peer->caption == hwnd;
+                return peer->window == hwnd || peer->caption_window() == hwnd;
             })) continue;
             RECT rect{};
             GetWindowRect(hwnd, &rect);
@@ -188,7 +188,7 @@
         for (auto child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
             if (!IsWindowVisible(child) || !inspection_window_contains(child, screen)) continue;
             const auto peer = std::find_if(peers.begin(), peers.end(), [child](const auto& value) {
-                return value->window == child || value->caption == child;
+                return value->window == child || value->caption_window() == child;
             });
             if (peer != peers.end()) {
                 const auto clip = inspection::element_clip(root, *inspection_control(**peer), root->bounds());
@@ -209,7 +209,7 @@
         const Control* target{};
         if (native != window) {
             const auto found = std::find_if(peers.begin(), peers.end(), [&](const auto& peer) {
-                return peer->window == native || peer->caption == native;
+                return peer->window == native || peer->caption_window() == native;
             });
             if (found == peers.end())
                 throw std::invalid_argument("Pointer inspection encountered an unproven native surface");
@@ -225,7 +225,7 @@
     bool inspection_source(const ContentHost& host, HWND source) const {
         if (source == window) return false;
         const auto found = std::find_if(peers.begin(), peers.end(), [&](const auto& peer) {
-            return peer->window == source || peer->caption == source;
+            return peer->window == source || peer->caption_window() == source;
         });
         if (found == peers.end()) return false;
         std::set<std::uint64_t> ids;

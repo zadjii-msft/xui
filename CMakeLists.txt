@@ -180,6 +180,10 @@ if(WIN32)
         src/window_host.cpp
         src/composition_presenter.cpp
         src/application.cpp
+        src/host_peer.cpp
+        src/collection_host.cpp
+        src/grid_host.cpp
+        src/file_list_host.cpp
         src/list_peer.cpp
         src/context_menu.cpp
         src/shell_commands.cpp
@@ -192,6 +196,21 @@ if(WIN32)
         src/images.cpp
         )
     if(BUILD_TESTING)
+        add_executable(xui_collection_host_probe tests/collection_host_probe.cpp demo/xui.rc)
+        target_link_libraries(xui_collection_host_probe PRIVATE xui_windows psapi)
+        target_compile_options(xui_collection_host_probe PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_collection_host_probe PRIVATE /MANIFEST:NO)
+        xui_add_desktop_test(xui_collection_host_probe 90 xui_collection_host_probe)
+        add_executable(xui_family_accessibility_tests tests/family_accessibility_tests.cpp)
+        target_link_libraries(xui_family_accessibility_tests PRIVATE xui_windows)
+        target_compile_options(xui_family_accessibility_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        add_test(NAME xui_family_accessibility_tests COMMAND xui_family_accessibility_tests)
+        set_tests_properties(xui_family_accessibility_tests PROPERTIES TIMEOUT 30 LABELS "headless;lifetime")
+        add_executable(xui_family_accessibility_retirement_tests tests/family_accessibility_retirement_tests.cpp)
+        target_link_libraries(xui_family_accessibility_retirement_tests PRIVATE xui_windows)
+        target_compile_options(xui_family_accessibility_retirement_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        add_test(NAME xui_family_accessibility_retirement_tests COMMAND xui_family_accessibility_retirement_tests)
+        set_tests_properties(xui_family_accessibility_retirement_tests PROPERTIES TIMEOUT 60 LABELS "headless;lifetime")
         add_executable(xui_owned_children_probe tests/owned_children_probe.cpp)
         target_link_libraries(xui_owned_children_probe PRIVATE xui_core psapi)
     endif()
@@ -849,7 +868,7 @@ if(WIN32)
         add_custom_target(xui_headless_tests DEPENDS ${xui_core_test_targets} xui_headless_runner
             xui_syntax_highlighting_tests xui_document_syntax_tests xui_explorer_tests
             xui_abi_tests xui_abi_c_test xui_abi_features_tests xui_document_editing_abi_tests
-            xui_style_catalog xui_image_tests xui_content_host_window_tests)
+            xui_style_catalog xui_image_tests xui_content_host_window_tests xui_family_accessibility_retirement_tests xui_family_accessibility_tests)
         get_property(xui_registered_tests DIRECTORY PROPERTY TESTS)
         foreach(test IN LISTS xui_registered_tests)
             get_property(labels TEST ${test} PROPERTY LABELS)

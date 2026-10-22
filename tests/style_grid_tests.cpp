@@ -9,7 +9,7 @@
 #ifdef _WIN32
 #include "xui/application.hpp"
 #include "../src/drawing.hpp"
-#include "../src/control_accessibility.hpp"
+#include "../src/grid_accessibility.hpp"
 #endif
 
 namespace allocations {
@@ -31,7 +31,7 @@ void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
 #ifdef _WIN32
 namespace xui {
-IRawElementProviderSimple* create_grid_provider(std::shared_ptr<ControlAccessibility> state);
+IRawElementProviderSimple* create_grid_provider(std::shared_ptr<GridAccessibility> state);
 }
 #endif
 namespace {
@@ -371,16 +371,16 @@ void desktop_pixels_and_provider() {
                 "Missing sample remains a rendered gap");
             require(sample(chart_hwnd, bounds.x + bounds.width * 10 / 59, bounds.y + bounds.height / 2 + 2) == line_color,
                 "Authored thickness reaches line pixels");
-            auto state = std::make_shared<ControlAccessibility>();
+            auto state = std::make_shared<GridAccessibility>();
             Microsoft::WRL::ComPtr<IRawElementProviderSimple> provider; provider.Attach(create_grid_provider(state));
-            publish_control(state, provider.Get(), *grid, grid_hwnd);
+            publish_grid(state, provider.Get(), *grid, grid_hwnd);
             Microsoft::WRL::ComPtr<IGridProvider> table; require(SUCCEEDED(provider.As(&table)), "Grid provider exposes table identity");
             Microsoft::WRL::ComPtr<IRawElementProviderSimple> cell;
             require(SUCCEEDED(table->GetItem(1, 0, &cell)), "Virtual cell provider exists without a row visual");
             Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment; require(SUCCEEDED(cell.As(&fragment)), "Virtual cell has fragment identity");
             SAFEARRAY* before{}; require(SUCCEEDED(fragment->GetRuntimeId(&before)), "Read initial cell runtime identity");
             grid->set_column_order({1, 0}); grid->set_offset(20, 0); repaint();
-            publish_control(state, provider.Get(), *grid, grid_hwnd);
+            publish_grid(state, provider.Get(), *grid, grid_hwnd);
             Microsoft::WRL::ComPtr<IGridItemProvider> item; require(SUCCEEDED(cell.As(&item)), "Virtual cell retains grid-item provider");
             int column{}; require(SUCCEEDED(item->get_Column(&column)) && column == 1, "Existing provider follows source identity through reorder");
             SAFEARRAY* after{}; require(SUCCEEDED(fragment->GetRuntimeId(&after)), "Read reordered cell runtime identity");
@@ -390,7 +390,7 @@ void desktop_pixels_and_provider() {
             }
             SafeArrayDestroy(before); SafeArrayDestroy(after);
             UiaRect actual{}; require(SUCCEEDED(fragment->get_BoundingRectangle(&actual)) && actual.width > 0, "Provider uses styled visible geometry");
-            disconnect_control(state, provider.Get());
+            disconnect_row_accessibility(state, provider.Get());
             window.close();
         }), "Queue native style checks");
         require(Application::run(window) == 0, "Styled grid/chart window completes");

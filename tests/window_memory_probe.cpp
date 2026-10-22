@@ -9,6 +9,9 @@
 #include <string>
 #include "resource_probe.hpp"
 #include "../src/control_accessibility.hpp"
+#include "../src/collection_host.hpp"
+#include "../src/grid_host.hpp"
+#include "../src/file_list_host.hpp"
 #define wWinMain SampleMain
 #include "../demo/task_manager.cpp"
 #undef wWinMain
@@ -181,6 +184,14 @@ int wmain(int argc, wchar_t** argv) {
     resources("entry");
     std::cout << "control_snapshot_bytes=" << sizeof(xui::ControlSnapshot)
         << " control_accessibility_bytes=" << sizeof(xui::ControlAccessibility)
+        << " common_peer_bytes=" << sizeof(xui::HostPeer)
+        << " collection_peer_bytes=" << sizeof(xui::CollectionHostPeer)
+        << " collection_snapshot_bytes=" << sizeof(xui::CollectionSnapshot)
+        << " collection_accessibility_bytes=" << sizeof(xui::CollectionAccessibility)
+        << " grid_peer_bytes=" << sizeof(xui::GridHostPeer)
+        << " grid_snapshot_bytes=" << sizeof(xui::GridSnapshot)
+        << " grid_accessibility_bytes=" << sizeof(xui::GridAccessibility)
+        << " file_list_peer_bytes=" << sizeof(xui::FileListHostPeer)
         << " collection_selection_bytes=" << sizeof(xui::CollectionSelection) << '\n';
     if (kind == L"task") {
         requested_width = width; requested_height = height;

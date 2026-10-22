@@ -1,4 +1,4 @@
-#include "control_accessibility.hpp"
+#include "collection_accessibility.hpp"
 #include <UIAutomation.h>
 #include <algorithm>
 #include <cmath>
@@ -10,19 +10,19 @@ class CollectionProvider final : public IRawElementProviderSimple, public IRawEl
     public IScrollProvider, public IScrollItemProvider, public IExpandCollapseProvider, public IInvokeProvider,
     public IVirtualizedItemProvider, public IItemContainerProvider, public IToggleProvider {
     std::atomic<ULONG> refs_{1};
-    std::shared_ptr<ControlAccessibility> state_;
+    std::shared_ptr<CollectionAccessibility> state_;
     CollectionProvider* root_{};
     std::optional<ItemKey> key_;
     bool action_{};
 public:
-    explicit CollectionProvider(std::shared_ptr<ControlAccessibility> state) : state_(std::move(state)) {}
+    explicit CollectionProvider(std::shared_ptr<CollectionAccessibility> state) : state_(std::move(state)) {}
     CollectionProvider(CollectionProvider* root, ItemKey key, bool action = false) :
         state_(root->state_), root_(root->root_ ? root->root_ : root), key_(key), action_(action) { root_->AddRef(); }
     ~CollectionProvider() { if (root_) root_->Release(); }
     CollectionProvider* make(ItemKey key, bool action = false) { return new CollectionProvider(this, key, action); }
     template<class F> HRESULT with(F&& callback) const noexcept {
         try {
-            ControlSnapshot s; { std::lock_guard lock(state_->mutex); s = state_->snapshot; }
+            CollectionSnapshot s; { std::lock_guard lock(state_->mutex); s = state_->snapshot; }
             if (!s.window || (key_ && (!s.collection || !s.collection->find(*key_)))) return UIA_E_ELEMENTNOTAVAILABLE;
             return callback(s);
         } catch (const std::bad_alloc&) { return E_OUTOFMEMORY; } catch (...) { return E_FAIL; }
@@ -196,7 +196,7 @@ public:
             for (LONG i = 0; i < 8; ++i) SafeArrayPutElement(*value, &i, &ids[i]); return S_OK;
         });
     }
-    void bounds(const ControlSnapshot& s, UiaRect& value) const {
+    void bounds(const CollectionSnapshot& s, UiaRect& value) const {
         value = {}; RECT window{};
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &window)) return;
         const auto clip = clipped_bounds(s.window);
@@ -248,13 +248,14 @@ public:
         if (!value) return E_POINTER; *value = {}; return with([&](const auto& s) { bounds(s, *value); return S_OK; });
     }
     HRESULT STDMETHODCALLTYPE GetEmbeddedFragmentRoots(SAFEARRAY** value) override { if (!value) return E_POINTER; *value = nullptr; return S_OK; }
-    HRESULT send(const ControlSnapshot& s, GridAction action) {
+    HRESULT send(const CollectionSnapshot& s, GridAction action) {
         if (!s.enabled || (key_ && !s.collection->item(*s.collection->find(*key_)).enabled)) return UIA_E_ELEMENTNOTENABLED;
         if (key_ && s.role == ControlRole::command_menu && s.collection->hierarchy(*s.collection->find(*key_)).group &&
             action.kind != GridAction::reveal) return UIA_E_INVALIDOPERATION;
         std::uint64_t token{};
         { std::lock_guard lock(state_->mutex);
-            if (state_->snapshot.window != s.window || state_->grid_actions.size() >= 32) return UIA_E_ELEMENTNOTAVAILABLE;
+            if (state_->snapshot.window != s.window || state_->snapshot.id != s.id ||
+                state_->grid_actions.size() >= 32) return UIA_E_ELEMENTNOTAVAILABLE;
             token = ++state_->next_grid_action; state_->grid_actions.emplace(token, std::move(action)); }
         DWORD_PTR result{};
         const auto ok = SendMessageTimeoutW(s.window, grid_action_message, static_cast<WPARAM>(s.id), static_cast<LPARAM>(token),
@@ -379,7 +380,7 @@ public:
             if (index < s.collection->size()) *value = make(s.collection->key(index)); return S_OK;
         });
     }
-    static double maximum(const ControlSnapshot& s) {
+    static double maximum(const CollectionSnapshot& s) {
         if (s.collection_presentation) return std::max(0.0, s.collection_presentation->extent() - s.collection_height);
         return std::max(0.0, (s.collection ? s.collection_columns == 1 ?
             s.collection->row_start(s.collection->size(), s.collection_item_height) :
@@ -413,8 +414,30 @@ public:
     }
 };
 }
-IRawElementProviderSimple* create_collection_provider(std::shared_ptr<ControlAccessibility> state) { return new CollectionProvider(std::move(state)); }
-void raise_collection_changes(IRawElementProviderSimple* provider, const ControlSnapshot& before, const ControlSnapshot& after) {
+void publish_collection(const std::shared_ptr<CollectionAccessibility>& state,
+    IRawElementProviderSimple* provider, const VirtualCollection& control, HWND window) {
+    CollectionSnapshot next;
+    static_cast<HostAccessibilityIdentity&>(next) = accessibility_identity(control, window);
+    next.single_selection = !control.multiple_selection();
+    next.collection = control.source();
+    next.selection = control.selection();
+    next.collection_presentation = detail::CollectionPresentationAccess::get(control);
+    next.collection_columns = control.columns();
+    next.collection_item_height = control.item_size().height;
+    const auto viewport = control.content_viewport();
+    next.collection_offset = control.offset();
+    next.collection_width = viewport.width;
+    next.collection_height = viewport.height;
+    next.collection_viewport_x = viewport.x;
+    next.collection_viewport_y = viewport.y;
+    if (const auto* tree = dynamic_cast<const TreeView*>(&control)) next.collection_details = tree->detail_columns();
+    CollectionSnapshot previous;
+    if (!replace_host_snapshot(state, std::move(next), previous)) return;
+    if (provider && previous.window && UiaClientsAreListening())
+        raise_collection_changes(provider, previous, read_host_snapshot(state));
+}
+IRawElementProviderSimple* create_collection_provider(std::shared_ptr<CollectionAccessibility> state) { return new CollectionProvider(std::move(state)); }
+void raise_collection_changes(IRawElementProviderSimple* provider, const CollectionSnapshot& before, const CollectionSnapshot& after) {
     if (before.collection_columns != after.collection_columns || before.collection_details != after.collection_details ||
         before.collection_item_height != after.collection_item_height ||
         before.collection_width != after.collection_width || before.collection_height != after.collection_height ||

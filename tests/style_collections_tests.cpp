@@ -7,7 +7,7 @@
 #ifdef _WIN32
 #include "../src/drawing.hpp"
 #include "../src/images.hpp"
-#include "../src/control_accessibility.hpp"
+#include "../src/collection_accessibility.hpp"
 #include <UIAutomation.h>
 #endif
 #include <array>
@@ -251,8 +251,8 @@ void geometry() {
     require(first.x == viewport.x && first.y == viewport.y && first.height == 70 && first.width == viewport.width,
         "Rows use the content viewport");
 #ifdef _WIN32
-    auto accessibility = std::make_shared<ControlAccessibility>();
-    publish_control(accessibility, nullptr, view, nullptr);
+    auto accessibility = std::make_shared<CollectionAccessibility>();
+    publish_collection(accessibility, nullptr, view, nullptr);
     const auto& snapshot = accessibility->snapshot;
     require(snapshot.collection == source && snapshot.collection_item_height == first.height &&
         snapshot.collection_viewport_x == first.x && snapshot.collection_viewport_y == first.y &&
@@ -443,8 +443,8 @@ void provider_geometry_contract() {
     auto offset = 17.5;
     if (std::fmod(offset + view.content_viewport().height, view.item_size().height) < 0.5) offset += 1;
     view.set_offset(offset);
-    auto state = std::make_shared<ControlAccessibility>();
-    publish_control(state, nullptr, view, window);
+    auto state = std::make_shared<CollectionAccessibility>();
+    publish_collection(state, nullptr, view, window);
     ComPtr<IRawElementProviderSimple> provider; provider.Attach(create_collection_provider(state));
     ComPtr<IRawElementProviderFragmentRoot> fragment_root;
     ComPtr<IRawElementProviderFragment> root_fragment;
@@ -527,11 +527,11 @@ void provider_geometry_contract() {
     const auto identity = runtime_id(first.Get());
     view.set_offset(0); root.row_height = 56; root.padding = Insets{5, 7, 9, 11}; scrollbar.width = 44;
     view.set_control_style_values(StylePart::root, root); view.set_control_style_values(StylePart::scrollbar, scrollbar);
-    publish_control(state, nullptr, view, window);
+    publish_collection(state, nullptr, view, window);
     require(runtime_id(first.Get()) == identity && state->snapshot.collection == source, "Style replacement retains existing provider and source identity");
     expect_bounds(first.Get(), visible.begin);
     viewport = view.content_viewport(); expect_hit({viewport.x + 5, viewport.y + 2});
-    view.reveal(source->key(source->size() - 1)); publish_control(state, nullptr, view, window);
+    view.reveal(source->key(source->size() - 1)); publish_collection(state, nullptr, view, window);
     auto final = find(source->size() - 1); expect_bounds(final.Get(), source->size() - 1);
     require(SUCCEEDED(scroll->get_VerticalScrollPercent(&percent)) && coordinates_match(percent, 100), "Final item reveal agrees with UIA scroll range");
     view.set_presentation(ItemsPresentation::gallery);
@@ -539,13 +539,13 @@ void provider_geometry_contract() {
     view.set_control_style_values(StylePart::root, {});
     for (const float width : {arranged.width, 100.0f}) {
         view.arrange({0, 0, width, arranged.height}); view.set_offset(0);
-        publish_control(state, nullptr, view, window);
+        publish_collection(state, nullptr, view, window);
         auto gallery = find(0);
         expect_bounds(gallery.Get(), 0);
         viewport = view.content_viewport();
         expect_hit({viewport.x + 5, viewport.y + 5});
         require(runtime_id(gallery.Get()) == identity, "Gallery keeps stable UIA identity across presentation changes");
-        view.reveal(source->key(source->size() - 1)); publish_control(state, nullptr, view, window);
+        view.reveal(source->key(source->size() - 1)); publish_collection(state, nullptr, view, window);
         expect_bounds(final.Get(), source->size() - 1);
         require(SUCCEEDED(scroll->get_VerticalScrollPercent(&percent)) && coordinates_match(percent, 100),
             "Gallery last-item reveal agrees with UIA in wrapped and single-column layouts");
@@ -563,7 +563,7 @@ void tree_details_provider_contract() {
     tree.arrange({0, 0, 700, 240});
     tree.on_request([&](TreeRequest request) { tree.complete(request, std::make_shared<collections_test::DetailItems>(2, 2000001)); });
     tree.disclose({1, 1}, true);
-    auto state = std::make_shared<ControlAccessibility>(); publish_control(state, nullptr, tree, window);
+    auto state = std::make_shared<CollectionAccessibility>(); publish_collection(state, nullptr, tree, window);
     ComPtr<IRawElementProviderSimple> root; root.Attach(create_collection_provider(state));
     ComPtr<IItemContainerProvider> container; require(SUCCEEDED(root.As(&container)), "Details retains virtual item container");
     VARIANT match{}; match.vt = VT_BSTR; match.bstrVal = SysAllocString(L"2000002:1");
@@ -588,7 +588,7 @@ void tree_details_provider_contract() {
         "Detail tree items retain selection patterns");
     ComPtr<IUnknown> table;
     require(SUCCEEDED(root->GetPatternProvider(UIA_GridPatternId, &table)) && !table, "Headless tree details do not advertise a table");
-    tree.set_columns({}); publish_control(state, nullptr, tree, window);
+    tree.set_columns({}); publish_collection(state, nullptr, tree, window);
     require(text(UIA_HelpTextPropertyId) == L"Ordinary subtitle", "Clearing columns updates metadata on retained tree providers");
 #endif
 }

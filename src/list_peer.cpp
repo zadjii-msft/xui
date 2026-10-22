@@ -502,17 +502,20 @@ LRESULT ListPeer::message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
         default: return FALSE;
         }
     }
-    case WM_NCDESTROY:
+    case WM_NCDESTROY: {
         list_->set_focused(false);
+        std::shared_ptr<const FilteredView> retired;
         {
             std::lock_guard lock(accessibility_->mutex);
             accessibility_->window = nullptr;
-            dispose_later(std::move(accessibility_->snapshot.view));
+            retired = std::move(accessibility_->snapshot.view);
         }
+        dispose_later(std::move(retired));
         if (provider_) UiaDisconnectProvider(provider_);
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         window_ = nullptr;
         break;
+    }
     }
     return DefWindowProcW(hwnd, message, wparam, lparam);
 }

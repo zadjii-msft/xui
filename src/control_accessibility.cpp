@@ -537,9 +537,9 @@ IRawElementProviderSimple* create_native_clip_provider(std::shared_ptr<ControlAc
 void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     IRawElementProviderSimple* provider, const Control& control, HWND window) {
     const bool enabled = control.enabled() && IsWindowEnabled(window);
-    ControlSnapshot next{window, control.id(), control.role(), control.name(), control.automation_id(), enabled,
-        control.focused(), control.role() == ControlRole::toggle && static_cast<const Toggle&>(control).checked()};
-    next.help_text = control.help_text();
+    ControlSnapshot next;
+    static_cast<HostAccessibilityIdentity&>(next) = accessibility_identity(control, window);
+    next.checked = control.role() == ControlRole::toggle && static_cast<const Toggle&>(control).checked();
     if (const auto toggle = dynamic_cast<const Toggle*>(&control)) next.indeterminate = toggle->indeterminate();
     next.hyperlink = dynamic_cast<const HyperlinkButton*>(&control) != nullptr;
     next.menu_bar = dynamic_cast<const MenuBar*>(&control) != nullptr;
@@ -641,26 +641,6 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         next.split_height = divider.height;
         next.minimum = 10; next.maximum = 90; next.small_step = 2.5; next.large_step = 10; next.value = split->ratio() * 100;
     }
-    if (const auto grid = dynamic_cast<const DataGrid*>(&control)) {
-        next.grid = grid->source(); next.columns = grid->columns(); next.column_order = grid->column_order(); next.selected_row = grid->selected();
-        next.grid_x = grid->horizontal_offset(); next.grid_y = grid->offset();
-        next.grid_width = grid->viewport_width(); next.grid_height = grid->viewport_height();
-        next.grid_geometry = grid->geometry();
-        next.sort_column = grid->sort_column(); next.descending = grid->descending();
-        next.header_column = grid->columns().empty() ? 0 : grid->source_column(grid->focused_column()); next.header_focus = grid->header_focus();
-        next.selection = grid->selection(); next.grid_filters = grid->filters(); next.header_part = grid->header_part(); next.full_source = grid->full_source();
-    }
-    if (const auto collection = dynamic_cast<const VirtualCollection*>(&control)) {
-        next.single_selection = !collection->multiple_selection();
-        next.collection = collection->source(); next.selection = collection->selection();
-        next.collection_presentation = detail::CollectionPresentationAccess::get(*collection);
-        next.collection_columns = collection->columns(); next.collection_item_height = collection->item_size().height;
-        const auto viewport = collection->content_viewport();
-        next.collection_offset = collection->offset(); next.collection_width = viewport.width;
-        next.collection_height = viewport.height;
-        next.collection_viewport_x = viewport.x; next.collection_viewport_y = viewport.y;
-        if (const auto* tree = dynamic_cast<const TreeView*>(collection)) next.collection_details = tree->detail_columns();
-    }
     if (const auto map = dynamic_cast<const MapView*>(&control)) {
         const auto center = map->center();
         next.help_text += L" Latitude " + std::to_wstring(center.latitude) + L", longitude " +
@@ -680,13 +660,6 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         name_event(provider, previous.name, current.name);
         if ((previous.name != current.name || !previous.visible) && current.visible)
             UiaRaiseAutomationEvent(provider, UIA_LiveRegionChangedEventId);
-        return;
-    }
-    if (control.role() == ControlRole::items_view || control.role() == ControlRole::tree_view || control.role() == ControlRole::command_menu) {
-        raise_collection_changes(provider, previous, read(state)); return;
-    }
-    if (control.role() == ControlRole::data_grid) {
-        raise_grid_changes(provider, previous, read(state));
         return;
     }
     if (control.role() == ControlRole::tab_strip || control.role() == ControlRole::split_view ||
@@ -740,10 +713,13 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     }
 }
 void disconnect_control(const std::shared_ptr<ControlAccessibility>& state, IRawElementProviderSimple* provider) {
+    ControlSnapshot retired;
+    std::map<std::uint64_t, FoundationAction> actions;
     {
         std::lock_guard lock(state->mutex);
+        retired = std::move(state->snapshot);
         state->snapshot = {};
-        state->grid_actions.clear(); state->foundation_actions.clear();
+        actions.swap(state->foundation_actions);
     }
     if (provider) UiaDisconnectProvider(provider);
 }
