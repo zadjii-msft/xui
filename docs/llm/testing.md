@@ -36,6 +36,10 @@ capabilities, clear-policy negative calls and checked GUI-resource result handli
 It also detects the extraction's clear cancellation scheduling regression: repeated
 idle `WM_CANCELMODE` must schedule no paint; capture loss must schedule one.
 The unfixed archived library fails that negative test.
+Repeated unchanged clear publication constructs each of its three long metadata
+strings once, not a second full identity for possible events. Changed publication
+retains an owning Name event value and scalar snapshots across reentrant COM calls;
+retired metadata and COM operations stay outside the state mutex.
 
 `tests\native_editor_host_window_tests.cpp` exercises actual native attachment failure,
 destructive/throwing callbacks, composition, HWND identity, selection/undo/redo,

@@ -9,6 +9,20 @@
 #include <wrl/client.h>
 #include <iostream>
 #include <type_traits>
+#include <cstdlib>
+#include <new>
+
+namespace { thread_local std::uint64_t ordinary_new_calls{}; }
+void* operator new(std::size_t size) {
+    ++ordinary_new_calls;
+    if (auto* value = std::malloc(size ? size : 1)) return value;
+    throw std::bad_alloc{};
+}
+void* operator new[](std::size_t size) { return ::operator new(size); }
+void operator delete(void* value) noexcept { std::free(value); }
+void operator delete[](void* value) noexcept { std::free(value); }
+void operator delete(void* value, std::size_t) noexcept { std::free(value); }
+void operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 
 namespace {
 using namespace xui;
@@ -226,11 +240,32 @@ void clear_provider() {
     require(simple->GetPropertyValue(UIA_NamePropertyId, &value) == UIA_E_ELEMENTNOTAVAILABLE,
         "Clear child retains only independent disconnected state");
 }
+void clear_publication() {
+    auto state = std::make_shared<NativeFieldAccessibility>();
+    Button model(std::wstring(100, L'N'));
+    model.set_automation_id(std::wstring(100, L'I'));
+    model.set_help_text(std::wstring(100, L'H'));
+    ComPtr<IRawElementProviderSimple> provider;
+    provider.Attach(create_text_clear_provider(state));
+    const auto window = reinterpret_cast<HWND>(1);
+    publish_text_clear(state, provider.Get(), model, window);
+    const auto before = ordinary_new_calls;
+    for (unsigned index = 0; index != 64; ++index) publish_text_clear(state, provider.Get(), model, window);
+    require(ordinary_new_calls - before == 64 * 3,
+        "Unchanged clear publication constructs three metadata strings once, without a second full identity copy for events");
+    model.set_name(std::wstring(120, L'R'));
+    publish_text_clear(state, provider.Get(), model, window);
+    const auto snapshot = read_host_snapshot(state);
+    require(snapshot.name == model.name() && snapshot.automation_id == model.automation_id() &&
+        snapshot.help_text == model.help_text() && snapshot.window == window && snapshot.id == model.id(),
+        "Changed clear publication atomically replaces independent complete metadata and identity");
+    disconnect_native_field(state, provider.Get());
+}
 }
 int main(int argc, char**) {
     if (argc != 1) { std::cerr << "This native provider fixture accepts no selectors\n"; return 2; }
     try {
-        clear_policy(); clear_cancellation(); resource_results(); native_provider(); clear_provider();
+        clear_policy(); clear_cancellation(); resource_results(); native_provider(); clear_provider(); clear_publication();
         std::cout << "Native metadata, password denial, pattern non-impersonation, COM/runtime identity, clear policy and retirement passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

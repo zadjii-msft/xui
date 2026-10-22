@@ -364,18 +364,29 @@ void publish_native_field(const std::shared_ptr<NativeFieldAccessibility>& state
 void publish_text_clear(const std::shared_ptr<NativeFieldAccessibility>& state,
     IRawElementProviderSimple* provider, const Control& control, HWND window) {
     auto next = accessibility_identity(control, window);
+    const bool enabled = next.enabled, focused = next.focused;
     HostAccessibilityIdentity previous;
-    if (!replace_host_snapshot(state, next, previous) || !provider || !UiaClientsAreListening()) return;
+    std::wstring next_name;
+    bool name_changed{};
+    {
+        std::lock_guard lock(state->mutex);
+        if (state->snapshot == next) return;
+        name_changed = state->snapshot.name != next.name;
+        if (name_changed && provider) next_name = next.name;
+        previous = std::move(state->snapshot);
+        state->snapshot = std::move(next);
+    }
+    if (!provider || !UiaClientsAreListening()) return;
     Microsoft::WRL::ComPtr<IRawElementProviderSimple> element;
     element.Attach(static_cast<TextClearProvider*>(provider)->child());
-    boolean_event(element.Get(), UIA_IsEnabledPropertyId, previous.enabled, next.enabled);
-    boolean_event(element.Get(), UIA_HasKeyboardFocusPropertyId, previous.focused, next.focused);
-    if (!previous.focused && next.focused) UiaRaiseAutomationEvent(element.Get(), UIA_AutomationFocusChangedEventId);
-    if (previous.name != next.name) {
+    boolean_event(element.Get(), UIA_IsEnabledPropertyId, previous.enabled, enabled);
+    boolean_event(element.Get(), UIA_HasKeyboardFocusPropertyId, previous.focused, focused);
+    if (!previous.focused && focused) UiaRaiseAutomationEvent(element.Get(), UIA_AutomationFocusChangedEventId);
+    if (name_changed) {
         VARIANT old_value{}, new_value{};
         old_value.vt = new_value.vt = VT_BSTR;
         old_value.bstrVal = SysAllocString(previous.name.c_str());
-        new_value.bstrVal = SysAllocString(next.name.c_str());
+        new_value.bstrVal = SysAllocString(next_name.c_str());
         if (old_value.bstrVal && new_value.bstrVal)
             UiaRaiseAutomationPropertyChangedEvent(element.Get(), UIA_NamePropertyId, old_value, new_value);
         VariantClear(&old_value);
