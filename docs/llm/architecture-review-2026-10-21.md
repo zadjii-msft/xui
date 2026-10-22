@@ -335,7 +335,7 @@ Writing this plan does not complete any runtime finding.
 | Stage | PR scope | Current status | Must merge first | Finding coverage |
 | --- | --- | --- | --- | --- |
 | 0 | `architecture-refactor-roadmap` | Merged: [#57](https://github.com/zadjii-msft/xui/pull/57); accepted `b00835a76d10d0188722f25551b6c375e66e4a30`, squash `3f86e085aad8ac36445a47061e1f7640da407fb6` | None | Records all seven findings and the complete rollout |
-| 1 | `baseline-gates` | In review preparation; implementation and headless evidence recorded below, desktop/timing limits unresolved | 0 | Establishes evidence and ordinary PR protection for every later stage |
+| 1 | `baseline-gates` | In review preparation: [#58](https://github.com/zadjii-msft/xui/pull/58); implementation/headless evidence below, desktop/timing limits unresolved; no accepted/merged head yet | 0 | Establishes evidence and ordinary PR protection for every later stage |
 | 2 | `child-contract` | Not started | 1 | Finding 3: owned children and separate traversal policies |
 | 3 | `host-boundaries` | Not started | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Not started | 3, including all approved subdivisions | Finding 2: originating identity and targeted ordered work |
