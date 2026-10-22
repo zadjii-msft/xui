@@ -39,7 +39,7 @@ public:
         std::lock_guard lock(state_->mutex);
         if (!state_->snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
         value = state_->snapshot;
-        if (root_ && std::none_of(value.tabs.begin(), value.tabs.end(), [&](const auto& t) { return t.id == id_; }))
+        if (root_ && std::none_of(value.selection().tabs.begin(), value.selection().tabs.end(), [&](const auto& t) { return t.id == id_; }))
             return UIA_E_ELEMENTNOTAVAILABLE;
         return S_OK;
     }
@@ -82,7 +82,7 @@ public:
         return with([&](const auto& s) -> HRESULT {
             if (id == UIA_NamePropertyId || id == UIA_AutomationIdPropertyId || id == UIA_FrameworkIdPropertyId || id == UIA_HelpTextPropertyId) {
                 auto name = s.name;
-                if (root_) for (const auto& t : s.tabs) if (t.id == id_) name = t.title;
+                if (root_) for (const auto& t : s.selection().tabs) if (t.id == id_) name = t.title;
                 const auto text = id == UIA_HelpTextPropertyId ? s.help_text : id == UIA_NamePropertyId ? name : id == UIA_FrameworkIdPropertyId ? L"XUI" :
                     s.automation_id + (root_ ? L"-tab-" + std::to_wstring(id_) : L"");
                 value->vt = VT_BSTR;
@@ -121,9 +121,9 @@ public:
                 UiaRect rect{};
                 bounds(s, rect);
                 bool item_enabled = s.enabled;
-                if (root_) for (std::size_t i = 0; i < s.tabs.size(); ++i)
-                    if (s.tabs[i].id == id_ && i < s.choice_enabled.size()) item_enabled = item_enabled && s.choice_enabled[i];
-                const bool result = id == UIA_HasKeyboardFocusPropertyId ? s.focused && (!root_ || s.selected_tab == id_) :
+                if (root_) for (std::size_t i = 0; i < s.selection().tabs.size(); ++i)
+                    if (s.selection().tabs[i].id == id_ && i < s.selection().choice_enabled.size()) item_enabled = item_enabled && s.selection().choice_enabled[i];
+                const bool result = id == UIA_HasKeyboardFocusPropertyId ? s.focused && (!root_ || s.selection().selected_tab == id_) :
                     id == UIA_IsOffscreenPropertyId ? rect.width <= 0 || rect.height <= 0 :
                     id == UIA_IsEnabledPropertyId ? item_enabled : id == UIA_IsKeyboardFocusablePropertyId ?
                         item_enabled && s.role != ControlRole::popup && s.role != ControlRole::progress &&
@@ -143,13 +143,13 @@ public:
         *value = nullptr;
         return with([&](const auto& s) {
             if (root_ && direction == NavigateDirection_Parent) { *value = root_; root_->AddRef(); }
-            else if (!root_ && !s.tabs.empty() &&
+            else if (!root_ && !s.selection().tabs.empty() &&
                 (direction == NavigateDirection_FirstChild || direction == NavigateDirection_LastChild))
-                *value = child(direction == NavigateDirection_FirstChild ? s.tabs.front().id : s.tabs.back().id);
+                *value = child(direction == NavigateDirection_FirstChild ? s.selection().tabs.front().id : s.selection().tabs.back().id);
             else if (root_ && (direction == NavigateDirection_NextSibling || direction == NavigateDirection_PreviousSibling)) {
-                for (std::size_t i = 0; i < s.tabs.size(); ++i) if (s.tabs[i].id == id_) {
-                    if (direction == NavigateDirection_NextSibling && i + 1 < s.tabs.size()) *value = child(s.tabs[i + 1].id);
-                    if (direction == NavigateDirection_PreviousSibling && i) *value = child(s.tabs[i - 1].id);
+                for (std::size_t i = 0; i < s.selection().tabs.size(); ++i) if (s.selection().tabs[i].id == id_) {
+                    if (direction == NavigateDirection_NextSibling && i + 1 < s.selection().tabs.size()) *value = child(s.selection().tabs[i + 1].id);
+                    if (direction == NavigateDirection_PreviousSibling && i) *value = child(s.selection().tabs[i - 1].id);
                 }
             }
             return S_OK;
@@ -174,26 +174,26 @@ public:
         if (!IsWindowVisible(s.window) || !GetWindowRect(s.window, &rect)) return;
         if (s.role == ControlRole::split_view) {
             const auto scale = GetDpiForWindow(s.window) / 96.0f;
-            rect.left += static_cast<LONG>(std::lround(s.split_left * scale));
-            rect.right = rect.left + static_cast<LONG>(std::lround(s.split_width * scale));
-            rect.top += static_cast<LONG>(std::lround(s.split_top * scale));
-            rect.bottom = rect.top + static_cast<LONG>(std::lround(s.split_height * scale));
+            rect.left += static_cast<LONG>(std::lround(s.split().split_left * scale));
+            rect.right = rect.left + static_cast<LONG>(std::lround(s.split().split_width * scale));
+            rect.top += static_cast<LONG>(std::lround(s.split().split_top * scale));
+            rect.bottom = rect.top + static_cast<LONG>(std::lround(s.split().split_height * scale));
         }
         if (root_) {
-            for (std::size_t i = 0; i < s.tabs.size(); ++i) if (s.tabs[i].id == id_ && s.tab_edges.size() > 2 * i + 1) {
+            for (std::size_t i = 0; i < s.selection().tabs.size(); ++i) if (s.selection().tabs[i].id == id_ && s.selection().tab_edges.size() > 2 * i + 1) {
                 const auto scale = GetDpiForWindow(s.window) / 96.0f;
-                if (s.vertical_choices) {
-                    rect.right = rect.left + static_cast<LONG>(std::lround((s.choice_left + s.choice_width) * scale));
-                    rect.left += static_cast<LONG>(std::lround(s.choice_left * scale));
-                    rect.bottom = rect.top + static_cast<LONG>(std::lround(s.tab_edges[2 * i + 1] * scale));
-                    rect.top += static_cast<LONG>(std::lround(s.tab_edges[2 * i] * scale));
+                if (s.selection().vertical_choices) {
+                    rect.right = rect.left + static_cast<LONG>(std::lround((s.selection().choice_left + s.selection().choice_width) * scale));
+                    rect.left += static_cast<LONG>(std::lround(s.selection().choice_left * scale));
+                    rect.bottom = rect.top + static_cast<LONG>(std::lround(s.selection().tab_edges[2 * i + 1] * scale));
+                    rect.top += static_cast<LONG>(std::lround(s.selection().tab_edges[2 * i] * scale));
                 } else {
-                    if (s.selector_bar) {
-                        rect.bottom = rect.top + static_cast<LONG>(std::lround((s.choice_top + s.choice_height) * scale));
-                        rect.top += static_cast<LONG>(std::lround(s.choice_top * scale));
+                    if (s.selection().selector_bar) {
+                        rect.bottom = rect.top + static_cast<LONG>(std::lround((s.selection().choice_top + s.selection().choice_height) * scale));
+                        rect.top += static_cast<LONG>(std::lround(s.selection().choice_top * scale));
                     }
-                    rect.right = rect.left + static_cast<LONG>(std::lround(s.tab_edges[2 * i + 1] * scale));
-                    rect.left += static_cast<LONG>(std::lround(s.tab_edges[2 * i] * scale));
+                    rect.right = rect.left + static_cast<LONG>(std::lround(s.selection().tab_edges[2 * i + 1] * scale));
+                    rect.left += static_cast<LONG>(std::lround(s.selection().tab_edges[2 * i] * scale));
                 }
             }
         }
@@ -240,7 +240,7 @@ public:
         return with([&](const auto& s) {
             UiaRect rect{}; bounds(s, rect);
             if (x < rect.left || x >= rect.left + rect.width || y < rect.top || y >= rect.top + rect.height) return S_OK;
-            for (auto& tab : s.tabs) {
+            for (auto& tab : s.selection().tabs) {
                 auto* item = child(tab.id);
                 UiaRect b{}; item->bounds(s, b);
                 if (x >= b.left && x < b.left + b.width && y >= b.top && y < b.top + b.height) { *value = item; return S_OK; }
@@ -254,7 +254,7 @@ public:
         *value = nullptr;
         return with([&](const auto& s) {
             if (s.focused) {
-                if (s.selected_tab) *value = child(*s.selected_tab);
+                if (s.selection().selected_tab) *value = child(*s.selection().selected_tab);
                 else { *value = this; AddRef(); }
             }
             return S_OK;
@@ -264,10 +264,10 @@ public:
         if (!value) return E_POINTER;
         *value = nullptr;
         return with([&](const auto& s) -> HRESULT {
-            *value = SafeArrayCreateVector(VT_UNKNOWN, 0, s.selected_tab ? 1 : 0);
+            *value = SafeArrayCreateVector(VT_UNKNOWN, 0, s.selection().selected_tab ? 1 : 0);
             if (!*value) return E_OUTOFMEMORY;
-            if (s.selected_tab) {
-                auto* item = child(*s.selected_tab);
+            if (s.selection().selected_tab) {
+                auto* item = child(*s.selection().selected_tab);
                 LONG index{};
                 auto result = SafeArrayPutElement(*value, &index, static_cast<IRawElementProviderSimple*>(item));
                 item->Release();
@@ -279,7 +279,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_CanSelectMultiple(BOOL* value) override { return boolean(value, false); }
     HRESULT STDMETHODCALLTYPE get_IsSelectionRequired(BOOL* value) override {
         if (!value) return E_POINTER;
-        return with([&](const auto& s) { *value = s.selected_tab.has_value(); return S_OK; });
+        return with([&](const auto& s) { *value = s.selection().selected_tab.has_value(); return S_OK; });
     }
     HRESULT boolean(BOOL* value, bool result) {
         if (!value) return E_POINTER;
@@ -292,7 +292,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_IsSelected(BOOL* value) override {
         if (!value) return E_POINTER;
         *value = FALSE;
-        return with([&](const auto& s) { *value = s.selected_tab == id_; return S_OK; });
+        return with([&](const auto& s) { *value = s.selection().selected_tab == id_; return S_OK; });
     }
     HRESULT STDMETHODCALLTYPE get_SelectionContainer(IRawElementProviderSimple** value) override {
         if (!value) return E_POINTER;
@@ -301,8 +301,8 @@ public:
     }
     HRESULT STDMETHODCALLTYPE SetValue(double value) override {
         return with([&](const auto& s) -> HRESULT {
-            if (!std::isfinite(value) || value < s.minimum || value > s.maximum) return E_INVALIDARG;
-            if (s.read_only) return UIA_E_INVALIDOPERATION;
+            if (!std::isfinite(value) || value < s.range().minimum || value > s.range().maximum) return E_INVALIDARG;
+            if (s.range().read_only) return UIA_E_INVALIDOPERATION;
             if (s.role == ControlRole::split_view) return send(s, 1000 + static_cast<LPARAM>(std::lround(value * 100)));
             return send_action(s, {FoundationAction::value, value});
         });
@@ -310,7 +310,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_Value(double* value) override { return number(value, -1); }
     HRESULT STDMETHODCALLTYPE get_IsReadOnly(BOOL* value) override {
         if (!value) return E_POINTER;
-        return with([&](const auto& s) { *value = s.read_only || !s.enabled; return S_OK; });
+        return with([&](const auto& s) { *value = s.range().read_only || !s.enabled; return S_OK; });
     }
     HRESULT STDMETHODCALLTYPE get_Maximum(double* value) override { return number(value, 90); }
     HRESULT STDMETHODCALLTYPE get_Minimum(double* value) override { return number(value, 10); }
@@ -320,8 +320,8 @@ public:
         if (!value) return E_POINTER;
         *value = 0;
         return with([&](const auto& s) {
-            *value = result < 0 ? s.value : result == 90 ? s.maximum : result == 10 ? s.minimum :
-                result == 11 ? s.large_step : s.small_step;
+            *value = result < 0 ? s.range().value : result == 90 ? s.range().maximum : result == 10 ? s.range().minimum :
+                result == 11 ? s.range().large_step : s.range().small_step;
             return S_OK;
         });
     }
@@ -342,7 +342,7 @@ public:
         if (!value) return E_POINTER;
         *value = nullptr;
         return with([&](const auto& s) -> HRESULT {
-            *value = SysAllocStringLen(s.value_text.data(), static_cast<UINT>(s.value_text.size()));
+            *value = SysAllocStringLen(s.range().value_text.data(), static_cast<UINT>(s.range().value_text.size()));
             return *value ? S_OK : E_OUTOFMEMORY;
         });
     }
@@ -426,8 +426,8 @@ void raise_workspace_changes(IRawElementProviderSimple* provider, const ControlS
         new_value.boolVal = after.focused ? VARIANT_TRUE : VARIANT_FALSE;
         UiaRaiseAutomationPropertyChangedEvent(provider, UIA_HasKeyboardFocusPropertyId, old_value, new_value);
     }
-    if (before.tabs != after.tabs) UiaRaiseStructureChangedEvent(provider, StructureChangeType_ChildrenInvalidated, nullptr, 0);
-    if (before.selected_tab != after.selected_tab && after.selected_tab) {
+    if (before.selection().tabs != after.selection().tabs) UiaRaiseStructureChangedEvent(provider, StructureChangeType_ChildrenInvalidated, nullptr, 0);
+    if (before.selection().selected_tab != after.selection().selected_tab && after.selection().selected_tab) {
         const auto changed = [&](std::uint64_t id, bool selected) {
             auto* tab = root->child(id);
             VARIANT old_value{}, new_value{};
@@ -437,25 +437,25 @@ void raise_workspace_changes(IRawElementProviderSimple* provider, const ControlS
             UiaRaiseAutomationPropertyChangedEvent(tab, UIA_SelectionItemIsSelectedPropertyId, old_value, new_value);
             tab->Release();
         };
-        if (before.selected_tab && std::any_of(after.tabs.begin(), after.tabs.end(),
-            [&](const auto& tab) { return tab.id == before.selected_tab; })) changed(*before.selected_tab, false);
-        changed(*after.selected_tab, true);
-        auto* tab = root->child(*after.selected_tab);
+        if (before.selection().selected_tab && std::any_of(after.selection().tabs.begin(), after.selection().tabs.end(),
+            [&](const auto& tab) { return tab.id == before.selection().selected_tab; })) changed(*before.selection().selected_tab, false);
+        changed(*after.selection().selected_tab, true);
+        auto* tab = root->child(*after.selection().selected_tab);
         UiaRaiseAutomationEvent(tab, UIA_SelectionItem_ElementSelectedEventId);
         tab->Release();
     }
-    if (after.focused && (!before.focused || before.selected_tab != after.selected_tab)) {
-        if (after.selected_tab) {
-            auto* tab = root->child(*after.selected_tab);
+    if (after.focused && (!before.focused || before.selection().selected_tab != after.selection().selected_tab)) {
+        if (after.selection().selected_tab) {
+            auto* tab = root->child(*after.selection().selected_tab);
             UiaRaiseAutomationEvent(tab, UIA_AutomationFocusChangedEventId);
             tab->Release();
         } else UiaRaiseAutomationEvent(provider, UIA_AutomationFocusChangedEventId);
     }
-    if (before.split_ratio != after.split_ratio) {
+    if (before.split().split_ratio != after.split().split_ratio) {
         VARIANT old_value{}, new_value{};
         old_value.vt = new_value.vt = VT_R8;
-        old_value.dblVal = before.split_ratio * 100;
-        new_value.dblVal = after.split_ratio * 100;
+        old_value.dblVal = before.split().split_ratio * 100;
+        new_value.dblVal = after.split().split_ratio * 100;
         UiaRaiseAutomationPropertyChangedEvent(provider, UIA_RangeValueValuePropertyId, old_value, new_value);
     }
     const auto changed = [&](PROPERTYID property, double before_value, double after_value) {
@@ -465,9 +465,9 @@ void raise_workspace_changes(IRawElementProviderSimple* provider, const ControlS
         old_value.dblVal = before_value; new_value.dblVal = after_value;
         UiaRaiseAutomationPropertyChangedEvent(provider, property, old_value, new_value);
     };
-    if (after.role != ControlRole::split_view) changed(UIA_RangeValueValuePropertyId, before.value, after.value);
-    changed(UIA_RangeValueMinimumPropertyId, before.minimum, after.minimum);
-    changed(UIA_RangeValueMaximumPropertyId, before.maximum, after.maximum);
+    if (after.role != ControlRole::split_view) changed(UIA_RangeValueValuePropertyId, before.range().value, after.range().value);
+    changed(UIA_RangeValueMinimumPropertyId, before.range().minimum, after.range().minimum);
+    changed(UIA_RangeValueMaximumPropertyId, before.range().maximum, after.range().maximum);
     if (before.expanded != after.expanded) {
         VARIANT old_value{}, new_value{};
         old_value.vt = new_value.vt = VT_I4;
@@ -485,6 +485,6 @@ void raise_workspace_changes(IRawElementProviderSimple* provider, const ControlS
     };
     text_changed(UIA_NamePropertyId, before.name, after.name);
     text_changed(UIA_HelpTextPropertyId, before.help_text, after.help_text);
-    if (after.role == ControlRole::numeric_input) text_changed(UIA_ValueValuePropertyId, before.value_text, after.value_text);
+    if (after.role == ControlRole::numeric_input) text_changed(UIA_ValueValuePropertyId, before.range().value_text, after.range().value_text);
 }
 }

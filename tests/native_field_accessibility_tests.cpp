@@ -57,7 +57,7 @@ struct DetachedServices final : PeerHostServices, NativeFieldServices {
 };
 struct ParentPeer final : HostPeer {
     ParentPeer(PeerHostServices& host, std::shared_ptr<Control> model)
-        : HostPeer(host, HostFamily::unextracted, std::move(model)) {}
+        : HostPeer(host, HostFamily::basic, std::move(model)) {}
     ~ParentPeer() override { retire_native(); }
     void attach(HWND, int) override { std::terminate(); }
     void sync(UINT, const Palette&) override { std::terminate(); }

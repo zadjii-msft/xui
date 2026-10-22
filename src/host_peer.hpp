@@ -33,7 +33,7 @@ public:
     virtual void peer_failure() noexcept = 0;
 };
 
-enum class HostFamily { unextracted, collection, grid, file_list, native_field, text_clear };
+enum class HostFamily { basic, scene, navigation, composite, collection, grid, file_list, native_field, text_clear };
 enum class PeerMetric { retained_images, thumbnails, ready_thumbnails, painted_rows };
 
 struct HostPaintContext {
@@ -91,7 +91,7 @@ struct HostPeer {
     virtual std::size_t metric(PeerMetric) const { return 0; }
     virtual void native_moved() {}
 
-    // Temporary native capabilities used by window-wide placement and composition.
+    // Closed native capabilities used by window-wide placement and composition.
     virtual NativeFieldHostPeer* native_field() const { return nullptr; }
     virtual NativeRuntimeHost* runtime_host() const { return nullptr; }
     virtual NativeSwapChainHost* swap_chain_host() const { return nullptr; }

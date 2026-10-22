@@ -189,6 +189,11 @@ if(WIN32)
         src/composition_presenter.cpp
         src/application.cpp
         src/host_peer.cpp
+        src/control_host.cpp
+        src/basic_host.cpp
+        src/scene_host.cpp
+        src/navigation_host.cpp
+        src/composite_host.cpp
         src/collection_host.cpp
         src/grid_host.cpp
         src/file_list_host.cpp
@@ -220,6 +225,11 @@ if(WIN32)
         target_compile_options(xui_family_accessibility_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
         add_test(NAME xui_family_accessibility_tests COMMAND xui_family_accessibility_tests)
         set_tests_properties(xui_family_accessibility_tests PROPERTIES TIMEOUT 30 LABELS "headless;lifetime")
+        add_executable(xui_control_host_tests tests/control_host_tests.cpp)
+        target_link_libraries(xui_control_host_tests PRIVATE xui_windows)
+        target_compile_options(xui_control_host_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        add_test(NAME xui_control_host_tests COMMAND xui_control_host_tests)
+        set_tests_properties(xui_control_host_tests PROPERTIES TIMEOUT 30 LABELS "headless;lifetime")
         add_executable(xui_native_field_accessibility_tests tests/native_field_accessibility_tests.cpp)
         target_link_libraries(xui_native_field_accessibility_tests PRIVATE xui_windows)
         target_compile_options(xui_native_field_accessibility_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
@@ -892,7 +902,7 @@ if(WIN32)
         add_custom_target(xui_headless_tests DEPENDS ${xui_core_test_targets} xui_headless_runner
             xui_syntax_highlighting_tests xui_document_syntax_tests xui_explorer_tests
             xui_abi_tests xui_abi_c_test xui_abi_features_tests xui_document_editing_abi_tests
-            xui_style_catalog xui_image_tests xui_content_host_window_tests xui_family_accessibility_retirement_tests xui_family_accessibility_tests
+            xui_style_catalog xui_image_tests xui_content_host_window_tests xui_family_accessibility_retirement_tests xui_family_accessibility_tests xui_control_host_tests
             xui_native_field_accessibility_tests)
         get_property(xui_registered_tests DIRECTORY PROPERTY TESTS)
         foreach(test IN LISTS xui_registered_tests)

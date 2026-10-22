@@ -91,7 +91,7 @@ public:
         return guarded([&]() -> HRESULT {
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-            if (id == UIA_ScrollPatternId && (snapshot.role == ControlRole::scroll_view || snapshot.horizontal_scroll))
+            if (id == UIA_ScrollPatternId && (snapshot.role == ControlRole::scroll_view || snapshot.scroll().horizontal_scroll))
                 *value = static_cast<IScrollProvider*>(this);
             if (id == UIA_ScrollItemPatternId && root_)
                 *value = static_cast<IScrollItemProvider*>(this);
@@ -162,11 +162,11 @@ public:
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
             if (!snapshot.enabled) return UIA_E_ELEMENTNOTENABLED;
-            const auto amount = snapshot.horizontal_scroll ? horizontal : vertical;
-            const auto other = snapshot.horizontal_scroll ? vertical : horizontal;
+            const auto amount = snapshot.scroll().horizontal_scroll ? horizontal : vertical;
+            const auto other = snapshot.scroll().horizontal_scroll ? vertical : horizontal;
             if (other != ScrollAmount_NoAmount) return UIA_E_INVALIDOPERATION;
             if (amount == ScrollAmount_NoAmount) return S_OK;
-            if (snapshot.scroll_extent <= snapshot.viewport_height) return UIA_E_INVALIDOPERATION;
+            if (snapshot.scroll().scroll_extent <= snapshot.scroll().viewport_height) return UIA_E_INVALIDOPERATION;
             switch (amount) {
             case ScrollAmount_SmallDecrement: return send(snapshot, 2);
             case ScrollAmount_SmallIncrement: return send(snapshot, 3);
@@ -181,12 +181,12 @@ public:
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
             if (!snapshot.enabled) return UIA_E_ELEMENTNOTENABLED;
-            const auto percent = snapshot.horizontal_scroll ? horizontal : vertical;
-            const auto other = snapshot.horizontal_scroll ? vertical : horizontal;
+            const auto percent = snapshot.scroll().horizontal_scroll ? horizontal : vertical;
+            const auto other = snapshot.scroll().horizontal_scroll ? vertical : horizontal;
             if (other != UIA_ScrollPatternNoScroll) return UIA_E_INVALIDOPERATION;
             if (percent == UIA_ScrollPatternNoScroll) return S_OK;
             if (!std::isfinite(percent) || percent < 0 || percent > 100) return E_INVALIDARG;
-            if (snapshot.scroll_extent <= snapshot.viewport_height) return UIA_E_INVALIDOPERATION;
+            if (snapshot.scroll().scroll_extent <= snapshot.scroll().viewport_height) return UIA_E_INVALIDOPERATION;
             return send(snapshot, 1000 + static_cast<LPARAM>(std::lround(percent * 100)));
         });
     }
@@ -306,12 +306,12 @@ private:
         return guarded([&]() -> HRESULT {
             const auto snapshot = read(state_);
             if (!snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-            const bool scrolls = snapshot.scroll_extent > snapshot.viewport_height;
-            const bool matching_axis = (property % 2 == 0) == snapshot.horizontal_scroll;
+            const bool scrolls = snapshot.scroll().scroll_extent > snapshot.scroll().viewport_height;
+            const bool matching_axis = (property % 2 == 0) == snapshot.scroll().horizontal_scroll;
             *value = property >= 2 ?
-                (matching_axis && scrolls ? snapshot.viewport_height * 100 / snapshot.scroll_extent : 100.0) :
-                (matching_axis && scrolls ? snapshot.scroll_offset * 100 /
-                    (snapshot.scroll_extent - snapshot.viewport_height) : UIA_ScrollPatternNoScroll);
+                (matching_axis && scrolls ? snapshot.scroll().viewport_height * 100 / snapshot.scroll().scroll_extent : 100.0) :
+                (matching_axis && scrolls ? snapshot.scroll().scroll_offset * 100 /
+                    (snapshot.scroll().scroll_extent - snapshot.scroll().viewport_height) : UIA_ScrollPatternNoScroll);
             return S_OK;
         });
     }
@@ -320,8 +320,8 @@ private:
         *value = FALSE;
         std::lock_guard lock(state_->mutex);
         if (!state_->snapshot.window) return UIA_E_ELEMENTNOTAVAILABLE;
-        *value = vertical != state_->snapshot.horizontal_scroll &&
-            state_->snapshot.scroll_extent > state_->snapshot.viewport_height;
+        *value = vertical != state_->snapshot.scroll().horizontal_scroll &&
+            state_->snapshot.scroll().scroll_extent > state_->snapshot.scroll().viewport_height;
         return S_OK;
     }
     HRESULT available() {
@@ -395,42 +395,42 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         next.checked = button->checked();
     }
     if (const auto choices = dynamic_cast<const RadioGroup*>(&control)) {
-        next.selected_tab = choices->selected(); next.vertical_choices = !choices->horizontal_presentation();
-        next.selector_bar = choices->horizontal_presentation();
+        next.selection_data().selected_tab = choices->selected(); next.selection_data().vertical_choices = !choices->horizontal_presentation();
+        next.selection_data().selector_bar = choices->horizontal_presentation();
         for (std::size_t i = 0; i < choices->items().size(); ++i) {
             const auto& item = choices->items()[i];
-            next.tabs.push_back({item.id, item.text}); next.choice_enabled.push_back(item.enabled);
+            next.selection_data().tabs.push_back({item.id, item.text}); next.selection_data().choice_enabled.push_back(item.enabled);
             const auto b = choices->item_bounds(i);
-            next.tab_edges.push_back(next.vertical_choices ? b.y : b.x);
-            next.tab_edges.push_back(next.vertical_choices ? b.y + b.height : b.x + b.width);
-            next.choice_top = b.y; next.choice_height = b.height;
+            next.selection_data().tab_edges.push_back(next.selection_data().vertical_choices ? b.y : b.x);
+            next.selection_data().tab_edges.push_back(next.selection_data().vertical_choices ? b.y + b.height : b.x + b.width);
+            next.selection_data().choice_top = b.y; next.selection_data().choice_height = b.height;
             if (b.height > 0) {
-                next.choice_left = b.x;
-                next.choice_width = b.width;
+                next.selection_data().choice_left = b.x;
+                next.selection_data().choice_width = b.width;
             }
         }
     }
     if (const auto combo = dynamic_cast<const ComboBox*>(&control)) {
-        next.selected_tab = combo->selected(); next.expanded = combo->popup()->is_open();
+        next.selection_data().selected_tab = combo->selected(); next.expanded = combo->popup()->is_open();
         for (const auto& item : combo->items()) {
-            next.tabs.push_back({item.id, item.text}); next.choice_enabled.push_back(item.enabled);
+            next.selection_data().tabs.push_back({item.id, item.text}); next.selection_data().choice_enabled.push_back(item.enabled);
             // Collapsed items have no screen geometry.
-            next.tab_edges.push_back(0); next.tab_edges.push_back(0);
+            next.selection_data().tab_edges.push_back(0); next.selection_data().tab_edges.push_back(0);
         }
     }
     const auto range_values = [&](const NumericRange& range, double value) {
-        next.minimum = range.minimum; next.maximum = range.maximum;
-        next.small_step = range.small_step; next.large_step = range.large_step; next.value = value;
+        next.range_data().minimum = range.minimum; next.range_data().maximum = range.maximum;
+        next.range_data().small_step = range.small_step; next.range_data().large_step = range.large_step; next.range_data().value = value;
     };
     if (const auto range = dynamic_cast<const RangeInput*>(&control)) range_values(range->range(), range->preview_value());
     if (const auto number = dynamic_cast<const NumericInput*>(&control)) {
-        range_values(number->range(), number->value()); next.invalid = !number->valid(); next.value_text = number->editor()->text();
+        range_values(number->range(), number->value()); next.invalid = !number->valid(); next.range_data().value_text = number->editor()->text();
         if (next.invalid) next.help_text = L"Enter a finite number within the allowed range.";
     }
     if (const auto progress = dynamic_cast<const Progress*>(&control)) {
-        range_values(progress->range(), progress->value()); next.read_only = true;
+        range_values(progress->range(), progress->value()); next.range_data().read_only = true;
         next.invalid = progress->state() == ProgressState::indeterminate || progress->state() == ProgressState::unknown;
-        next.value_text = progress->value_text();
+        next.range_data().value_text = progress->value_text();
         next.help_text += progress->state() == ProgressState::indeterminate ? L" In progress." :
             progress->state() == ProgressState::unknown ? L" Unknown." : progress->state() == ProgressState::error ? L" Error." :
             progress->state() == ProgressState::paused ? L" Paused." : L" " + progress->value_text();
@@ -451,33 +451,33 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     }
     if (control.role() == ControlRole::scroll_view) {
         const auto& scroll = static_cast<const ScrollView&>(control);
-        next.scroll_offset = scroll.offset();
-        next.scroll_extent = scroll.extent();
-        next.viewport_height = scroll.viewport().height;
+        next.scroll_data().scroll_offset = scroll.offset();
+        next.scroll_data().scroll_extent = scroll.extent();
+        next.scroll_data().viewport_height = scroll.viewport().height;
     }
     if (const auto* columns = dynamic_cast<const MillerColumns*>(&control)) {
-        next.horizontal_scroll = true;
-        next.scroll_offset = columns->horizontal_offset();
-        next.viewport_height = columns->bounds().width;
-        next.scroll_extent = columns->maximum_horizontal() + next.viewport_height;
+        next.scroll_data().horizontal_scroll = true;
+        next.scroll_data().scroll_offset = columns->horizontal_offset();
+        next.scroll_data().viewport_height = columns->bounds().width;
+        next.scroll_data().scroll_extent = columns->maximum_horizontal() + next.scroll_data().viewport_height;
     }
     if (const auto tabs = dynamic_cast<const TabStrip*>(&control)) {
-        next.tabs = tabs->tabs();
-        next.selected_tab = tabs->selected();
+        next.selection_data().tabs = tabs->tabs();
+        next.selection_data().selected_tab = tabs->selected();
         for (std::size_t i = 0; i < tabs->tabs().size(); ++i) {
             const auto b = tabs->tab_bounds(i);
-            next.tab_edges.push_back(b.x);
-            next.tab_edges.push_back(b.x + b.width);
+            next.selection_data().tab_edges.push_back(b.x);
+            next.selection_data().tab_edges.push_back(b.x + b.width);
         }
     }
     if (const auto split = dynamic_cast<const SplitView*>(&control)) {
-        next.split_ratio = split->ratio();
+        next.split_data().split_ratio = split->ratio();
         const auto divider = split->divider();
-        next.split_left = divider.x - split->bounds().x;
-        next.split_top = divider.y - split->bounds().y;
-        next.split_width = divider.width;
-        next.split_height = divider.height;
-        next.minimum = 10; next.maximum = 90; next.small_step = 2.5; next.large_step = 10; next.value = split->ratio() * 100;
+        next.split_data().split_left = divider.x - split->bounds().x;
+        next.split_data().split_top = divider.y - split->bounds().y;
+        next.split_data().split_width = divider.width;
+        next.split_data().split_height = divider.height;
+        next.range_data().minimum = 10; next.range_data().maximum = 90; next.range_data().small_step = 2.5; next.range_data().large_step = 10; next.range_data().value = split->ratio() * 100;
     }
     if (const auto map = dynamic_cast<const MapView*>(&control)) {
         const auto center = map->center();
@@ -506,13 +506,13 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
         return;
     }
     const auto current = read(state);
-    if (control.role() == ControlRole::content_view && !current.horizontal_scroll) return;
-    if (control.role() == ControlRole::scroll_view || current.horizontal_scroll) {
+    if (control.role() == ControlRole::content_view && !current.scroll().horizontal_scroll) return;
+    if (control.role() == ControlRole::scroll_view || current.scroll().horizontal_scroll) {
         name_event(provider, previous.name, control.role() == ControlRole::image ? read(state).name : control.name());
-        const double maximum = current.scroll_extent - current.viewport_height;
-        const double before = previous.scroll_extent > previous.viewport_height ?
-            previous.scroll_offset * 100 / (previous.scroll_extent - previous.viewport_height) : UIA_ScrollPatternNoScroll;
-        const double after = maximum > 0 ? current.scroll_offset * 100 / maximum : UIA_ScrollPatternNoScroll;
+        const double maximum = current.scroll().scroll_extent - current.scroll().viewport_height;
+        const double before = previous.scroll().scroll_extent > previous.scroll().viewport_height ?
+            previous.scroll().scroll_offset * 100 / (previous.scroll().scroll_extent - previous.scroll().viewport_height) : UIA_ScrollPatternNoScroll;
+        const double after = maximum > 0 ? current.scroll().scroll_offset * 100 / maximum : UIA_ScrollPatternNoScroll;
         const auto number_event = [&](PROPERTYID property, double old_number, double new_number) {
             if (old_number == new_number) return;
             VARIANT old_value{}, new_value{};
@@ -521,13 +521,13 @@ void publish_control(const std::shared_ptr<ControlAccessibility>& state,
             new_value.dblVal = new_number;
             UiaRaiseAutomationPropertyChangedEvent(provider, property, old_value, new_value);
         };
-        number_event(current.horizontal_scroll ? UIA_ScrollHorizontalScrollPercentPropertyId :
+        number_event(current.scroll().horizontal_scroll ? UIA_ScrollHorizontalScrollPercentPropertyId :
             UIA_ScrollVerticalScrollPercentPropertyId, before, after);
-        number_event(current.horizontal_scroll ? UIA_ScrollHorizontalViewSizePropertyId : UIA_ScrollVerticalViewSizePropertyId,
-            previous.scroll_extent > previous.viewport_height ? previous.viewport_height * 100 / previous.scroll_extent : 100,
-            maximum > 0 ? current.viewport_height * 100 / current.scroll_extent : 100);
-        boolean_event(provider, current.horizontal_scroll ? UIA_ScrollHorizontallyScrollablePropertyId : UIA_ScrollVerticallyScrollablePropertyId,
-            previous.scroll_extent > previous.viewport_height, maximum > 0);
+        number_event(current.scroll().horizontal_scroll ? UIA_ScrollHorizontalViewSizePropertyId : UIA_ScrollVerticalViewSizePropertyId,
+            previous.scroll().scroll_extent > previous.scroll().viewport_height ? previous.scroll().viewport_height * 100 / previous.scroll().scroll_extent : 100,
+            maximum > 0 ? current.scroll().viewport_height * 100 / current.scroll().scroll_extent : 100);
+        boolean_event(provider, current.scroll().horizontal_scroll ? UIA_ScrollHorizontallyScrollablePropertyId : UIA_ScrollVerticallyScrollablePropertyId,
+            previous.scroll().scroll_extent > previous.scroll().viewport_height, maximum > 0);
         boolean_event(provider, UIA_IsEnabledPropertyId, previous.enabled, enabled);
         boolean_event(provider, UIA_HasKeyboardFocusPropertyId, previous.focused, control.focused());
         if (!previous.focused && control.focused()) UiaRaiseAutomationEvent(provider, UIA_AutomationFocusChangedEventId);
