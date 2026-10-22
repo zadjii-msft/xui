@@ -123,7 +123,7 @@ public:
     explicit CommandBar(std::wstring name = L"Command bar");
     ~CommandBar() override;
     void set_commands(std::shared_ptr<const CommandSet> commands);
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
     const std::shared_ptr<Button>& overflow_button() const { return overflow_; }
     std::shared_ptr<Button> command_button(CommandId id) const;

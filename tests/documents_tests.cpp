@@ -276,7 +276,7 @@ int main() {
         color.change_value({30, 40, 50, 60}); require(colors == 1, "RGBA action sync");
         rejects([&] { color.set_swatches(std::vector<RgbaColor>(17)); });
         for (int i = 0; i < 100; ++i) color.set_swatches({{0, 0, 0}});
-        require(color.retained_children().size() == 9, "Swatches retain bounded children");
+        require(color.owned_children().size() == 9, "Swatches retain bounded children");
         auto dialog = std::make_shared<ContentDialog>(L"Dialog", std::make_shared<MultilineText>());
         dialog->popup()->opened(); int closed{};
         dialog->on_validate([] { return L"Invalid value"; }); dialog->bind_close([&](auto) { ++closed; });

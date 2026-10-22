@@ -1630,7 +1630,7 @@ void button_focus_native_contracts(FocusFixture fixture = FocusFixture::all) {
                     cleared.expect(x, y, baseline.at(x, y), "Focus removal repaints the former external border");
                 }
                 if (include_buttons) {
-                    for (const auto& child : menu_bar->retained_children()) {
+                    for (const auto& child : menu_bar->owned_children()) {
                         const auto heading = std::static_pointer_cast<MenuBar::Heading>(child);
                         const auto bounds = area(*heading);
                         const int outset = MulDiv(2, GetDpiForWindow(host), 96);

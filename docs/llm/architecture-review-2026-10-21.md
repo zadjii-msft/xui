@@ -335,8 +335,8 @@ Writing this plan does not complete any runtime finding.
 | Stage | PR scope | Current status | Must merge first | Finding coverage |
 | --- | --- | --- | --- | --- |
 | 0 | `architecture-refactor-roadmap` | Merged: [#57](https://github.com/zadjii-msft/xui/pull/57); accepted `b00835a76d10d0188722f25551b6c375e66e4a30`, squash `3f86e085aad8ac36445a47061e1f7640da407fb6` | None | Records all seven findings and the complete rollout |
-| 1 | `baseline-gates` | In review preparation: [#58](https://github.com/zadjii-msft/xui/pull/58); implementation/headless evidence below, desktop/timing limits unresolved; no accepted/merged head yet | 0 | Establishes evidence and ordinary PR protection for every later stage |
-| 2 | `child-contract` | Not started | 1 | Finding 3: owned children and separate traversal policies |
+| 1 | `baseline-gates` | Verified merged: [#58](https://github.com/zadjii-msft/xui/pull/58); accepted `dce6ae447cc566816b32653fe3dd43de5fb9432a`, squash `8fdc2269a065837737b1dc5dcc0962a574ce10cd`; recorded desktop/timing limits remain unresolved | 0 | Establishes evidence and ordinary PR protection for every later stage |
+| 2 | `child-contract` | In review: [#59](https://github.com/zadjii-msft/xui/pull/59), based on fetched `8fdc2269`; implementation and evidence below; not merged | 1 | Finding 3: owned children and separate traversal policies |
 | 3 | `host-boundaries` | Not started | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Not started | 3, including all approved subdivisions | Finding 2: originating identity and targeted ordered work |
 | 5 | `callback-ownership` | Not started | 4 | Finding 4: composition/observation separation and scoped retirement |
@@ -404,9 +404,12 @@ from its unresolved multiwindow, window-resource, retained-scroll and native-inp
 There is no valid paired local-edit/native-text/content-replacement/realized-lifetime timing
 baseline or physical IME/Narrator acceptance yet. Those criteria remain explicitly unresolved;
 the headless gate must not be substituted for them in later refactors.
-The parent must review the exact PR head/checks and decide acceptance of these recorded
-environment limits before merging. Stage 2 and every later stage remain **not started**;
-the next stage may start only after this PR's merge is verified.
+The parent independently verified the exact accepted head
+`dce6ae447cc566816b32653fe3dd43de5fb9432a` and hosted checks, accepted the recorded
+stage-1 evidence limits, and merged [#58](https://github.com/zadjii-msft/xui/pull/58)
+as `8fdc2269a065837737b1dc5dcc0962a574ce10cd`.
+Stage 2 fetched and verified that merged main before implementation.
+This does not resolve the remaining desktop/performance criteria or authorize stage 3.
 
 ### Stage 2: Owned-child contract and traversal policies
 
@@ -421,6 +424,180 @@ Separate presentation/realization tests prove unopened content gains no HWNDs;
 replacement, retirement, inspection, clipping, focus, and accessibility retain their intended behavior.
 No allocation is added to steady-state child enumeration.
 Update the source map and public ownership contract only where its documented behavior actually changes.
+
+**Implementation:** `Element::owned_children()` provides one borrowed direct-child range
+for layouts and controls. Stack projects its existing Child records; contiguous composites
+borrow their existing shared handles. No per-Element/control storage, per-walk vector,
+ownership copy or native realization is added. SplitView's two slots use the same total
+shared-handle storage. The obsolete retained-child API is removed throughout repository
+consumers rather than kept as a compatibility shim.
+
+All affected native ownership, collection, visual/paint, inspection and dialog consumers use
+the contract. Ownership registration still includes every page and closed/lazy descendant;
+active collection, visited native retention, replacement exceptions, scrolling/clipping and
+host adornments remain separate. Ordinary PageView collection does not apply typography or
+claims to unvisited pages. Dialog presentation now reaches nested ContentView/SplitView
+slots; inspection uses actual axis-aware split-pane clips. These are explicit tightly
+coupled coverage corrections, not a promise that logical/native/UIA trees are identical.
+See the [source map and policy matrix](architecture.md#owned-model-tree-and-traversal-policies).
+
+#### Stage 2 evidence: October 21, 2026
+
+The implementation starts from fetched merged main `8fdc2269a065837737b1dc5dcc0962a574ce10cd`.
+The readonly original `99016573d633636c54da71af5db247e5c249051e` artifacts supply native
+and performance comparisons; they are never rebuilt or modified by this stage.
+Both use x64 MSVC 19.44.35217, SDK 10.0.26100, Release with default IPO ON;
+the current gate requires LSH.
+
+**Coupled Release build correctness:** moving the new virtual after the existing
+`measure`/`arrange` declarations exposed repeated native `0xC0000005` exits after an
+ordinary incremental build, despite a green headless gate. The link command used
+`/LTCG:incremental`; the pristine native fixture still passed. With unchanged object/library
+inputs, removing only the fixture's generated `.iobj`/`.ipdb` and forcing its relink restored
+the focused native contracts. A fresh isolated build also passed the complete gate and
+native fixture. Failed executables/caches, hashes, link commands and logs are retained;
+this is evidence of a cache-reuse failure in this toolchain/configuration, not a claim
+about every MSVC release.
+
+The supported mitigation is an explicit Release `/LTCG` CMake link option when IPO is ON.
+Visual Studio generation selects `UseLinkTimeCodeGeneration`; actual link commands use
+full `/LTCG`, while actual compile commands retain `/GL`.
+Both header/vtable declaration-order transitions were then rebuilt with ordinary commands
+in the same existing output directory, without manual cache eviction, and the Classic/WinUI
+focused native contracts passed in both directions.
+The permanent native gate checks actual core compile and DLL/native-fixture link directives,
+and hosted artifacts retain those command logs. MSBuild can still emit an `LTCGOUT` path;
+full mode does not reuse it incrementally.
+The final declaration keeps the old layout virtual slots ahead of child discovery.
+No IPO/optimization-off workaround or obsolete virtual-slot shim is retained.
+The final source correction also compares SplitView ancestor eligibility against its
+borrowed second owned slot, not the typed convenience getter's returned shared handle.
+This removes the transient ownership increments/decrements introduced by that getter's
+storage migration. The complete gate and full native ContentHost fixture were rerun
+after this correction at code commit `cd9abd4877af21dba8474240d8631abcc6c19953`.
+
+Completed focused checks:
+
+| Command / comparison | Actual evidence |
+| --- | --- |
+| `tests\framework-pr.ps1` | 47/47 native headless tests pass on the private non-visible station, including the new mandatory owned-child and ContentHost model registrations; 37 core / 2 model classifications are selected, not zero-test name filters. Generator drift/native-export guards, 45,403 generator and 11 MSBuild assertions, managed 80/374/11,006/58 Reveal/23 tab assertions, and complete Rust 1/39/2-doc tests pass. |
+| `xui_owned_children_tests` | Every family/direct slot, exact identity/order/reference addresses, empty leaves, custom typed-member projection, nested dialog presentation, invalid topology and weak retirement pass. Repeated direct enumeration and 17,474,000 nested visits allocate zero times. Hidden ColorPicker swatch slots remain owned after its visible palette shrinks. |
+| `xui_owned_children_tests --benchmark` and invalid selectors | Explicit benchmark mode reports only its work/allocation checks. Unknown, empty and extra arguments return 2 before work. The ContentHost fixture's new modes reject the same malformed selectors before model/native work. |
+| `xui_content_host_window_tests --model-only` | Existing candidate ownership/thread/duplicate/cycle/foreign-host errors plus nested slots, inactive inspection registration, selected/clipped pointer policy and discarded descendants pass without `show`/`run`. |
+| `xui_abi_features_tests --headless` | 264,826 assertions pass, including 32 inactive-page/closed-Reveal/ScrollView/SplitView/NumericInput/ColorPicker content-scope commits and clears; stale child/root handles fail and each cycle restores the exact handle baseline. |
+| `xui_content_host_window_tests --owned-only` | Classic and WinUI selected-only initial realization, 100 exact model walks without new HWNDs, visited/inactive replacement, closed-Reveal replacement exception and open/close retention pass. Active updates perform exactly 32 active typography calls and zero inactive calls with both 128 and 2,048 unvisited items, retaining exactly one HWND. |
+| Full original/candidate `xui_content_host_window_tests` | Both exit 0: 200 native replacement cycles, outside editor text/selection/undo/identity, popup retirement, map/runtime disposal, UIA and explicit fatal failure remain covered. Candidate additionally runs the new focused contracts. Both focus traces report zero activation/focus requests and zero foreground changes. |
+| Original/candidate `xui_content_inspection_window_tests` | Both exit 1 with the same `Pointer inspection encountered an unproven native descendant` / `Native inspection fixture completed` failure. Not passed or waived. |
+| Original/candidate `xui_content_highlight_window_tests` | Earlier pairs pass 100 highlight/clear/replacement cycles with exact HWND/USER/GDI baseline, then exit 1 in the clipped-layout fixture at `Newly active page is visible`. The final full-LTCG pair instead stops earlier at the physical EDIT hit probe: both report the same external `Tauri Window` blocking the editor. Both exit 1; neither observation is converted into a pass or hidden by changing assertions. |
+| Attributed independent coordinator verification at `cd9abd` code | The coordinator reports a new `build\ar2-parent-cd9abd`, not reused cross-vtable outputs: full 47-test gate and complete compiler/managed/Rust coverage pass; actual `/GL` and full DLL/native `/LTCG` are checked. Focused/full candidate and paired pristine ContentHost pass with zero focus/activation/foreground changes; all six malformed selector cases exit 2. Its independent raw audit confirms all 1,278 process cardinalities, all 66 final owned exact-work/storage/allocation/private-growth/CPU-arithmetic checks, and all three loops in each of 66 long processes. Documentation 55-page/747-link and 24-test checks pass. This is attributed coordinator evidence, not a child rerun; frozen-head/hosted review remains pending. |
+
+#### Stage 2 ownership measurements and attribution
+
+The [raw companion](stage2-owned-children-evidence.json) preserves every warmup and
+recorded stdout/stderr, exit, order and timestamp, environment/options, full commit IDs,
+library/executable/source hashes, actual link commands, and reproducible runner/probe
+sources. There are **1,278 successful benchmark processes**, not selected favorable
+samples. Each workload/version gets two discarded warmups; process order alternates,
+and the first version is counterbalanced between blocks. Builds/suites finished before
+each coordinated quiet window. No timing outliers are removed or pooled across revisions.
+
+| Block | Candidate source and purpose | Recorded pairs per workload | Processes including warmups |
+| --- | --- | --- | --- |
+| `paired-clean-7125ef67` | Initial implementation `7125ef67f583ad9cf711a41d1f6283b4c9aade2a`; preserved original defaults | 7 across five workloads | 90 |
+| `paired-extended-7125ef67` | Same intermediate implementation; increased sampling, opposite starting order | 31 across five workloads | 330 |
+| `paired-full-ltcg-236f22f0` | Layout virtual declarations restored before child discovery, plus full-LTCG mitigation; preserved pristine stock `/LTCG:incremental` versus candidate full `/LTCG` | 31 across six workloads, including warmed selection | 396 |
+| `paired-matched-ltcg-cd9abd48` | Final code `cd9abd4877af21dba8474240d8631abcc6c19953`, including borrowed-pane correction; both stock versions full `/LTCG` | 31 across seven workloads, adding long layout/interaction CPU probes | 462 |
+
+The initial source is **not** the final code: its virtual declaration order and link
+configuration precede the corrections above. Its candidate stock link commands were not
+preserved contemporaneously; its CMake source used the then-default VS IPO configuration.
+The companion retains the actual pristine default and both final matched stock link
+commands, not an inference that IPO=ON means identical optimization.
+The matched pristine build uses unchanged readonly original source with a small
+`CMAKE_PROJECT_INCLUDE` supplying the same directory link option, writing only separate
+candidate-worktree outputs. Both versions retain `/GL`, x64 Release `/MT`, MSVC
+19.44.35217 and SDK 10.0.26100. All auxiliary traversal/selection/layout/interaction
+probes explicitly use full `/LTCG` on both sides. No unrelated algorithm or repeated
+code-layout perturbations were used to obtain the matched results.
+
+**Exact ownership work:** 32 PageViews, four pages each, containing closed
+Reveal/ContentView/ScrollView/Stack/NumericInput composition: **8,737 nodes, 2,000
+walks, 17,474,000 verified visits and checksum**. The original-adapter probe follows
+the old ownership accessors; it is test instrumentation, not a runtime compatibility
+shim. Checked thread CPU surrounds precisely the same loop as wall time, excluding
+construction. In every sampled version, walk allocations are **zero**, construction
+allocated bytes are **11,621,480**, and Element/Control/SplitView sizes are **88/440/672**.
+There is no within-process private-byte growth during these ownership walks, no HWND,
+and no source-backed row allocation. Matched private-byte medians are identical at
+32,817,152. The real-default block's 176,128-byte startup/allocator difference is not
+a general memory-saving claim.
+
+| Matched ownership metric | Original median (range), ms | Candidate median (range), ms | Absolute / relative delta |
+| --- | --- | --- | --- |
+| Loop wall | 1,874.21 (1,714.94-2,776.07) | 114.216 (107.481-203.629) | -1,759.994 / -93.91% |
+| Loop thread CPU | 1,875 (1,703.12-2,671.88) | 125 (93.75-203.125) | -1,750 / -93.33% |
+
+This is approximately 9.32 versus 139.79 million verified visits per CPU second.
+No candidate ownership-loop wall or CPU pair is slower in the matched 31 pairs.
+It quantifies ownership discovery only, **not application latency or a whole-window speedup**.
+
+**Independent guards remain mixed, not universally performance-green.** The initial
+31-pair block had Stack medians +5.30% unstyled/+6.84% styled, million-row interaction
++6.90%, single-key cold selection +12.11%, and 512-row image work +7.38%.
+The later real-default optimizer-transition block still had unstyled Stack
+53.734 to 57.0462 ms (+3.3122/+6.16%, 26/31 slower) and million-row interaction
+23.1822 to 25.0712 ms (+1.889/+8.15%, 22/31 slower).
+Those observations are retained; traversal improvements do not offset or erase them.
+
+Under **matched full-LTCG** settings, stock Stack medians are
+53.9263 to 54.0002 ms unstyled (+0.0739/+0.14%, 15/31 slower) and
+78.765 to 79.8074 ms styled (+1.0424/+1.32%, 14/31).
+Stock million-row interaction is 22.3399 to 23.1729 ms
+(+0.833/+3.73%, 18/31). The longer identical public-operation probes exclude setup,
+warm first, and enforce exact geometry/measurement counts, identity/checksum/callback
+counts, zero allocations, immutable view identity and viewport bounds:
+
+| Matched long workload | Wall medians original/candidate, ms (delta) | CPU medians original/candidate, ms (delta) | Paired CPU median change; slower pairs |
+| --- | --- | --- | --- |
+| Unstyled Stack, 300,000 frames | 2,846.33 / 2,680.86 (-165.47/-5.81%) | 2,843.75 / 2,671.88 (-171.87/-6.04%) | -4.07%; 12/31 |
+| Styled Stack, 300,000 frames | 3,519.91 / 3,520.38 (+0.47/+0.01%) | 3,500 / 3,531.25 (+31.25/+0.89%) | +3.40%; 18/31 |
+| Million-row list, 2,000,000 interactions | 2,386.76 / 2,428.37 (+41.61/+1.74%) | 2,375 / 2,406.25 (+31.25/+1.32%) | +0.62%; 16/31 |
+
+Matched warmed selection uses 10,000 warmups then 10 million single-key or two million
+32-key enumerations. CPU medians change +46.87 ms/+3.06% and +31.24 ms/+1.68%;
+wall changes +38.43 ms/+2.49% and +34.18 ms/+1.84%. Exact returned identities,
+allocation/byte counts and checksums pass. This diagnostic is distinct from the stock
+100-call cold measurements; it does not overwrite those records.
+
+The matched block still has **outliers/uncertainty**, including the 100k-row sparse and
+no-match filter medians 0.4894 to 0.5252 ms (+0.0358/+7.32%, 23/31 slower) and
+0.4637 to 0.499 ms (+0.0353/+7.61%, 25/31), and projection
+3.7174 to 3.9377 ms (+0.2203/+5.93%, 20/31).
+These reverse the earlier real-default block's improvements; other small source/filter
+metrics and broad tails are also visible in the companion. Its per-metric medians,
+ranges, MAD, nearest-rank p95, paired median percentages and slower-pair counts preserve
+dispersion. For example, long styled CPU ranges are 3,218.75-4,125 versus
+3,296.88-4,453.12 ms; long interaction CPU ranges are 2,031.25-3,203.12 versus
+2,125-3,453.12 ms. CPU accounting is quantized; endpoint ticks are retained.
+These observations do not establish that every guard is within 5%, nor that changing
+the default optimizer mode is free. Comparisons across separate windows alone cannot
+assign the whole timing difference to that mode.
+
+The coordinator authorized **scoped ownership acceptance for PR review** after examining
+the exact-work/allocation/storage/native contracts and matched long evidence.
+The earlier layout/interaction signals do not persist under the matched measurements;
+remaining stock timing and desktop uncertainties stay explicit, not waived or called
+green. Source-effect attribution under matched settings is separate from the retained
+real-default optimizer-transition observations. Final functional code was verified at
+`cd9abd4877af21dba8474240d8631abcc6c19953`; following evidence/index/PR-link commits
+change documentation only. Independent exact-head review and hosted checks still precede
+any parent merge.
+
+The focused native evidence does not establish physical IME/Narrator behavior, valid
+foreground-native input latency/private-memory comparisons, or a green complete desktop
+suite. Stage-1 desktop limitations remain unresolved; the two additional baseline-matched
+inspection/highlight failures above are also explicit. This stage does not alter those
+assertions or attempt unrelated host fixes. Stage 3 and every later stage remain **not started**.
 
 ### Stage 3: Meaningful control-family host boundaries
 

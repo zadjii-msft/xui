@@ -184,7 +184,7 @@ struct Fixture {
     void flush() { SendMessageW(owner, update, 0, 0); UpdateWindow(owner); }
     void retained() {
         require(IsWindow(editor) && document_peer(owner) == editor && GetParent(editor) == clip &&
-            reveal->content() == document && reveal->retained_children().size() == 1,
+            reveal->content() == document && reveal->owned_children().size() == 1,
             "Motion preserves the native document, parent, and retained ownership");
         require(native_text(editor) == original + L"!" && document->text() == original + L"!" && changes == expected_changes,
             "Motion preserves edited text without property replacement or duplicate callbacks");

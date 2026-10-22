@@ -91,14 +91,14 @@ its exit status. A kill-on-close job bounds the subprocess tree and a 15-minute 
 each invocation. It neither activates an interactive desktop nor proves desktop correctness.
 The binding step runs its complete command sequence in a fresh PowerShell process on that station.
 
-The current native inventory is **45 headless tests**:
+The current native inventory is **47 headless tests**:
 
 | Label | Exact selection (all names have the `xui_` prefix) |
 | --- | --- |
-| `core` (36) | `navigation_animation_tests`, `collection_presentation_tests`, `progress_animation_tests`, `expander_animation_tests`, `tab_animation_tests`, `split_animation_tests`, `reveal_tests`, `core_tests`, `layout_performance_tests`, `control_tests`, `styling_tests`, `control_styling_tests`, `control_style_expansion_tests`, `style_layouts_tests`, `style_collections_tests`, `style_basic_tests`, `style_fields_tests`, `style_choices_tests`, `style_grid_tests`, `style_navigation_tests`, `style_hosts_tests`, `winui_style_tests`, `winui_form_layout_tests`, `foundation_tests`, `next_controls_tests`, `menu_bar_tests`, `collections_tests`, `navigation_tests`, `navigation_view_tests`, `miller_columns_tests`, `documents_tests`, `document_editing_tests`, `file_dialog_tests`, `hosts_tests`, `gallery_catalog_tests`, `performance_tests`. |
+| `core` (37) | `owned_children_tests`, `navigation_animation_tests`, `collection_presentation_tests`, `progress_animation_tests`, `expander_animation_tests`, `tab_animation_tests`, `split_animation_tests`, `reveal_tests`, `core_tests`, `layout_performance_tests`, `control_tests`, `styling_tests`, `control_styling_tests`, `control_style_expansion_tests`, `style_layouts_tests`, `style_collections_tests`, `style_basic_tests`, `style_fields_tests`, `style_choices_tests`, `style_grid_tests`, `style_navigation_tests`, `style_hosts_tests`, `winui_style_tests`, `winui_form_layout_tests`, `foundation_tests`, `next_controls_tests`, `menu_bar_tests`, `collections_tests`, `navigation_tests`, `navigation_view_tests`, `miller_columns_tests`, `documents_tests`, `document_editing_tests`, `file_dialog_tests`, `hosts_tests`, `gallery_catalog_tests`, `performance_tests`. |
 | `syntax` (2) | `syntax_highlighting_tests` (requires functioning LSH in the PR configuration), `document_syntax_tests`. |
 | `abi` (4) | Full `abi_tests`, full `abi_c_test`, `document_editing_abi_tests`, `abi_features_headless_tests` (`abi_features_tests --headless`). |
-| `model` (1) | `explorer_tests` (model/path/command logic, no running window). |
+| `model` (2) | `explorer_tests` (model/path/command logic, no running window), `content_host_model_tests` (`content_host_window_tests --model-only`: candidate/inspection/replacement ownership, no show/run). |
 | `schema` (1) | `control_style_catalog_parity`, invoking Python `--native-executable ... --check`. |
 | `allocation` (1) | `row_image_performance_tests`, invoking `image_tests --row-sync-only`. |
 
@@ -132,8 +132,8 @@ All actual HWND/capture/focus/editor/dialog/clipboard/menu/host/swap-chain regis
 are option-controlled and serial `desktop` tests. This includes formerly unconditional
 ContentHost/inspection/highlight, document syntax/editing, stack layout, file dialogs/transfer,
 window icon, styling pixels, navigation/collections, suggestion and presentation tests.
-Desktop OFF registers 46 tests: the 45 selected above plus the separate `system` Task Manager
-process-sampling fixture. Desktop ON registers 175: those 46 plus 129 serial desktop tests.
+Desktop OFF registers 48 tests: the 47 selected above plus the separate `system` Task Manager
+process-sampling fixture. Desktop ON registers 177: those 48 plus 129 serial desktop tests.
 Desktop executables remain available with registration OFF. The early menu target now lives
 inside the Windows block. Python is REQUIRED for Windows `BUILD_TESTING`, rather than silently
 omitting native schema parity. Required-LSH tests fail if their runtime cannot load.

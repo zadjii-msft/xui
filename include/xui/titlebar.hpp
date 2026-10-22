@@ -27,7 +27,7 @@ public:
     void on_caption(std::function<void(CaptionAction)> callback);
     void set_button_invoked_handler(std::function<void(const Button&)> handler);
     CaptionHit hit_test(Point client) const;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
     static constexpr float height = 44;
     static constexpr float caption_width = 46;

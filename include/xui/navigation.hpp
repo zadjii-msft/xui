@@ -107,7 +107,7 @@ public:
     bool header_visible() const { return header_visible_; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     static constexpr std::size_t maximum_items = 4096, maximum_depth = 64;
 private:
     friend class NavigationList;
@@ -164,7 +164,7 @@ public:
     bool overflowed() const { return first_ != 0; }
     std::shared_ptr<const CommandSet> overflow_commands() const;
     Control* adjacent(const Control& current, int direction) const;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
 private:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::breadcrumb; }
@@ -201,7 +201,7 @@ public:
     NavigationQuery request(std::wstring text);
     bool complete(const NavigationQuery& request, std::shared_ptr<const ItemsSource> source, std::wstring error = {});
     void cancel() override;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
 private:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::navigation_pane; }

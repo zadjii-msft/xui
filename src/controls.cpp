@@ -1080,9 +1080,9 @@ void ContentView::arrange(Rect rect) {
 }
 SplitView::SplitView(std::shared_ptr<Element> first, std::shared_ptr<Element> second, std::wstring name)
     : Control(ControlRole::split_view, std::move(name), {640, 480}),
-      first_(std::make_shared<ContentView>(std::move(first), L"Left pane")),
-      second_(std::make_shared<ContentView>(std::move(second), L"Right pane")) {
-    adopt(first_); adopt(second_);
+      children_{std::make_shared<ContentView>(std::move(first), L"Left pane"),
+          std::make_shared<ContentView>(std::move(second), L"Right pane")} {
+    for (const auto& child : owned_children()) adopt(child);
 }
 StyleStateMask SplitView::control_style_state_bits() const {
     return Control::control_style_state_bits() | (style_dragging_ ? style_states::dragging : 0);
@@ -1150,8 +1150,8 @@ void SplitView::arrange(Rect rect) {
     const auto b = pane_area();
     if (!primary_visible_ || pane_extent() < 2 * minimum_extent_ + effective_divider_width() ||
         (ratio_animating_ && (b.width != ratio_viewport_.width || b.height != ratio_viewport_.height))) settle();
-    first_->arrange(layout_style::content(*this, first_pane_area(), StylePart::first_pane));
-    second_->arrange(layout_style::content(*this, second_pane_area(), StylePart::second_pane));
+    children_[0]->arrange(layout_style::content(*this, first_pane_area(), StylePart::first_pane));
+    children_[1]->arrange(layout_style::content(*this, second_pane_area(), StylePart::second_pane));
     const bool value = expanded();
     if (arranged_expanded_ != value) {
         arranged_expanded_ = value;
@@ -1164,7 +1164,7 @@ void SplitView::set_ratio(float value) {
     value = std::clamp(value, 0.1f, 0.9f);
     if (value == ratio_) return;
     const bool animate = transition_duration_ && primary_visible_ && !style_dragging_ && expanded() && progress_ == 1 &&
-        second_->bounds().width > 0 && second_->bounds().height > 0 &&
+        children_[1]->bounds().width > 0 && children_[1]->bounds().height > 0 &&
         (!animating_ || ratio_animating_);
     if (animate) {
         ratio_start_ = presented_first_extent();
@@ -1192,8 +1192,8 @@ void SplitView::set_layout(Axis axis, float minimum_extent) {
     settle();
     axis_ = axis;
     minimum_extent_ = minimum_extent;
-    first_->set_name(axis == Axis::horizontal ? L"Left pane" : L"Top pane");
-    second_->set_name(axis == Axis::horizontal ? L"Right pane" : L"Bottom pane");
+    first()->set_name(axis == Axis::horizontal ? L"Left pane" : L"Top pane");
+    second()->set_name(axis == Axis::horizontal ? L"Right pane" : L"Bottom pane");
     set_style_dragging(false);
     invalidate(Invalidation::layout);
 }

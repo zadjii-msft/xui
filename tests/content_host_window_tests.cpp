@@ -2,6 +2,8 @@
 #include "xui/documents.hpp"
 #include "xui/map_view.hpp"
 #include "xui/runtime_hosts.hpp"
+#include "xui/reveal.hpp"
+#include "../src/content_inspection.hpp"
 #include "native_focus_diagnostics.hpp"
 #include <windows.h>
 #include <ole2.h>
@@ -64,7 +66,7 @@ public:
         children_[0] = std::make_shared<Label>(L"Duplicated child");
         children_[1] = children_[0];
     }
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
 private:
     std::array<std::shared_ptr<Element>, 2> children_;
 };
@@ -72,6 +74,51 @@ class WrongRole final : public Control {
 public:
     WrongRole() : Control(ControlRole::button, L"Not a button", {20, 20}) {}
 };
+class InvalidChildren final : public Control {
+public:
+    InvalidChildren() : Control(ControlRole::content_view, L"Invalid topology", {20, 20}) {}
+    OwnedChildren owned_children() const override { return OwnedChildren{children}; }
+    std::vector<std::shared_ptr<Element>> children;
+};
+void owned_model_contract() {
+    Window window;
+    auto host = std::make_shared<ContentHost>();
+    window.set_content(host);
+    auto pages = std::make_shared<PageView>();
+    auto selected = std::make_shared<Button>(L"Selected");
+    auto hidden = std::make_shared<Button>(L"Hidden");
+    pages->add(selected); pages->add(hidden);
+    const Rect clip{0, 0, 800, 600};
+    pages->arrange(clip);
+    check(inspection::children(pages, clip, true).size() == 1 &&
+        inspection::children(pages, clip, true)[0].element == selected, "Inspection follows the selected page");
+    const auto registration = inspection::Registration::prepare(pages, {{0, pages}, {1, selected}, {2, hidden}}, [](auto) {});
+    check(registration.keys.size() == 3 &&
+        inspection::hit(pages, {20, 20}, clip, registration, nullptr).key == 1, "Inactive pages register but cannot win hit testing");
+    auto expander = std::make_shared<Expander>(L"Closed", pages); expander->set_expanded(false);
+    auto split = std::make_shared<SplitView>(expander, std::make_shared<TextInput>(L"Second"));
+    split->set_layout(Axis::vertical, 100); split->arrange(clip);
+    check(inspection::children(split, clip, true)[0].clip.height == split->first_pane_area().height &&
+        inspection::children(split, clip, true)[1].clip.y == split->second_pane_area().y, "Inspection clips along the SplitView axis");
+    split->set_secondary_visible(false); split->arrange(clip);
+    check(inspection::children(split, clip, true).size() == 1 && split->owned_children().size() == 2, "Collapsed panes are still owned");
+    check(inspection::children(expander, clip, true).size() == 0 &&
+        inspection::children(expander, clip, false).size() == 1, "Closed expanders distinguish ownership from hit testing");
+    auto reveal = std::make_shared<Reveal>(std::make_shared<ContentView>(std::make_shared<ScrollView>(split)));
+    window.replace_content(*host, reveal, {{0, reveal}, {1, hidden}}, [](auto) {});
+    check(!reveal->open() && !expander->expanded(), "Replacement preflight does not open lazy content");
+    std::weak_ptr<Element> retired = hidden;
+    pages.reset(); selected.reset(); hidden.reset(); expander.reset(); split.reset(); reveal.reset();
+    window.replace_content(*host, {});
+    check(retired.expired(), "Replacement releases hidden descendants and weak inspection metadata");
+    auto cycle = std::make_shared<InvalidChildren>();
+    cycle->children.push_back(cycle);
+    rejects<std::invalid_argument>([&] { window.replace_content(*host, cycle); }, "Custom cycles still fail preflight");
+    cycle->children.clear();
+    cycle->children.push_back({});
+    rejects<std::invalid_argument>([&] { window.replace_content(*host, cycle); }, "Null owned children still fail preflight");
+    check(!host->content(), "Invalid topology never changes the host");
+}
 void model_contract() {
     Window window;
     auto old = std::make_shared<Label>(L"Old");
@@ -335,11 +382,142 @@ void inactive_page_contract() {
     });
     check(Application::run(window) == 0 && ran, "Inactive page replacement completes");
 }
+void owned_deferred_contract(VisualStyle style) {
+    WindowOptions options; options.title = L"XUI owned deferred children"; options.show_activated = false;
+    options.visual_style = style;
+    Window window(options);
+    auto pages = std::make_shared<PageView>();
+    auto active = std::make_shared<TextInput>(L"First editor"); active->set_text(L"first draft");
+    auto hidden = std::make_shared<TextInput>(L"Second editor"); hidden->set_text(L"second draft");
+    auto first = std::make_shared<ContentHost>(active), second = std::make_shared<ContentHost>(hidden);
+    pages->add(first); pages->add(second);
+    auto deferred = std::make_shared<TextInput>(L"Deferred editor"); deferred->set_text(L"deferred draft");
+    auto lazy_host = std::make_shared<ContentHost>(std::make_shared<ContentView>(
+        std::make_shared<ScrollView>(std::make_shared<SplitView>(deferred, std::make_shared<Label>(L"Other pane")))));
+    auto reveal = std::make_shared<Reveal>(lazy_host);
+    auto root = std::make_shared<Stack>(Axis::vertical);
+    root->add(pages, 1); root->add(reveal, 1);
+    window.set_content(root);
+    const auto exists = [](HWND owner, std::wstring_view name) {
+        for (const auto child : descendants(owner)) if (text(child) == name) return true;
+        return false;
+    };
+    HWND owner{}, first_hwnd{}, second_hwnd{};
+    std::size_t retained_count{};
+    bool ran{};
+    const auto foreground = GetForegroundWindow();
+    window.post([&] {
+        owner = frame(options.title);
+        first_hwnd = named(owner, L"first draft");
+        check(!exists(owner, L"Second editor") && !exists(owner, L"Deferred editor") &&
+            !exists(owner, L"second draft") && !exists(owner, L"deferred draft"),
+            "Initial realization excludes inactive pages and unopened nested Reveal");
+        check(deferred->visual_style() == style, "Unopened Reveal propagates presentation without HWNDs");
+        const auto count = descendants(owner).size();
+        for (int i = 0; i < 100; ++i) {
+            std::size_t visits{};
+            const auto walk = [&](const auto& self, const Element& element) -> void {
+                ++visits;
+                for (const auto& child : element.owned_children()) self(self, *child);
+            };
+            walk(walk, *root);
+            check(visits == 15 && descendants(owner).size() == count, "Ownership enumeration never realizes lazy peers");
+        }
+        SendMessageW(first_hwnd, EM_SETSEL, 0, 0);
+        SendMessageW(first_hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"edited "));
+        SendMessageW(first_hwnd, EM_SETSEL, 1, 4);
+        pages->select(1);
+        window.post([&] {
+            second_hwnd = named(owner, L"second draft");
+            check(IsWindow(first_hwnd) && !IsWindowVisible(first_hwnd), "Visited inactive editor retains its native peer");
+            retained_count = descendants(owner).size();
+            auto replacement = std::make_shared<TextInput>(L"Replacement first"); replacement->set_text(L"replacement draft");
+            const std::weak_ptr<Element> retired = active;
+            active.reset();
+            window.replace_content(*first, replacement);
+            check(retired.expired() && !IsWindow(first_hwnd), "Inactive replacement retires the old model and HWND");
+            check(!IsWindowVisible(named(owner, L"replacement draft")) && IsWindow(second_hwnd) &&
+                text(second_hwnd) == L"second draft", "Inactive replacement preserves the active native editor");
+            check(descendants(owner).size() == retained_count, "Inactive replacement keeps peer resources bounded");
+            window.replace_content(*lazy_host, std::make_shared<TextInput>(L"Replaced deferred"));
+            check(exists(owner, L"Replaced deferred") && !exists(owner, L"Deferred editor"),
+                "Explicit replacement inside closed Reveal keeps its established materialization exception");
+            reveal->set_open(true);
+            window.post([&] {
+                const auto lazy = named(owner, L"Replaced deferred");
+                check(IsWindowVisible(lazy), "Opening Reveal presents the already replaced native child");
+                const auto opened_count = descendants(owner).size();
+                reveal->set_open(false);
+                window.post([&, lazy, opened_count] {
+                    check(IsWindow(lazy) && !IsWindowVisible(lazy) && descendants(owner).size() == opened_count,
+                        "Closing Reveal retains visited peers without additional resources");
+                    check(GetForegroundWindow() == foreground, "Traversal and lazy replacement never activate a window");
+                    ran = true; window.close();
+                });
+            });
+        });
+    });
+    const auto result = Application::run(window);
+    if (result) std::wcerr << window.error() << '\n';
+    check(result == 0 && ran, "Nested ownership/native realization contract completes");
+}
 class FailingLayout final : public Stack {
 public:
     FailingLayout() : Stack(Axis::vertical) { add(std::make_shared<Button>(L"Materialized before failure")); }
     Size measure(Size) override { throw std::runtime_error("Injected replacement layout failure"); }
 };
+class TypographyProbe final : public Stack {
+public:
+    explicit TypographyProbe(std::size_t& calls) : Stack(Axis::vertical), calls_(calls) {}
+protected:
+    std::optional<StyleTarget> control_style_target() const override {
+        ++calls_;
+        return Stack::control_style_target();
+    }
+private:
+    std::size_t& calls_;
+};
+void active_collection_contract() {
+    std::size_t previous_active_calls{};
+    for (const int inactive_pages : {1, 16}) {
+        std::size_t active_calls{}, inactive_calls{};
+        WindowOptions options; options.show_activated = false; options.title = L"XUI bounded page collection";
+        Window window(options);
+        window.set_presentation("Segoe UI", 14, false, false);
+        auto pages = std::make_shared<PageView>();
+        auto active = std::make_shared<TypographyProbe>(active_calls);
+        auto button = std::make_shared<Button>(L"Active interaction");
+        active->add(button); pages->add(active);
+        for (int page = 0; page < inactive_pages; ++page) {
+            auto inactive = std::make_shared<TypographyProbe>(inactive_calls);
+            for (int item = 0; item < 128; ++item) inactive->add(std::make_shared<Label>(L"Unvisited"));
+            pages->add(inactive);
+        }
+        window.set_content(pages);
+        bool ran{};
+        window.post([&] {
+            const auto owner = frame(options.title);
+            const auto count = descendants(owner).size();
+            check(count == 1, "Inactive population adds no native peers");
+            active_calls = inactive_calls = 0;
+            for (int i = 0; i < 32; ++i) {
+                button->pointer_move(i % 2 == 0);
+                SendMessageW(owner, WM_APP + 12, 0, 0);
+            }
+            check(active_calls > 0 && inactive_calls == 0, "Ordinary active interactions never collect or apply typography to inactive pages");
+            check(!previous_active_calls || active_calls == previous_active_calls, "Active collection work is independent of inactive population");
+            check(descendants(owner).size() == count, "Active interactions do not realize unvisited peers");
+            previous_active_calls = active_calls;
+            std::cout << "active_collection inactive_pages=" << inactive_pages << " inactive_items=" << inactive_pages * 128
+                << " interactions=32 active_typography_calls=" << active_calls << " inactive_typography_calls=" << inactive_calls
+                << " hwnds=" << count << '\n';
+            ran = true; window.close();
+        });
+        const auto result = Application::run(window);
+        if (result) std::wcerr << window.error() << '\n';
+        check(result == 0 && ran, "Bounded active PageView collection completes");
+    }
+}
 void failure_contract() {
     WindowOptions options; options.show_activated = false;
     Window window(options);
@@ -354,13 +532,34 @@ void failure_contract() {
     check(Application::run(window) == 1 && failed && !window.error().empty(), "Native failure is explicit and fatal");
 }
 }
-int main() {
+int main(int argc, char** argv) {
+    const std::string_view mode = argc > 1 ? argv[1] : "";
+    if (argc > 2 || (!mode.empty() && mode != "--model-only" && mode != "--owned-only") ||
+        (argc == 2 && mode.empty())) {
+        std::cerr << "Usage: xui_content_host_window_tests [--model-only|--owned-only]\n";
+        return 2;
+    }
     try {
         model_contract();
+        owned_model_contract();
+        if (mode == "--model-only") {
+            std::cout << "ContentHost model ownership, replacement and inspection passed without HWND realization\n";
+            return 0;
+        }
+        if (mode == "--owned-only") {
+            owned_deferred_contract(VisualStyle::classic);
+            owned_deferred_contract(VisualStyle::winui);
+            active_collection_contract();
+            std::cout << "Owned children: deferred native peers, inactive replacement and bounded active collection passed\n";
+            return 0;
+        }
         native_contract(VisualStyle::classic);
         native_contract(VisualStyle::winui);
         provider_contract();
         inactive_page_contract();
+        owned_deferred_contract(VisualStyle::classic);
+        owned_deferred_contract(VisualStyle::winui);
+        active_collection_contract();
         failure_contract();
         std::cout << "ContentHost: model, 200 native replacements, editor state, popup, map/runtime retirement, UIA, fatal failure passed\n";
         return 0;

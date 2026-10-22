@@ -14,7 +14,7 @@ public:
     using Clock = std::chrono::steady_clock;
     explicit Reveal(std::shared_ptr<Element> content, std::wstring name = L"Reveal");
     const std::shared_ptr<Element>& content() const { return child_[0]; }
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return child_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{child_}; }
     void set_open(bool value);
     bool open() const { return open_; }
     void set_duration(unsigned milliseconds);

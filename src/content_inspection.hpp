@@ -61,39 +61,57 @@ inline Outline outline(Rect original, Rect clip, float scale) {
 }
 
 struct Child {
-    std::shared_ptr<Element> element;
+    const std::shared_ptr<Element>& element;
     Rect clip;
 };
 
-// Keep ownership traversal and active layout traversal distinct: registration includes
-// inactive pages, whereas pointer inspection follows only the current page and clips.
-inline std::vector<Child> children(const std::shared_ptr<Element>& element, Rect clip, bool active) {
-    std::vector<Child> result;
-    if (const auto stack = std::dynamic_pointer_cast<Stack>(element)) {
-        const auto pages = std::dynamic_pointer_cast<PageView>(stack);
-        for (std::size_t i = 0; i < stack->child_count(); ++i)
-            if (!active || !pages || i == pages->selected()) result.push_back({stack->child_at(i), clip});
-    } else if (const auto scroll = std::dynamic_pointer_cast<ScrollView>(element)) {
-        result.push_back({scroll->content(), active ? intersect(clip, scroll->viewport()) : clip});
-    } else if (const auto content = std::dynamic_pointer_cast<ContentView>(element)) {
-        result.push_back({content->content(), active ? intersect(clip, content->content_bounds()) : clip});
-    } else if (const auto split = std::dynamic_pointer_cast<SplitView>(element)) {
-        const auto area = split->pane_area(), divider = split->divider();
-        const Rect first{area.x, area.y, split->expanded() ? divider.x - area.x : area.width, area.height};
-        const Rect second{divider.x + divider.width, area.y,
-            std::max(0.0f, area.x + area.width - divider.x - divider.width), area.height};
-        result.push_back({split->first(), active ? intersect(clip, first) : clip});
-        if (!active || split->expanded()) result.push_back({split->second(), active ? intersect(clip, second) : clip});
-    } else if (const auto control = std::dynamic_pointer_cast<Control>(element)) {
-        auto viewport = control->bounds();
-        if (const auto expander = std::dynamic_pointer_cast<Expander>(control)) {
-            if (active && !expander->expanded()) return {};
-            viewport = expander->content_bounds();
+class Children {
+public:
+    Children(const Element& element, Rect clip, bool active) : owned_(element.owned_children()), clip_(clip), count_(owned_.size()) {
+        if (!active) return;
+        if (const auto* pages = dynamic_cast<const PageView*>(&element)) {
+            first_ = pages->selected();
+            count_ = owned_.empty() ? 0 : 1;
+        } else if (const auto* scroll = dynamic_cast<const ScrollView*>(&element)) {
+            clip_ = intersect(clip, scroll->viewport());
+        } else if (const auto* content = dynamic_cast<const ContentView*>(&element)) {
+            clip_ = intersect(clip, content->content_bounds());
+        } else if (const auto* split = dynamic_cast<const SplitView*>(&element)) {
+            split_ = split;
+            if (!split->expanded()) count_ = 1;
+        } else if (const auto* control = dynamic_cast<const Control*>(&element)) {
+            auto viewport = control->bounds();
+            if (const auto* expander = dynamic_cast<const Expander*>(control)) {
+                if (!expander->expanded()) count_ = 0;
+                viewport = expander->content_bounds();
+            }
+            clip_ = intersect(clip, viewport);
         }
-        for (const auto& child : control->retained_children())
-            result.push_back({child, active ? intersect(clip, viewport) : clip});
     }
-    return result;
+    std::size_t size() const { return count_; }
+    Child operator[](std::size_t index) const {
+        const auto slot = first_ + index;
+        return {owned_[slot], split_ ? intersect(clip_, slot == 0 ? split_->first_pane_area() : split_->second_pane_area()) : clip_};
+    }
+    struct Iterator {
+        const Children* children;
+        std::size_t index;
+        Child operator*() const { return (*children)[index]; }
+        Iterator& operator++() { ++index; return *this; }
+        bool operator==(const Iterator&) const = default;
+    };
+    Iterator begin() const { return {this, 0}; }
+    Iterator end() const { return {this, count_}; }
+private:
+    OwnedChildren owned_;
+    Rect clip_;
+    std::size_t first_{}, count_{};
+    const SplitView* split_{};
+};
+
+// Registration uses ownership; pointer inspection adds selected-page and clip policy.
+inline Children children(const std::shared_ptr<Element>& element, Rect clip, bool active) {
+    return {*element, clip, active};
 }
 
 inline void enumerate(const std::shared_ptr<Element>& element,
@@ -101,7 +119,7 @@ inline void enumerate(const std::shared_ptr<Element>& element,
     if (!element) return;
     if (!result.emplace(element->id(), element).second)
         throw std::invalid_argument("Inspection content contains duplicate children or a cycle");
-    for (const auto& child : children(element, {}, false)) enumerate(child.element, result);
+    for (const auto& child : element->owned_children()) enumerate(child, result);
 }
 
 struct Registration {
@@ -168,7 +186,7 @@ inline void supported_node(const std::shared_ptr<Element>& element, const Conten
 inline void supported(const std::shared_ptr<Element>& element, const ContentHost* host = nullptr) {
     if (!element) return;
     supported_node(element, host);
-    for (const auto& child : children(element, {}, false)) supported(child.element, host);
+    for (const auto& child : element->owned_children()) supported(child, host);
 }
 
 struct HostPath {
@@ -213,8 +231,9 @@ inline Hit hit(const std::shared_ptr<Element>& element, Point point, Rect clip,
     const bool matched = !native_target || native_target == element.get();
     const auto required = matched ? nullptr : native_target;
     auto descendants = children(element, clip, true);
-    for (auto it = descendants.rbegin(); it != descendants.rend(); ++it) {
-        const auto result = hit(it->element, point, it->clip, registration, required, nearest);
+    for (auto i = descendants.size(); i > 0; --i) {
+        const auto child = descendants[i - 1];
+        const auto result = hit(child.element, point, child.clip, registration, required, nearest);
         if (result.matched) return result;
     }
     return matched && contains(element->bounds(), point) ? Hit{true, nearest} : Hit{};

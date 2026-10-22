@@ -11,7 +11,7 @@ public:
     const std::wstring& error() const { return error_; }
     const std::shared_ptr<InlineStatus>& status() const { return status_; }
     void on_state(std::function<void(HostState)> callback) { state_callback_ = std::move(callback); }
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
     Rect visual_bounds() const;
     Rect content_bounds() const;

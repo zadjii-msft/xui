@@ -13,8 +13,74 @@
 #include <mutex>
 #include <thread>
 #include <limits>
+#include <iterator>
+#include <span>
+#include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 namespace xui {
+
+class Element;
+
+// A borrowed view of direct model children, not the active, native, or UIA tree.
+// Structural mutation or destruction of the owner invalidates the view and its
+// references. Enumeration must not mutate topology; property/layout edits are fine.
+class OwnedChildren {
+    using Access = const std::shared_ptr<Element>& (*)(const void*, std::size_t);
+public:
+    OwnedChildren() = default;
+    explicit OwnedChildren(std::span<const std::shared_ptr<Element>> children)
+        : data_(children.data()), size_(children.size()), access_([](const void* data, std::size_t index) -> const std::shared_ptr<Element>& {
+            return static_cast<const std::shared_ptr<Element>*>(data)[index];
+        }) {}
+
+    template<auto Member, class T>
+    static OwnedChildren members(std::span<const T> children) {
+        static_assert(std::is_same_v<decltype(std::declval<const T&>().*Member), const std::shared_ptr<Element>&>,
+            "OwnedChildren members must borrow shared_ptr<Element> slots");
+        return {children.data(), children.size(), [](const void* data, std::size_t index) -> const std::shared_ptr<Element>& {
+            return static_cast<const T*>(data)[index].*Member;
+        }};
+    }
+    std::size_t size() const { return size_; }
+    bool empty() const { return size_ == 0; }
+    const std::shared_ptr<Element>& operator[](std::size_t index) const { return access_(data_, index); }
+    const std::shared_ptr<Element>& at(std::size_t index) const {
+        if (index >= size_) throw std::out_of_range("Owned child index");
+        return (*this)[index];
+    }
+    const std::shared_ptr<Element>& front() const { return (*this)[0]; }
+    const std::shared_ptr<Element>& back() const { return (*this)[size_ - 1]; }
+
+    class Iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = std::shared_ptr<Element>;
+        using difference_type = std::ptrdiff_t;
+        using reference = const value_type&;
+        using pointer = const value_type*;
+        Iterator() = default;
+        reference operator*() const { return access_(data_, index_); }
+        pointer operator->() const { return &**this; }
+        Iterator& operator++() { ++index_; return *this; }
+        Iterator operator++(int) { auto previous = *this; ++*this; return previous; }
+        bool operator==(const Iterator&) const = default;
+    private:
+        friend class OwnedChildren;
+        Iterator(const void* data, Access access, std::size_t index) : data_(data), access_(access), index_(index) {}
+        const void* data_{};
+        Access access_{};
+        std::size_t index_{};
+    };
+    Iterator begin() const { return {data_, access_, 0}; }
+    Iterator end() const { return {data_, access_, size_}; }
+private:
+    OwnedChildren(const void* data, std::size_t size, Access access) : data_(data), size_(size), access_(access) {}
+    const void* data_{};
+    std::size_t size_{};
+    Access access_{};
+};
 
 using ItemId = std::uint64_t;
 
@@ -44,6 +110,10 @@ public:
     std::uint64_t id() const;
     virtual Size measure(Size available);
     virtual void arrange(Rect bounds);
+    // Non-null children in deterministic storage/slot order, including hidden and
+    // deferred content. Leaves return empty. No allocation, ownership copy, or
+    // native realization; separately coordinated popup roots/adornments are excluded.
+    virtual OwnedChildren owned_children() const { return {}; }
     Rect bounds() const;
     void set_invalidator(std::function<void(Invalidation)> callback);
     void invalidate(Invalidation kind);
@@ -123,6 +193,9 @@ public:
     void add(std::shared_ptr<Element> child, float flex = 0);
     std::size_t child_count() const { return children_.size(); }
     const std::shared_ptr<Element>& child_at(std::size_t index) const { return children_.at(index).element; }
+    OwnedChildren owned_children() const override {
+        return OwnedChildren::members<&Child::element>(std::span<const Child>{children_});
+    }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
     Insets effective_layout_insets() const;

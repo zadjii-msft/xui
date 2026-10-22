@@ -18,7 +18,9 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
 - [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
+- [Owned model tree and traversal policies](architecture.md#owned-model-tree-and-traversal-policies): Borrowed Element children, deferred realization, presentation clips, inspection, ABI scopes, and explicit host adornments.
 - [Architecture review and sequential refactoring roadmap](architecture-review-2026-10-21.md): Seven structural findings, source-verified evidence limits, preserved native behavior, and the acceptance-driven merge-before-next-PR ledger.
+- [Stage-2 raw ownership evidence](stage2-owned-children-evidence.json): All 1,278 warmup/recorded processes, intermediate/final source identities and binary hashes, actual link modes, reproducible probe/runner sources, native results, and the coupled LTCG diagnosis. Interpretation and limitations are in the roadmap ledger.
 - [System backdrops and acrylic](architecture.md#system-backdrops-and-acrylic): DWM backdrop selection, premultiplied HWND targets, opaque native repainting, and the in-app acrylic effect graph.
 - [Composition presentation prototype](architecture.md#composition-presentation-prototype): Opt-in swap-chain presentation for backdrop acrylic in any shape, source map, and the October 6, 2026 cost measurements.
 - [Application-discovered regressions](architecture.md#application-discovered-regressions): Enum-handler names, navigation artwork, disclosure focus, and managed row actions.

@@ -6,6 +6,7 @@
 #include "xui/styling.hpp"
 #include "xui/control_styling.hpp"
 #include <span>
+#include <array>
 #include <stdexcept>
 
 namespace xui {
@@ -82,7 +83,6 @@ public:
     void set_help_text(std::wstring value);
     unsigned tooltip_delay() const { return tooltip_delay_; }
     void set_tooltip_delay(unsigned milliseconds);
-    virtual std::span<const std::shared_ptr<Element>> retained_children() const { return {}; }
     // Input adapter boundary. Applications normally use callbacks and property setters.
     void pointer_move(bool inside);
     bool pointer_down();
@@ -346,6 +346,7 @@ class ScrollView final : public Control {
 public:
     explicit ScrollView(std::shared_ptr<Element> content, std::wstring name = L"Scrollable content");
     const std::shared_ptr<Element>& content() const { return content_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{std::span{&content_, 1}}; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
     float offset() const { return passthrough_ ? 0 : offset_; }
@@ -500,7 +501,7 @@ public:
     void on_new_tab(std::function<void()> callback) { new_tab_ = std::move(callback); }
     void request_new_tab();
     Rect new_tab_button_bounds() const;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     Rect tab_bounds(std::size_t index) const;
     Rect close_bounds(std::size_t index) const;
     Rect content_bounds() const;
@@ -555,6 +556,7 @@ class ContentView final : public Control {
 public:
     explicit ContentView(std::shared_ptr<Element> content, std::wstring name = L"Pane");
     const std::shared_ptr<Element>& content() const { return content_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{std::span{&content_, 1}}; }
     void arrange(Rect bounds) override;
     Size measure(Size available) override;
     Rect content_bounds() const;
@@ -586,8 +588,9 @@ class SplitView final : public Control, public Animation {
 public:
     SplitView(std::shared_ptr<Element> first, std::shared_ptr<Element> second,
         std::wstring name = L"Pane divider");
-    const std::shared_ptr<ContentView>& first() const { return first_; }
-    const std::shared_ptr<ContentView>& second() const { return second_; }
+    std::shared_ptr<ContentView> first() const { return std::static_pointer_cast<ContentView>(children_[0]); }
+    std::shared_ptr<ContentView> second() const { return std::static_pointer_cast<ContentView>(children_[1]); }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
     void set_ratio(float ratio);
     float ratio() const { return ratio_; }
@@ -623,7 +626,7 @@ protected:
 private:
     float pane_extent() const;
     float presented_first_extent() const;
-    std::shared_ptr<ContentView> first_, second_;
+    std::array<std::shared_ptr<Element>, 2> children_;
     float ratio_{0.5f};
     Axis axis_{Axis::horizontal};
     float minimum_extent_{minimum_pane_width};

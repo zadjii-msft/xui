@@ -590,13 +590,8 @@ void ContentDialog::set_visual_style(VisualStyle style) {
     if (style != VisualStyle::classic && style != VisualStyle::winui) throw std::invalid_argument("Invalid visual style");
     layout_->set_style(style);
     const auto apply = [style](const auto& self, const std::shared_ptr<Element>& element) -> void {
-        if (auto control = std::dynamic_pointer_cast<Control>(element)) {
-            control->set_visual_style(style);
-            if (auto scroll = std::dynamic_pointer_cast<ScrollView>(control)) self(self, scroll->content());
-            for (const auto& child : control->retained_children()) self(self, child);
-        } else if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
-            for (std::size_t i = 0; i < stack->child_count(); ++i) self(self, stack->child_at(i));
-        }
+        if (auto* control = dynamic_cast<Control*>(element.get())) control->set_visual_style(style);
+        for (const auto& child : element->owned_children()) self(self, child);
     };
     apply(apply, popup_);
 }

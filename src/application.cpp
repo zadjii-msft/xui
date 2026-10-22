@@ -1017,20 +1017,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
     void claim_deferred_tree(const std::shared_ptr<Element>& element) {
         claim(element);
         apply_typography(*element);
-        if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
-            for (std::size_t i = 0; i < stack->child_count(); ++i) claim_deferred_tree(stack->child_at(i));
-            return;
-        }
-        const auto control = std::dynamic_pointer_cast<Control>(element);
-        if (!control) throw std::invalid_argument("Window content supports Stack and standard controls only");
-        control->set_visual_style(options.visual_style);
-        if (auto scroll = std::dynamic_pointer_cast<ScrollView>(control)) claim_deferred_tree(scroll->content());
-        if (auto content = std::dynamic_pointer_cast<ContentView>(control)) claim_deferred_tree(content->content());
-        if (auto split = std::dynamic_pointer_cast<SplitView>(control)) {
-            claim_deferred_tree(split->first());
-            claim_deferred_tree(split->second());
-        }
-        for (const auto& child : control->retained_children()) claim_deferred_tree(child);
+        if (auto* control = dynamic_cast<Control*>(element.get())) control->set_visual_style(options.visual_style);
+        else if (!dynamic_cast<Stack*>(element.get()))
+            throw std::invalid_argument("Window content supports Stack and standard controls only");
+        for (const auto& child : element->owned_children()) claim_deferred_tree(child);
     }
     bool defer_reveal_children(const std::shared_ptr<Control>& control) {
         const auto* reveal = dynamic_cast<const Reveal*>(control.get());
@@ -1048,20 +1038,21 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
             stack->set_control_style_context_enabled(layout_style_context_enabled(parent));
             if (auto pages = std::dynamic_pointer_cast<PageView>(stack)) {
-                if (pages->child_count()) collect(pages->child_at(pages->selected()), surface || stack->surface(), parent, adaptive);
-                if (replacement_host) for (std::size_t i = 0; i < pages->child_count(); ++i) {
+                const auto children = pages->owned_children();
+                if (!children.empty()) collect(children[pages->selected()], surface || stack->surface(), parent, adaptive);
+                if (replacement_host) for (std::size_t i = 0; i < children.size(); ++i) {
                     if (i == pages->selected()) continue;
                     std::set<std::uint64_t> ids;
-                    content_ids(pages->child_at(i), ids);
+                    content_ids(children[i], ids);
                     if (ids.contains(replacement_host->id()))
-                        collect(pages->child_at(i), surface || stack->surface(), parent, adaptive);
+                        collect(children[i], surface || stack->surface(), parent, adaptive);
                 }
                 return;
             }
             auto* layout = dynamic_cast<AdaptiveLayout*>(stack.get());
             if (layout && std::find(adaptive_layouts.begin(), adaptive_layouts.end(), layout) == adaptive_layouts.end()) adaptive_layouts.push_back(layout);
-            for (size_t i = 0; i < stack->child_count(); ++i)
-                collect(stack->child_at(i), surface || stack->surface(), parent, layout && stack->child_at(i) == layout->navigation() ? layout : adaptive);
+            for (const auto& child : stack->owned_children())
+                collect(child, surface || stack->surface(), parent, layout && child == layout->navigation() ? layout : adaptive);
             return;
         }
         auto control = std::dynamic_pointer_cast<Control>(element);
@@ -1072,14 +1063,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             prepare_popup_surface(*peer);
             peer->surface = surface;
             peer->adaptive = adaptive;
-            if (auto scroll = std::dynamic_pointer_cast<ScrollView>(control)) collect(scroll->content(), surface, peer, adaptive);
-            if (auto content = std::dynamic_pointer_cast<ContentView>(control)) collect(content->content(), surface, peer, adaptive);
-            if (auto split = std::dynamic_pointer_cast<SplitView>(control)) {
-                collect(split->first(), surface, peer, adaptive);
-                collect(split->second(), surface, peer, adaptive);
-            }
             if (!defer_reveal_children(control))
-                for (const auto& child : control->retained_children())
+                for (const auto& child : control->owned_children())
                     collect(child, surface || (options.visual_style == VisualStyle::winui && control->role() == ControlRole::expander), peer, adaptive);
             collect_clear_button(*peer);
             return;
@@ -1244,16 +1229,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             win32_require(SetWindowSubclass(added->scroll_content, navigation_procedure, 1,
                 reinterpret_cast<DWORD_PTR>(added)) != 0, "Attach scroll content navigation");
         }
-        if (auto scroll = std::dynamic_pointer_cast<ScrollView>(added->control))
-            collect(scroll->content(), surface, added, adaptive);
-        if (auto content = std::dynamic_pointer_cast<ContentView>(added->control))
-            collect(content->content(), surface, added, adaptive);
-        if (auto split = std::dynamic_pointer_cast<SplitView>(added->control)) {
-            collect(split->first(), surface, added, adaptive);
-            collect(split->second(), surface, added, adaptive);
-        }
         if (!defer_reveal_children(added->control))
-            for (const auto& child : added->control->retained_children())
+            for (const auto& child : added->control->owned_children())
                 collect(child, surface || (options.visual_style == VisualStyle::winui && role == ControlRole::expander), added, adaptive);
         if (auto* columns = dynamic_cast<MillerColumns*>(added->control.get())) {
             const std::weak_ptr<Impl> host = weak_from_this();
@@ -1408,18 +1385,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             child_clip = intersect(clip, viewport(*peer));
         }
         visit(*element, intersect(element->bounds(), clip));
-        if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
-            for (std::size_t i = 0; i < stack->child_count(); ++i) visit_visual_tree(stack->child_at(i), visit, child_clip);
-        } else if (auto control = std::dynamic_pointer_cast<Control>(element)) {
-            if (auto scroll = std::dynamic_pointer_cast<ScrollView>(control)) visit_visual_tree(scroll->content(), visit, child_clip);
-            if (auto content = std::dynamic_pointer_cast<ContentView>(control)) visit_visual_tree(content->content(), visit, child_clip);
-            if (auto split = std::dynamic_pointer_cast<SplitView>(control)) {
-                visit_visual_tree(split->first(), visit, child_clip);
-                visit_visual_tree(split->second(), visit, child_clip);
-            }
-            for (const auto& child : control->retained_children()) visit_visual_tree(child, visit, child_clip);
-            if (auto* peer = find_peer(control.get()); peer->clear_button) visit_visual_tree(peer->clear_button, visit, child_clip);
-        }
+        for (const auto& child : element->owned_children()) visit_visual_tree(child, visit, child_clip);
+        if (auto* peer = find_peer(dynamic_cast<Control*>(element.get())); peer && peer->clear_button)
+            visit_visual_tree(peer->clear_button, visit, child_clip);
     }
     std::vector<Peer*> visual_peer_order() {
         std::vector<Peer*> ordered;
@@ -1768,14 +1736,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         }
         if (!ids.insert(element->id()).second)
             throw std::invalid_argument("Window content must not contain duplicates or cycles");
-        if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
-            for (std::size_t i = 0; i < stack->child_count(); ++i) content_ids(stack->child_at(i), ids, validate);
-            return;
-        }
-        auto control = std::dynamic_pointer_cast<Control>(element);
-        if (!control) throw std::invalid_argument("Window content supports Stack and standard controls only");
-        if (validate) {
-            const auto* value = control.get();
+        const auto* control = dynamic_cast<const Control*>(element.get());
+        if (!control && !dynamic_cast<const Stack*>(element.get()))
+            throw std::invalid_argument("Window content supports Stack and standard controls only");
+        if (validate && control) {
+            const auto* value = control;
             bool supported{};
             switch (control->role()) {
             case ControlRole::label: supported = dynamic_cast<const Label*>(value); break;
@@ -1814,12 +1779,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (!supported) throw std::invalid_argument("Control role requires its standard control type");
         }
-        if (auto scroll = std::dynamic_pointer_cast<ScrollView>(element)) content_ids(scroll->content(), ids, validate);
-        if (auto content = std::dynamic_pointer_cast<ContentView>(element)) content_ids(content->content(), ids, validate);
-        if (auto split = std::dynamic_pointer_cast<SplitView>(element)) {
-            content_ids(split->first(), ids, validate); content_ids(split->second(), ids, validate);
-        }
-        for (const auto& child : control->retained_children()) content_ids(child, ids, validate);
+        for (const auto& child : element->owned_children()) content_ids(child, ids, validate);
     }
     bool retains(const Control& control) const {
         std::set<std::uint64_t> ids;
@@ -2652,7 +2612,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* reveal = dynamic_cast<Reveal*>(ancestor->control.get()); reveal && !reveal->open()) return false;
         for (auto* ancestor = &peer; ancestor && ancestor->parent; ancestor = ancestor->parent)
             if (auto* split = dynamic_cast<SplitView*>(ancestor->parent->control.get());
-                split && ancestor->control == split->second() && !split->expanded()) return false;
+                split && ancestor->control == split->owned_children()[1] && !split->expanded()) return false;
         return true;
     }
     bool command_popup_current(const PopupEntry& entry) const {
@@ -2846,8 +2806,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
         const auto* style = palette.high_contrast ? nullptr : stack.effective_control_style_values(StylePart::root);
         const auto rounded = style && style->corner_radius ?
             drawing().push_rounded_clip(stack.bounds(), *style->corner_radius) : 0;
-        for (size_t i = 0; i < stack.child_count(); ++i)
-            paint_content_surface(stack.child_at(i), paint_peer, owner, adaptive);
+        for (const auto& child : stack.owned_children())
+            paint_content_surface(child, paint_peer, owner, adaptive);
         for (std::size_t i = 0; i < rounded; ++i) drawing().pop_rounded_clip();
     }
     void paint_content_surface(const std::shared_ptr<Element>& element, const SubtreePaint& paint_peer = {},
@@ -2863,14 +2823,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 drawing().styled_surface(scroll->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             if (paint_peer && peer) paint_peer(peer);
             drawing().push_clip(scroll->viewport());
-            paint_content_surface(scroll->content(), paint_peer, owner, adaptive);
+            for (const auto& child : scroll->owned_children()) paint_content_surface(child, paint_peer, owner, adaptive);
             drawing().pop_clip();
         } else if (auto content = std::dynamic_pointer_cast<ContentView>(element)) {
             if (const auto* style = content->effective_control_style_values(StylePart::root))
                 drawing().styled_surface(content->bounds(), palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             if (paint_peer && peer) paint_peer(peer);
             drawing().push_clip(content->content_bounds());
-            paint_content_surface(content->content(), paint_peer, owner, adaptive);
+            for (const auto& child : content->owned_children()) paint_content_surface(child, paint_peer, owner, adaptive);
             drawing().pop_clip();
         } else if (auto split = std::dynamic_pointer_cast<SplitView>(element)) {
             drawing().push_clip(split->bounds());
@@ -2885,8 +2845,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 drawing().styled_surface(second,
                     palette, *style, D2D1::ColorF(0, 0.0f), palette.border, 0, {});
             if (paint_peer && peer) paint_peer(peer);
-            paint_content_surface(split->first(), paint_peer, owner, adaptive);
-            paint_content_surface(split->second(), paint_peer, owner, adaptive);
+            for (const auto& child : split->owned_children()) paint_content_surface(child, paint_peer, owner, adaptive);
             drawing().pop_clip();
         } else if (auto control = std::dynamic_pointer_cast<Control>(element)) {
             if (control->visible()) add_hit_shape(control->bounds(), 0);
@@ -2899,7 +2858,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             }
             if (auto bar = dynamic_cast<CommandBar*>(control.get()); bar && bar->visible()) {
                 if (const auto* style = bar->effective_control_style_values(StylePart::separator))
-                    for (std::size_t i = 1; i < bar->retained_children().size(); ++i) {
+                    for (std::size_t i = 1; i < bar->owned_children().size(); ++i) {
                         const auto bounds = bar->separator_bounds(i);
                         if (bounds.width > 0 && bounds.height > 0)
                             drawing().styled_surface(bounds, palette, *style, palette.border, palette.border, 0, {});
@@ -2929,7 +2888,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 drawing().push_clip(control->bounds());
             }
             if (expander) drawing().push_clip(expander->content_bounds());
-            for (const auto& child : control->retained_children()) paint_content_surface(child, paint_peer, owner, adaptive);
+            for (const auto& child : control->owned_children()) paint_content_surface(child, paint_peer, owner, adaptive);
             if (paint_peer && peer && peer->clear_button)
                 if (auto* clear = find_peer(peer->clear_button.get())) paint_peer(clear);
             if (expander) drawing().pop_clip();
@@ -3528,7 +3487,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 return D2D1::ColorF(owner_field->background->resolve(palette.mode));
         }
         bool hovered = owner->control->hovered();
-        for (const auto& child : owner->control->retained_children())
+        for (const auto& child : owner->control->owned_children())
             if (const auto* control = dynamic_cast<const Control*>(child.get())) hovered |= control->hovered();
         const auto focused = GetFocus() == owner->window || IsChild(owner->window, GetFocus()) ||
             (owner->clear_window && GetFocus() == owner->clear_window);
@@ -3743,7 +3702,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const Symbol symbols[]{Symbol::information, Symbol::success, Symbol::warning, Symbol::error};
                 canvas.symbol(symbols[static_cast<int>(status->severity())], icon_rect, ink_for(icon, ink), icon_size);
                 float end = content.x + content.width - 8;
-                for (const auto& child : status->retained_children()) if (static_cast<Control&>(*child).visible())
+                for (const auto& child : status->owned_children()) if (static_cast<Control&>(*child).visible())
                     end = std::min(end, child->bounds().x - control.bounds().x);
                 const float left = icon_rect.x + icon_size + 6;
                 const auto message = host_message ? merge_part_values(*host_message, part(StylePart::message)) :
@@ -3762,7 +3721,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 canvas.symbol(symbols[static_cast<int>(status->severity())], {12, 6, 24, 38}, ink);
             } else canvas.text(icons[static_cast<int>(status->severity())], {12, 6, 24, 38}, ink);
             float end = bounds.width - 8;
-            for (const auto& child : status->retained_children()) if (static_cast<Control&>(*child).visible())
+            for (const auto& child : status->owned_children()) if (static_cast<Control&>(*child).visible())
                 end = std::min(end, child->bounds().x - control.bounds().x);
             const Rect message_bounds{42, 6, std::max(0.0f, end - 46), std::max(0.0f, bounds.height - 12)};
             if (host_message) {
@@ -3814,7 +3773,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             return;
         }
         if (peer.parent) if (auto* picker = dynamic_cast<ColorPicker*>(peer.parent->control.get())) {
-            const auto children = picker->retained_children();
+            const auto children = picker->owned_children();
             for (std::size_t i = 4; i < children.size() && i - 4 < picker->swatches().size(); ++i) if (children[i].get() == &control) {
                 const auto value = picker->swatches()[i - 4];
                 const D2D1_COLOR_F rgb{value.red / 255.0f, value.green / 255.0f, value.blue / 255.0f,
@@ -4737,7 +4696,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                 const auto& button = static_cast<const Button&>(control);
                 bool separator = &button == breadcrumb->overflow_button().get();
                 std::wstring_view label;
-                const auto children = breadcrumb->retained_children();
+                const auto children = breadcrumb->owned_children();
                 for (std::size_t i = 0; i < breadcrumb->segments().size(); ++i) if (children[i + 1].get() == &button) {
                     label = breadcrumb->segments()[i].label;
                     separator = i + 1 != breadcrumb->segments().size();
@@ -4840,7 +4799,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             const auto icon = role == ControlRole::button ? static_cast<const Button&>(control).icon() : ButtonIcon::none;
             const auto* breadcrumb = winui && peer.parent ? dynamic_cast<const Breadcrumb*>(peer.parent->control.get()) : nullptr;
             if (button && breadcrumb) {
-                const auto children = breadcrumb->retained_children();
+                const auto children = breadcrumb->owned_children();
                 if (button == breadcrumb->overflow_button().get()) {
                     canvas.symbol(Symbol::more, {0, 0, bounds.width / 2, bounds.height}, ink);
                     canvas.symbol(Symbol::breadcrumb_separator, {bounds.width / 2, 0, bounds.width / 2, bounds.height}, ink, 12);
@@ -4853,7 +4812,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
                     break;
                 }
             } else if (button && peer.parent && peer.parent->control->role() == ControlRole::numeric_input) {
-                const auto children = peer.parent->control->retained_children();
+                const auto children = peer.parent->control->owned_children();
                 if (winui) {
                     canvas.symbol(children[1].get() == button ? Symbol::chevron_down : Symbol::chevron_up,
                         {0, 0, bounds.width, bounds.height}, ink, 12);

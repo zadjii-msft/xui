@@ -198,7 +198,7 @@ void control_tests() {
     tabs.request_new_tab();
     require(created == 0, "Hidden new tab action cannot dispatch");
     tabs.set_new_tab_button_visible(true);
-    const auto button = std::static_pointer_cast<Button>(tabs.retained_children().front());
+    const auto button = std::static_pointer_cast<Button>(tabs.owned_children().front());
     require(button->name() == L"New tab" && button->icon() == ButtonIcon::add && button->focusable(),
         "New tab retains the standard accessible icon button");
     for (float width : {0.0f, 16.0f, 32.0f, 48.0f, 160.0f, 420.0f, 800.0f}) {

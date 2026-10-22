@@ -21,6 +21,55 @@ The original source structures remain unchanged.
 `ItemActionTests.cs` covers pointer delivery, row menus, obsolete keys, disabled rows, and managed callback errors.
 The public contracts are in [bindings](../specs/bindings.md) and [commands and navigation](../specs/commands-and-navigation.md).
 
+## Owned model tree and traversal policies
+
+`Element::owned_children()` in `include\xui\core.hpp` is the single model topology contract.
+`OwnedChildren` borrows existing shared handles through a three-word view; its iterators borrow
+the storage, not the view object. Contiguous shared-handle storage uses a span; Stack projects
+the `element` member of each `Child` record with a type-checked member-pointer adapter.
+No copied vector, shared-handle acquisition, reinterpret cast, or per-Element field is required.
+SplitView stores two base-element handles in the same space as its former two typed handles;
+its typed pane accessors return shared handles by value.
+All former `Control::retained_children` overrides now override the Element contract.
+See the [public lifetime/order/null contract](../specs/application.md#owned-child-enumeration).
+
+The common contract discovers owned edges, not traversal policy:
+
+| Consumer | Ownership discovery and separate policy |
+| --- | --- |
+| `Window::Impl::content_ids` | All model children, including inactive pages/closed disclosures; duplicate/cycle/null/standard-role validation and foreign-host checks remain explicit. Popup/modal roots are added separately. |
+| `claim_deferred_tree` | All children under an unopened Reveal receive claims/presentation/typography, but no native peers. |
+| `collect` | Stack and control edges share enumeration. PageView collects only the selected page, plus the established explicit replacement-host exception. Unvisited pages are **not** re-claimed/re-styled on ordinary active updates. Closed Reveal defers peer creation unless replacing its nested host. Expander retains its native visibility policy. |
+| `visit_visual_tree` | Enumerates owned edges, then filters through existing peer presence, visibility and viewport logic. Existing all-Stack descent is unchanged; clear-button adornments are explicitly appended. |
+| `paint_surfaces` / `paint_content_surface` | Owned edges share discovery, while Stack surfaces, scroll/content viewport clips, split pane surfaces, Expander body clips and popup/adaptive paint ownership stay specialized. |
+| `input_fill` / role-specific painting/input | Enumerates composite children for hover; meaningful channel/button/segment indexing remains role-specific. |
+| `inspection::enumerate` / `supported` | Walks all owned children directly, including inactive registration targets. No temporary child vector. |
+| `inspection::Children`, `hit`, `host_path`, `element_clip` | Borrowed policy view; selected-page filtering, visibility, reverse paint-order hit testing and clipping are separate. Split clips use its axis-aware `first_pane_area` / `second_pane_area` rather than reconstructing horizontal geometry. |
+| `ContentDialog::set_visual_style` | Recurses through every owned edge, including formerly omitted ContentView/SplitView slots and hidden descendants, before measuring presentation. |
+| `src\c_api_content.inc` and bindings/compiler | Commit delegates native tree validation/inspection to Window. Candidate handle registries and subscription scopes are resource ownership, not layout topology; semantic `xui_feature_child` indices and managed/compiler construction rules are intentionally unchanged. |
+
+ComboBox's inline editor is in its model tree; its popup/choices are a separately coordinated
+popup root. Native EDIT clear buttons remain host-peer adornments, excluded from authored
+children. `collect_clear_button`, visual traversal, internal-surface painting, `content_ids`
+callers' explicit live-ID augmentation, inspection native-target mapping and retirement keep
+their existing host responsibilities.
+There is no new promise of hosting arbitrary Element subclasses.
+
+`tests\owned_children_tests.cpp` covers exact direct identity/order, borrowed shared-handle
+addresses/refcounts, every layout/composite family, hidden slots, custom record projection,
+dialog presentation propagation, discarded trees and allocation-free nested traversal.
+`tests\content_host_window_tests.cpp --model-only` adds headless candidate rejection,
+replacement/lifetime and ownership-versus-hit-test coverage; it never shows/runs a window.
+Its `--owned-only` path checks native lazy realization, inactive replacement and a hosted
+typography-call invariant with 128 versus 2,048 unvisited items.
+`tests\abi_features_tests.cpp` exercises 32 nested inactive-page/Reveal/scroll/split/composite
+scope commits and retirements with exact live-handle bounds.
+`tests\owned_children_probe.cpp` shares the 8,737-node workload and exact visit/allocation
+checks with the core fixture. Its baseline-only adapter is test instrumentation for building
+against pristine/stage-1 headers/libraries, not a runtime compatibility layer.
+The [stage-2 ledger](architecture-review-2026-10-21.md#stage-2-owned-child-contract-and-traversal-policies)
+records actual results and remaining desktop evidence.
+
 ## Native hosts
 
 All three applications use `Window` for their native host.

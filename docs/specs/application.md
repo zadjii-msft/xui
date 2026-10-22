@@ -138,6 +138,47 @@ Rejected select-all requests leave native selection and focus unchanged.
 The input-state methods on `Control` are backend boundaries, not application focus commands.
 Startup errors and callback exceptions return a nonzero result. `Window::error()` supplies the error text.
 
+### Owned-child enumeration
+
+`Element::owned_children()` returns an allocation-free `OwnedChildren` view of **direct model children**.
+It is available on layouts as well as controls:
+
+```cpp
+void visit_owned(const xui::Element& element) {
+    for (const auto& child : element.owned_children()) {
+        // child is a const std::shared_ptr<Element>& borrowed from its owner.
+        visit_owned(*child);
+    }
+}
+```
+
+The view and its iterators do not copy shared ownership or keep the owner/tree alive.
+Destroying the owner or changing its child storage invalidates outstanding views, iterators, and child references.
+Do not mutate topology during enumeration. Nonstructural property, selection, visibility, and layout changes do not reorder children.
+Use the owning UI thread once a tree belongs to a window.
+`size`, `empty`, iteration, and indexed access do not allocate; `at` throws `std::out_of_range` for an invalid index.
+As with `std::span`, `operator[]`, `front`, and `back` require a valid index/nonempty view.
+
+Standard owners enumerate non-null children in deterministic storage/slot order, without manufacturing children or realizing native peers.
+Leaves and empty `ContentHost`s return an empty view. Null children, duplicate ownership, and cycles remain invalid.
+Stack-derived layouts use insertion order (not Grid cell order); `AdaptiveLayout` stores content before navigation.
+`ScrollView` and `ContentView` expose their content slot.
+`SplitView` exposes its first and second `ContentView` wrappers, whose own children contain the supplied pane content.
+Its typed `first()`/`second()` accessors return shared handles by value; enumeration borrows the stored handles.
+Composite controls expose their existing composition order, including hidden/dormant retained slots.
+Custom model classes can return a view over `std::span<const std::shared_ptr<Element>>`,
+or use `OwnedChildren::members<&Record::element>(records)` for a span of records containing shared element handles.
+This model contract does not add custom rendering/hosting support to `Window`.
+
+Ownership is **not** a promise of visibility, native realization, hit testing, or UIA parentage.
+Every `PageView` page is owned, while only the selected page is initially realized and previously visited native peers remain retained.
+Closed `Reveal` and `Expander` content, collapsed split panes, and scrolled-out children remain owned.
+Inspection registration includes inactive children; pointer inspection applies selection, visibility, and viewport/pane clipping separately.
+Popup/modal content has its own coordinated root. A `ComboBox` owns only its inline editor in this tree;
+its popup is a separately coordinated root, not another layout child.
+Native text clear-button adornments belong to the host peer, not the authored child list.
+Their retention, visual ordering, clipping, and retirement remain explicit host responsibilities.
+
 ### Window icons
 
 `Window::set_file_type_icon(extension, directory)` sets the small and large native HWND icons.

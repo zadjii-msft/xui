@@ -340,7 +340,7 @@ void validation_and_lifetime() {
     std::vector<NavigationItem> many;
     for (std::uint64_t i = 1; i <= NavigationView::maximum_items; ++i) many.push_back({{i, 1}, {}, L"Page"});
     nav.set_items(many); nav.arrange({0, 0, 280, 600});
-    require(nav.items()->visible_content().size() < 20 && nav.retained_children().size() == 7, "Thousands of pages retain only visible rows and fixed controls");
+    require(nav.items()->visible_content().size() < 20 && nav.owned_children().size() == 7, "Thousands of pages retain only visible rows and fixed controls");
     many.push_back({{9000, 1}, {}, L"Extra"}); rejects([&] { nav.set_items(many); });
     many.clear();
     for (std::uint64_t i = 1; i <= 65; ++i) many.push_back({{i, 1}, i > 1 ? std::optional{ItemKey{i - 1, 1}} : std::nullopt, L"Deep"});
@@ -352,7 +352,7 @@ void validation_and_lifetime() {
     nav.set_visible(false);
     require(nav.measure({1000, 600}).width == 0, "A hidden navigation view takes no layout width");
     nav.arrange({0, 0, 0, 600});
-    for (const auto& child : nav.retained_children())
+    for (const auto& child : nav.owned_children())
         require(!std::static_pointer_cast<Control>(child)->visible() && child->bounds().width == 0,
             "A hidden navigation view has no icon rail or native child controls");
     nav.set_visible(true);
@@ -362,7 +362,7 @@ void validation_and_lifetime() {
     nav.set_header_visible(true);
     for (float width : {0.0f, 32.0f, 64.0f, 280.0f}) for (float height : {0.0f, 40.0f, 120.0f, 600.0f}) {
         nav.arrange({0, 0, width, height});
-        for (const auto& child : nav.retained_children()) {
+        for (const auto& child : nav.owned_children()) {
             const auto b = child->bounds();
             require(b.width >= 0 && b.height >= 0, "Tiny layouts never produce negative bounds");
             if (b.width > 0 && b.height > 0) require(b.x >= 0 && b.y >= 0 && b.x + b.width <= width && b.y + b.height <= height,

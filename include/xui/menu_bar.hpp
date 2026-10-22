@@ -31,7 +31,7 @@ public:
     const std::shared_ptr<const CommandSet>& commands() const { return commands_; }
     std::shared_ptr<Button> command_button(CommandId id) const;
     std::shared_ptr<Heading> heading(CommandId id) const;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
     void cancel() override;

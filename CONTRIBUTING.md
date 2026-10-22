@@ -987,6 +987,21 @@ The script uses the existing Visual Studio/CMake discovery helpers.
 It explicitly selects the Rust target rather than inheriting the checkout's ARM64 Cargo default.
 `Bindings` requires the matching `Native` outputs; it cannot silently become compiler-only.
 
+MSVC Release builds with `XUI_ENABLE_IPO=ON` retain `/GL` and use **full `/LTCG`**,
+not `/LTCG:incremental`. The root CMake link option maps to Visual Studio's
+`<LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>`.
+The native gate checks actual `/GL` compilation and full-LTCG DLL/native-fixture link commands.
+This avoids reusing stale code-generation caches across public virtual-interface edits;
+IPO is not disabled. Ordinary configure/build commands must remain correct across those edits,
+without developers manually evicting `.ipdb`/`.iobj` files.
+When diagnosing a toolchain/build-mode mismatch, inspect the generated project and the
+actual `link.command.1.tlog` under the target's Release intermediate directory: require
+`/LTCG`, reject `/LTCG:incremental`, and confirm the compile command still contains `/GL`.
+MSBuild may still emit an `/LTCGOUT` path; its presence alone does not enable incremental LTCG.
+Use fresh, separately identified output directories for baseline/candidate acceptance regardless.
+The [stage-2 ledger](docs/llm/architecture-review-2026-10-21.md#stage-2-evidence-october-21-2026)
+records the observed transition, retained failed artifacts and mitigation evidence.
+
 `xui_headless_tests` builds the headless CTest prerequisites, including `xui.dll`,
 the style exporter, LSH, and the noninteractive runner. The runner starts CTest and the
 binding/compiler commands on a private, non-visible Windows window station, with a bounded
@@ -1056,6 +1071,11 @@ Record Windows build, CPU/RAM, GPU/driver, power plan, DPI/monitors, desktop/for
 IME/provider availability, background processes, and any interference.
 
 Build both revisions and finish correctness suites **before** measuring.
+When changing optimizer/link settings, retain the real-default comparison and add a
+separate baseline built with matching actual flags. IPO=ON alone does not equate
+`/LTCG:incremental` and full `/LTCG`. Inspect and retain actual compile/link commands;
+write matched outputs separately without modifying the preserved baseline source/artifacts.
+Do not attribute an optimizer-mode comparison solely to the source refactor.
 Coordinate a machine-wide quiet interval: no builds, other suites, competing measurements,
 debugger, or unrelated desktop interaction. Do not reuse a mutable output directory.
 For each workload, run at least two discarded warmups per revision and seven recorded runs
@@ -1102,11 +1122,44 @@ Use the existing fixtures rather than inventing a universal benchmark:
 
 | Surface | Fixtures and evidence |
 | --- | --- |
+| Owned model traversal | `xui_owned_children_tests` checks exact direct identity/order and zero allocations; `xui_owned_children_probe` measures 2,000 complete walks of 8,737 nested nodes, including inactive pages and closed Reveal/composite content. See the paired probe procedure below. |
 | Layout/core/large sources | `xui_layout_performance_tests --benchmark` (10,000-frame Stack/Grid cases, styled/unstyled); `xui_performance_tests --benchmark` (60/100k/1m legacy rows); `xui_collections_tests --benchmark` (projection, selection, source lookups). |
 | Image identity/reconciliation | `xui_image_tests --benchmark` (8/64/512 preloaded rows); `--row-sync-only` enforces allocations without decode/windows. Full image/window fixtures separately cover decode, upload, stale delivery and cancellation. |
 | Local property/style edits | `xui_styling_window_tests --benchmark`, repeating with `--styled-first`; retain CPU, p50/p95, HWND/target/paint counts and unchanged editor identity. `--lifetime-only` covers repeated style changes and cleanup. |
 | Native text/retained scroll | `xui_scroll_tests --retained-only`, `xui_native_integration_tests`, `xui_window_tests`; verify focus/caret/IME/selection/undo/clipboard, placement and HWND/provider identity, not just elapsed time. |
 | Content replacement/lifetime | `xui_content_host_window_tests`, `xui_content_inspection_window_tests`, `xui_application_abi_tests`, `xui_multiwindow_tests`, managed `Tests --headless`/`--window-native`/`--multiwindow`, and Rust `--lib`/application integration tests. Keep model-only and realized-desktop evidence distinct. |
+
+#### Owned-child traversal probe
+
+Build `xui_owned_children_probe` in the candidate's Release configuration.
+Its output must report exactly 8,737 nodes, 17,474,000 visits and zero walk allocations;
+checksum/count failures return nonzero. Checked `GetThreadTimes` snapshots surround that
+same loop, excluding tree construction; raw kernel/user 100-nanosecond values and their
+`thread_cpu_ms` delta report CPU separately from wall time.
+It also records tree-construction allocated bytes,
+process private bytes before/after the walks and Element/Control/SplitView sizes.
+There are no HWNDs or source-backed rows in this workload.
+
+`xui_owned_children_tests` with no arguments runs all family/policy/lifetime checks and the
+walk; its explicit `--benchmark` mode runs only the exact-work/allocation walk and says so.
+`xui_content_host_window_tests --model-only` never shows/runs a window; `--owned-only`
+additionally runs the focused native lazy/replacement/active-collection contracts.
+No arguments runs that fixture's full desktop suite. Both fixtures reject unknown,
+empty or extra selectors with exit 2 before doing work.
+To compare with a pre-contract revision, compile the **candidate probe source** against
+the preserved baseline's headers and prebuilt `xui_core.lib`, defining
+`XUI_BASELINE_OWNED_CHILDREN`. This test-only adapter uses the old Stack/Control/direct-slot
+discovery without adding validation sets or allocating per walk; candidate code uses the
+new virtual contract. Both execute the same constructed tree, exact node count and checksum.
+Use the same compiler, architecture, CRT, Release optimization and IPO/LTCG settings.
+Write the baseline probe executable/object/PDB into a new candidate/session artifact
+directory, never into the readonly baseline checkout. Record the baseline library/header
+commit, probe-source commit, commands and all binary hashes beside the samples.
+Run the two executables with no arguments using the warmup/alternating process protocol above.
+This comparison measures ownership-discovery CPU work, not application latency or a
+whole-window speedup. Process startup/allocator granularity requires absolute private-byte
+deltas as well as percentages. Existing layout, collection and row-image workloads remain
+independent regression guards; native input/UIA and hosted realization require separate evidence.
 
 Require zero steady-state layout/row-reconciliation allocations where already asserted,
 bounded retained memory after warmup/settling and repeated cycles, and recorded peer/control

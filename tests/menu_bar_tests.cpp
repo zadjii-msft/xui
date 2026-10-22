@@ -34,17 +34,17 @@ void validation() {
     std::vector<CommandRecord> roots;
     for (CommandId id = 1; id <= 64; ++id) roots.push_back(group(id, L"Group"));
     bar.set_commands(std::make_shared<CommandSet>(roots));
-    require(bar.retained_children().size() == 64, "Menu bar accepts 64 root groups");
+    require(bar.owned_children().size() == 64, "Menu bar accepts 64 root groups");
     roots.push_back(group(65, L"Too many"));
     const auto before = bar.commands();
     rejects([&] { bar.set_commands(std::make_shared<CommandSet>(roots)); });
-    require(bar.commands() == before && bar.retained_children().size() == 64, "Rejected replacement preserves the model");
+    require(bar.commands() == before && bar.owned_children().size() == 64, "Rejected replacement preserves the model");
     roots.resize(1);
     for (CommandId id = 2; id <= 4096; ++id) roots.push_back({id, 1, L"Child"});
     bar.set_commands(std::make_shared<CommandSet>(std::move(roots)));
-    require(bar.retained_children().size() == 1 && !bar.command_button(2), "Only roots create retained buttons");
+    require(bar.owned_children().size() == 1 && !bar.command_button(2), "Only roots create retained buttons");
     bar.set_commands(std::make_shared<CommandSet>(std::vector<CommandRecord>{}));
-    require(bar.retained_children().empty() && !bar.current() && !bar.expanded(), "Empty source clears headings and state");
+    require(bar.owned_children().empty() && !bar.current() && !bar.expanded(), "Empty source clears headings and state");
 }
 void headings_and_navigation() {
     int actions{};
@@ -52,7 +52,7 @@ void headings_and_navigation() {
     const auto set = source(actions);
     bar.set_commands(set);
     require(bar.role() == ControlRole::content_view && !bar.tab_stop() && !bar.focusable(), "The bar is not another tab stop");
-    require(bar.commands() == set && bar.retained_children().size() == 5, "Menu bar retains its immutable command set");
+    require(bar.commands() == set && bar.owned_children().size() == 5, "Menu bar retains its immutable command set");
     auto file = bar.heading(1);
     require(file == bar.command_button(1) && file->owner_id() == bar.id() && file->command_id() == 1,
         "Heading exposes stable owner and command identities");
@@ -80,7 +80,7 @@ void headings_and_navigation() {
     require(bar.current() == 1 && file->tab_stop(), "Layout repairs a directly disabled current heading");
     std::size_t stops{};
     float edge = 10;
-    for (const auto& child : bar.retained_children()) {
+    for (const auto& child : bar.owned_children()) {
         const auto button = std::static_pointer_cast<Button>(child);
         stops += button->tab_stop();
         require(child->bounds().x >= edge && child->bounds().x + child->bounds().width <= 410.01f, "Heading layout stays in the bar");
@@ -160,20 +160,20 @@ void heading_focus_space() {
     bar.set_commands(source(actions));
     for (const auto style : {VisualStyle::classic, VisualStyle::winui}) {
         bar.set_visual_style(style);
-        for (const auto& child : bar.retained_children())
+        for (const auto& child : bar.owned_children())
             std::static_pointer_cast<MenuBar::Heading>(child)->set_visual_style(style);
         const float margin = style == VisualStyle::winui ? 4.0f : 0.0f;
         const auto natural = bar.measure({2000, 100});
         require(natural.height == 40, "Native heading focus margins fit the default forty-DIP menu height");
         float width{};
-        for (const auto& child : bar.retained_children())
+        for (const auto& child : bar.owned_children())
             width += child->measure({2000 - 2 * margin, 100 - 2 * margin}).width + 2 * margin;
         if (natural.width != width)
             throw std::runtime_error("Menu measurement includes each heading's focus margins: actual=" +
                 std::to_string(natural.width) + " expected=" + std::to_string(width));
         bar.arrange({10, 20, 2000, 40});
         float edge = 10;
-        for (const auto& child : bar.retained_children()) {
+        for (const auto& child : bar.owned_children()) {
             const auto bounds = child->bounds();
             require(bounds.x == edge + margin && bounds.y == 20 + margin &&
                 bounds.height == 40 - 2 * margin, "Menu headings reserve native focus space on every side");
@@ -183,7 +183,7 @@ void heading_focus_space() {
         bar.arrange({10, 20, 80, 40});
         require(bar.heading(1)->bounds().x == 10 + margin,
             "Compressed headings preserve their leading focus margin");
-        for (const auto& child : bar.retained_children()) {
+        for (const auto& child : bar.owned_children()) {
             const auto bounds = child->bounds();
             require(bounds.x + bounds.width <= 90.01f && bounds.height >= 0,
                 "Compressed menu headings and margins remain inside the owner");
@@ -198,7 +198,7 @@ void heading_focus_space() {
         require(first.x == 20 + margin && first.y == 26 + margin && first.height == 26 - 2 * margin,
             "Authored root padding remains outside heading focus margins");
         bar.arrange({10, 20, 3, 3});
-        for (const auto& child : bar.retained_children())
+        for (const auto& child : bar.owned_children())
             require(child->bounds().width >= 0 && child->bounds().height >= 0,
                 "Exhausted menu content never produces negative heading extents");
         bar.set_control_style_values(StylePart::root, {});

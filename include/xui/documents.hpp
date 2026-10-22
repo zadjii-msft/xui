@@ -181,7 +181,7 @@ public:
     const std::shared_ptr<Button>& action_button() const { return action_; }
     const std::shared_ptr<Button>& dismiss_button() const { return dismiss_; }
     Rect content_bounds() const;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
 protected:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::inline_status; }
@@ -216,7 +216,7 @@ public:
         return std::static_pointer_cast<Button>(children_[index + 4]);
     }
     Rect content_bounds() const;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
 protected:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::color_picker; }

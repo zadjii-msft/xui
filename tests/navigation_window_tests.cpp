@@ -412,8 +412,8 @@ void run_case(ThemeMode theme, UINT dpi, const std::wstring& executable) {
             window.focus(*caption->tabs());
             SendMessageW(hwnd, WM_NEXTDLGCTL, 0, FALSE);
             require(GetFocus() == child(hwnd, L"Commands anchor"), "Tab navigation skips caption buttons");
-            auto current_segment = std::static_pointer_cast<Control>(path->retained_children()[3]);
-            auto previous_segment = std::static_pointer_cast<Control>(path->retained_children()[2]);
+            auto current_segment = std::static_pointer_cast<Control>(path->owned_children()[3]);
+            auto previous_segment = std::static_pointer_cast<Control>(path->owned_children()[2]);
             window.focus(*current_segment);
             SendMessageW(child(hwnd, L"Current"), WM_KEYDOWN, VK_LEFT, 0);
             require(previous_segment->focused(), "Breadcrumb Left moves focus without navigation");

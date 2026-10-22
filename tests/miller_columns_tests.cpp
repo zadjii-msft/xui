@@ -49,7 +49,7 @@ std::vector<MillerColumn> fixture(const std::shared_ptr<const ItemsSource>& sour
 }
 void layout_and_viewport() {
     MillerColumns view;
-    const auto retained = view.retained_children().size();
+    const auto retained = view.owned_children().size();
     auto source = std::make_shared<Rows>();
     view.set_columns(fixture(source));
     view.set_active_column(0);
@@ -63,9 +63,9 @@ void layout_and_viewport() {
         separator.y + separator.height == view.horizontal_track().y &&
         view.column_list(0)->bounds().x + view.column_list(0)->bounds().width == view.bounds().x + separator.x,
         "The separator joins header and list without covering rows or scrollbars");
-    require(view.retained_children().front()->bounds().y == 30 && view.column_list(0)->bounds().y == 62,
+    require(view.owned_children().front()->bounds().y == 30 && view.column_list(0)->bounds().y == 62,
         "Headers start at the top edge with no navigation toolbar");
-    for (const auto& element : view.retained_children())
+    for (const auto& element : view.owned_children())
         require(!std::dynamic_pointer_cast<Button>(element), "Miller columns do not retain navigation buttons");
     require(view.separator_bounds(2).width == 0 && view.separator_bounds(100).width == 0,
         "Only adjacent columns have a separator");
@@ -94,7 +94,7 @@ void layout_and_viewport() {
     for (float width : {0.0f, 1.0f, 32.0f, 100.0f, 600.0f})
         for (float height : {0.0f, 1.0f, 32.0f, 50.0f, 100.0f}) {
             view.arrange({0, 0, width, height});
-            for (const auto& element : view.retained_children()) {
+            for (const auto& element : view.owned_children()) {
                 const auto bounds = element->bounds();
                 require(bounds.width >= 0 && bounds.height >= 0 && std::isfinite(bounds.x),
                     "Tiny layouts have finite, nonnegative sizes");
@@ -102,7 +102,7 @@ void layout_and_viewport() {
         }
     view.set_visible(false); view.arrange({0, 0, 500, 400});
     require(view.measure({500, 400}).width == 0, "Hidden columns consume no measured width");
-    for (const auto& element : view.retained_children())
+    for (const auto& element : view.owned_children())
         require(!std::static_pointer_cast<Control>(element)->visible(), "Hidden composite hides every native peer");
     view.set_visible(true); view.arrange({0, 0, 500, 400});
     require(view.column_list(view.active_column())->visible(), "Showing the composite restores the active viewport");
@@ -295,7 +295,7 @@ void pointer_column_focus() {
     auto columns = fixture(source);
     view.set_columns(columns); view.arrange({20, 30, 720, 400});
     auto first = view.column_list(0), second = view.column_list(1);
-    auto header = std::dynamic_pointer_cast<Label>(view.retained_children()[0]);
+    auto header = std::dynamic_pointer_cast<Label>(view.owned_children()[0]);
     int selections{}, activations{}, requests{};
     view.on_selection([&](std::size_t, ItemKey) { ++selections; });
     view.on_activate([&](std::size_t, ItemKey) { ++activations; });
