@@ -536,9 +536,9 @@ IRawElementProviderSimple* create_native_clip_provider(std::shared_ptr<ControlAc
 }
 void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     IRawElementProviderSimple* provider, const Control& control, HWND window) {
-    const bool enabled = control.enabled() && IsWindowEnabled(window);
     ControlSnapshot next;
     static_cast<HostAccessibilityIdentity&>(next) = accessibility_identity(control, window);
+    const bool enabled = next.enabled;
     next.checked = control.role() == ControlRole::toggle && static_cast<const Toggle&>(control).checked();
     if (const auto toggle = dynamic_cast<const Toggle*>(&control)) next.indeterminate = toggle->indeterminate();
     next.hyperlink = dynamic_cast<const HyperlinkButton*>(&control) != nullptr;
