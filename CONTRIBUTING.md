@@ -1071,6 +1071,11 @@ Record Windows build, CPU/RAM, GPU/driver, power plan, DPI/monitors, desktop/for
 IME/provider availability, background processes, and any interference.
 
 Build both revisions and finish correctness suites **before** measuring.
+When changing optimizer/link settings, retain the real-default comparison and add a
+separate baseline built with matching actual flags. IPO=ON alone does not equate
+`/LTCG:incremental` and full `/LTCG`. Inspect and retain actual compile/link commands;
+write matched outputs separately without modifying the preserved baseline source/artifacts.
+Do not attribute an optimizer-mode comparison solely to the source refactor.
 Coordinate a machine-wide quiet interval: no builds, other suites, competing measurements,
 debugger, or unrelated desktop interaction. Do not reuse a mutable output directory.
 For each workload, run at least two discarded warmups per revision and seven recorded runs

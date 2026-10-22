@@ -470,6 +470,11 @@ and hosted artifacts retain those command logs. MSBuild can still emit an `LTCGO
 full mode does not reuse it incrementally.
 The final declaration keeps the old layout virtual slots ahead of child discovery.
 No IPO/optimization-off workaround or obsolete virtual-slot shim is retained.
+The final source correction also compares SplitView ancestor eligibility against its
+borrowed second owned slot, not the typed convenience getter's returned shared handle.
+This removes the transient ownership increments/decrements introduced by that getter's
+storage migration. The complete gate and full native ContentHost fixture were rerun
+after this correction at code commit `cd9abd4877af21dba8474240d8631abcc6c19953`.
 
 Completed focused checks:
 
@@ -484,6 +489,108 @@ Completed focused checks:
 | Full original/candidate `xui_content_host_window_tests` | Both exit 0: 200 native replacement cycles, outside editor text/selection/undo/identity, popup retirement, map/runtime disposal, UIA and explicit fatal failure remain covered. Candidate additionally runs the new focused contracts. Both focus traces report zero activation/focus requests and zero foreground changes. |
 | Original/candidate `xui_content_inspection_window_tests` | Both exit 1 with the same `Pointer inspection encountered an unproven native descendant` / `Native inspection fixture completed` failure. Not passed or waived. |
 | Original/candidate `xui_content_highlight_window_tests` | Earlier pairs pass 100 highlight/clear/replacement cycles with exact HWND/USER/GDI baseline, then exit 1 in the clipped-layout fixture at `Newly active page is visible`. The final full-LTCG pair instead stops earlier at the physical EDIT hit probe: both report the same external `Tauri Window` blocking the editor. Both exit 1; neither observation is converted into a pass or hidden by changing assertions. |
+
+#### Stage 2 ownership measurements and attribution
+
+The [raw companion](stage2-owned-children-evidence.json) preserves every warmup and
+recorded stdout/stderr, exit, order and timestamp, environment/options, full commit IDs,
+library/executable/source hashes, actual link commands, and reproducible runner/probe
+sources. There are **1,278 successful benchmark processes**, not selected favorable
+samples. Each workload/version gets two discarded warmups; process order alternates,
+and the first version is counterbalanced between blocks. Builds/suites finished before
+each coordinated quiet window. No timing outliers are removed or pooled across revisions.
+
+| Block | Candidate source and purpose | Recorded pairs per workload | Processes including warmups |
+| --- | --- | --- | --- |
+| `paired-clean-7125ef67` | Initial implementation `7125ef67f583ad9cf711a41d1f6283b4c9aade2a`; preserved original defaults | 7 across five workloads | 90 |
+| `paired-extended-7125ef67` | Same intermediate implementation; increased sampling, opposite starting order | 31 across five workloads | 330 |
+| `paired-full-ltcg-236f22f0` | Layout virtual declarations restored before child discovery, plus full-LTCG mitigation; preserved pristine stock `/LTCG:incremental` versus candidate full `/LTCG` | 31 across six workloads, including warmed selection | 396 |
+| `paired-matched-ltcg-cd9abd48` | Final code `cd9abd4877af21dba8474240d8631abcc6c19953`, including borrowed-pane correction; both stock versions full `/LTCG` | 31 across seven workloads, adding long layout/interaction CPU probes | 462 |
+
+The initial source is **not** the final code: its virtual declaration order and link
+configuration precede the corrections above. Its candidate stock link commands were not
+preserved contemporaneously; its CMake source used the then-default VS IPO configuration.
+The companion retains the actual pristine default and both final matched stock link
+commands, not an inference that IPO=ON means identical optimization.
+The matched pristine build uses unchanged readonly original source with a small
+`CMAKE_PROJECT_INCLUDE` supplying the same directory link option, writing only separate
+candidate-worktree outputs. Both versions retain `/GL`, x64 Release `/MT`, MSVC
+19.44.35217 and SDK 10.0.26100. All auxiliary traversal/selection/layout/interaction
+probes explicitly use full `/LTCG` on both sides. No unrelated algorithm or repeated
+code-layout perturbations were used to obtain the matched results.
+
+**Exact ownership work:** 32 PageViews, four pages each, containing closed
+Reveal/ContentView/ScrollView/Stack/NumericInput composition: **8,737 nodes, 2,000
+walks, 17,474,000 verified visits and checksum**. The original-adapter probe follows
+the old ownership accessors; it is test instrumentation, not a runtime compatibility
+shim. Checked thread CPU surrounds precisely the same loop as wall time, excluding
+construction. In every sampled version, walk allocations are **zero**, construction
+allocated bytes are **11,621,480**, and Element/Control/SplitView sizes are **88/440/672**.
+There is no within-process private-byte growth during these ownership walks, no HWND,
+and no source-backed row allocation. Matched private-byte medians are identical at
+32,817,152. The real-default block's 176,128-byte startup/allocator difference is not
+a general memory-saving claim.
+
+| Matched ownership metric | Original median (range), ms | Candidate median (range), ms | Absolute / relative delta |
+| --- | --- | --- | --- |
+| Loop wall | 1,874.21 (1,714.94-2,776.07) | 114.216 (107.481-203.629) | -1,759.994 / -93.91% |
+| Loop thread CPU | 1,875 (1,703.12-2,671.88) | 125 (93.75-203.125) | -1,750 / -93.33% |
+
+This is approximately 9.32 versus 139.79 million verified visits per CPU second.
+No candidate ownership-loop wall or CPU pair is slower in the matched 31 pairs.
+It quantifies ownership discovery only, **not application latency or a whole-window speedup**.
+
+**Independent guards remain mixed, not universally performance-green.** The initial
+31-pair block had Stack medians +5.30% unstyled/+6.84% styled, million-row interaction
++6.90%, single-key cold selection +12.11%, and 512-row image work +7.38%.
+The later real-default optimizer-transition block still had unstyled Stack
+53.734 to 57.0462 ms (+3.3122/+6.16%, 26/31 slower) and million-row interaction
+23.1822 to 25.0712 ms (+1.889/+8.15%, 22/31 slower).
+Those observations are retained; traversal improvements do not offset or erase them.
+
+Under **matched full-LTCG** settings, stock Stack medians are
+53.9263 to 54.0002 ms unstyled (+0.0739/+0.14%, 15/31 slower) and
+78.765 to 79.8074 ms styled (+1.0424/+1.32%, 14/31).
+Stock million-row interaction is 22.3399 to 23.1729 ms
+(+0.833/+3.73%, 18/31). The longer identical public-operation probes exclude setup,
+warm first, and enforce exact geometry/measurement counts, identity/checksum/callback
+counts, zero allocations, immutable view identity and viewport bounds:
+
+| Matched long workload | Wall medians original/candidate, ms (delta) | CPU medians original/candidate, ms (delta) | Paired CPU median change; slower pairs |
+| --- | --- | --- | --- |
+| Unstyled Stack, 300,000 frames | 2,846.33 / 2,680.86 (-165.47/-5.81%) | 2,843.75 / 2,671.88 (-171.87/-6.04%) | -4.07%; 12/31 |
+| Styled Stack, 300,000 frames | 3,519.91 / 3,520.38 (+0.47/+0.01%) | 3,500 / 3,531.25 (+31.25/+0.89%) | +3.40%; 18/31 |
+| Million-row list, 2,000,000 interactions | 2,386.76 / 2,428.37 (+41.61/+1.74%) | 2,375 / 2,406.25 (+31.25/+1.32%) | +0.62%; 16/31 |
+
+Matched warmed selection uses 10,000 warmups then 10 million single-key or two million
+32-key enumerations. CPU medians change +46.87 ms/+3.06% and +31.24 ms/+1.68%;
+wall changes +38.43 ms/+2.49% and +34.18 ms/+1.84%. Exact returned identities,
+allocation/byte counts and checksums pass. This diagnostic is distinct from the stock
+100-call cold measurements; it does not overwrite those records.
+
+The matched block still has **outliers/uncertainty**, including the 100k-row sparse and
+no-match filter medians 0.4894 to 0.5252 ms (+0.0358/+7.32%, 23/31 slower) and
+0.4637 to 0.499 ms (+0.0353/+7.61%, 25/31), and projection
+3.7174 to 3.9377 ms (+0.2203/+5.93%, 20/31).
+These reverse the earlier real-default block's improvements; other small source/filter
+metrics and broad tails are also visible in the companion. Its per-metric medians,
+ranges, MAD, nearest-rank p95, paired median percentages and slower-pair counts preserve
+dispersion. For example, long styled CPU ranges are 3,218.75-4,125 versus
+3,296.88-4,453.12 ms; long interaction CPU ranges are 2,031.25-3,203.12 versus
+2,125-3,453.12 ms. CPU accounting is quantized; endpoint ticks are retained.
+These observations do not establish that every guard is within 5%, nor that changing
+the default optimizer mode is free. Comparisons across separate windows alone cannot
+assign the whole timing difference to that mode.
+
+The coordinator authorized **scoped ownership acceptance for PR review** after examining
+the exact-work/allocation/storage/native contracts and matched long evidence.
+The earlier layout/interaction signals do not persist under the matched measurements;
+remaining stock timing and desktop uncertainties stay explicit, not waived or called
+green. Source-effect attribution under matched settings is separate from the retained
+real-default optimizer-transition observations. Final functional code was verified at
+`cd9abd4877af21dba8474240d8631abcc6c19953`; following evidence/index/PR-link commits
+change documentation only. Independent exact-head review and hosted checks still precede
+any parent merge.
 
 The focused native evidence does not establish physical IME/Narrator behavior, valid
 foreground-native input latency/private-memory comparisons, or a green complete desktop
