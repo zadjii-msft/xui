@@ -8,6 +8,10 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 option(XUI_ENABLE_IPO "Enable release link-time optimization (disable for redistributable static libraries)" ON)
 if(MSVC)
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ${XUI_ENABLE_IPO})
+    if(XUI_ENABLE_IPO)
+        # Reoptimize the whole image after virtual-interface edits, not stale LTCG caches.
+        add_link_options("$<$<CONFIG:Release>:/LTCG>")
+    endif()
 endif()
 
 add_library(xui_core src/core.cpp src/views.cpp src/controls.cpp src/control_styling.cpp src/styling.cpp src/data_grid.cpp src/foundation.cpp src/collections.cpp src/adaptive_layout.cpp src/commands.cpp src/navigation.cpp src/navigation_view.cpp src/miller_columns.cpp src/shell_command_session.cpp src/titlebar.cpp src/documents.cpp src/vector_canvas.cpp src/map_view.cpp src/runtime_hosts.cpp)

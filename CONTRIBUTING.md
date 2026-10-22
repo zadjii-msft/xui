@@ -987,6 +987,21 @@ The script uses the existing Visual Studio/CMake discovery helpers.
 It explicitly selects the Rust target rather than inheriting the checkout's ARM64 Cargo default.
 `Bindings` requires the matching `Native` outputs; it cannot silently become compiler-only.
 
+MSVC Release builds with `XUI_ENABLE_IPO=ON` retain `/GL` and use **full `/LTCG`**,
+not `/LTCG:incremental`. The root CMake link option maps to Visual Studio's
+`<LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>`.
+The native gate checks actual `/GL` compilation and full-LTCG DLL/native-fixture link commands.
+This avoids reusing stale code-generation caches across public virtual-interface edits;
+IPO is not disabled. Ordinary configure/build commands must remain correct across those edits,
+without developers manually evicting `.ipdb`/`.iobj` files.
+When diagnosing a toolchain/build-mode mismatch, inspect the generated project and the
+actual `link.command.1.tlog` under the target's Release intermediate directory: require
+`/LTCG`, reject `/LTCG:incremental`, and confirm the compile command still contains `/GL`.
+MSBuild may still emit an `/LTCGOUT` path; its presence alone does not enable incremental LTCG.
+Use fresh, separately identified output directories for baseline/candidate acceptance regardless.
+The [stage-2 ledger](docs/llm/architecture-review-2026-10-21.md#stage-2-evidence-october-21-2026)
+records the observed transition, retained failed artifacts and mitigation evidence.
+
 `xui_headless_tests` builds the headless CTest prerequisites, including `xui.dll`,
 the style exporter, LSH, and the noninteractive runner. The runner starts CTest and the
 binding/compiler commands on a private, non-visible Windows window station, with a bounded

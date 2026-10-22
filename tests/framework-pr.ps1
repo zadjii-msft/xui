@@ -22,6 +22,21 @@ try {
         Invoke-Checked { & $cmake -S . -B $build -G (Get-XuiGenerator) -A $Architecture `
             -DBUILD_TESTING=ON -DXUI_DESKTOP_TESTS=OFF -DXUI_REQUIRE_LSH=ON }
         Invoke-Checked { & $cmake --build $build --config Release --target xui_headless_tests --parallel 4 }
+        if (Select-String -LiteralPath "$build\CMakeCache.txt" -Pattern '^XUI_ENABLE_IPO:BOOL=ON$' -Quiet) {
+            foreach ($target in @('xui', 'xui_content_host_window_tests')) {
+                $logs = @(Get-ChildItem -LiteralPath "$build\$target.dir\Release" -Recurse -Filter link.command.1.tlog)
+                if ($logs.Count -ne 1) { throw "Missing unique actual link command for $target" }
+                $options = Get-Content -LiteralPath $logs[0].FullName -Raw
+                if ($options -match '/LTCG:incremental' -or $options -notmatch '(?:^|\s)/LTCG(?:\s|$)') {
+                    throw "Release IPO must use full LTCG for $target, not incremental code-generation caches"
+                }
+            }
+            $logs = @(Get-ChildItem -LiteralPath "$build\xui_core.dir\Release" -Recurse -Filter CL.command.1.tlog)
+            if ($logs.Count -ne 1 -or (Get-Content -LiteralPath $logs[0].FullName -Raw) -notmatch '(?:^|\s)/GL(?:\s|$)') {
+                throw 'Release IPO lost /GL compilation'
+            }
+            Write-Host 'MSVC Release IPO retains /GL and full /LTCG for DLL and native fixture links.'
+        }
         $inventory = & $ctest --test-dir $build -C Release --show-only=json-v1
         if ($LASTEXITCODE -ne 0) { throw 'CTest inventory failed.' }
         $inventory | Set-Content (Join-Path $build 'headless-inventory.json') -Encoding utf8

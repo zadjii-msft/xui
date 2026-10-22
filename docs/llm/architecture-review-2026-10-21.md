@@ -449,6 +449,28 @@ and performance comparisons; they are never rebuilt or modified by this stage.
 Both use x64 MSVC 19.44.35217, SDK 10.0.26100, Release with default IPO ON;
 the current gate requires LSH.
 
+**Coupled Release build correctness:** moving the new virtual after the existing
+`measure`/`arrange` declarations exposed repeated native `0xC0000005` exits after an
+ordinary incremental build, despite a green headless gate. The link command used
+`/LTCG:incremental`; the pristine native fixture still passed. With unchanged object/library
+inputs, removing only the fixture's generated `.iobj`/`.ipdb` and forcing its relink restored
+the focused native contracts. A fresh isolated build also passed the complete gate and
+native fixture. Failed executables/caches, hashes, link commands and logs are retained;
+this is evidence of a cache-reuse failure in this toolchain/configuration, not a claim
+about every MSVC release.
+
+The supported mitigation is an explicit Release `/LTCG` CMake link option when IPO is ON.
+Visual Studio generation selects `UseLinkTimeCodeGeneration`; actual link commands use
+full `/LTCG`, while actual compile commands retain `/GL`.
+Both header/vtable declaration-order transitions were then rebuilt with ordinary commands
+in the same existing output directory, without manual cache eviction, and the Classic/WinUI
+focused native contracts passed in both directions.
+The permanent native gate checks actual core compile and DLL/native-fixture link directives,
+and hosted artifacts retain those command logs. MSBuild can still emit an `LTCGOUT` path;
+full mode does not reuse it incrementally.
+The final declaration keeps the old layout virtual slots ahead of child discovery.
+No IPO/optimization-off workaround or obsolete virtual-slot shim is retained.
+
 Completed focused checks:
 
 | Command / comparison | Actual evidence |
@@ -461,7 +483,7 @@ Completed focused checks:
 | `xui_content_host_window_tests --owned-only` | Classic and WinUI selected-only initial realization, 100 exact model walks without new HWNDs, visited/inactive replacement, closed-Reveal replacement exception and open/close retention pass. Active updates perform exactly 32 active typography calls and zero inactive calls with both 128 and 2,048 unvisited items, retaining exactly one HWND. |
 | Full original/candidate `xui_content_host_window_tests` | Both exit 0: 200 native replacement cycles, outside editor text/selection/undo/identity, popup retirement, map/runtime disposal, UIA and explicit fatal failure remain covered. Candidate additionally runs the new focused contracts. Both focus traces report zero activation/focus requests and zero foreground changes. |
 | Original/candidate `xui_content_inspection_window_tests` | Both exit 1 with the same `Pointer inspection encountered an unproven native descendant` / `Native inspection fixture completed` failure. Not passed or waived. |
-| Original/candidate `xui_content_highlight_window_tests` | Both pass 100 highlight/clear/replacement cycles with exact HWND/USER/GDI baseline, then exit 1 in the clipped-layout fixture at `Newly active page is visible`. Identical failure is retained, not converted into a pass. |
+| Original/candidate `xui_content_highlight_window_tests` | Earlier pairs pass 100 highlight/clear/replacement cycles with exact HWND/USER/GDI baseline, then exit 1 in the clipped-layout fixture at `Newly active page is visible`. The final full-LTCG pair instead stops earlier at the physical EDIT hit probe: both report the same external `Tauri Window` blocking the editor. Both exit 1; neither observation is converted into a pass or hidden by changing assertions. |
 
 The focused native evidence does not establish physical IME/Narrator behavior, valid
 foreground-native input latency/private-memory comparisons, or a green complete desktop

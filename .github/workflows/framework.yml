@@ -50,4 +50,7 @@ jobs:
             build/framework-pr/headless.xml
             build/framework-pr/Testing/Temporary/
             build/framework-pr/CMakeFiles/CMakeConfigureLog.yaml
+            build/framework-pr/xui_core.dir/Release/**/CL.command.1.tlog
+            build/framework-pr/xui.dir/Release/**/link.command.1.tlog
+            build/framework-pr/xui_content_host_window_tests.dir/Release/**/link.command.1.tlog
           if-no-files-found: error
