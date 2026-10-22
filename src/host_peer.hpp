@@ -7,8 +7,7 @@
 namespace xui {
 
 class AdaptiveLayout;
-class NativeEditBridge;
-class NativeDocumentBridge;
+class NativeFieldHostPeer;
 class NativeRuntimeHost;
 class NativeSwapChainHost;
 struct HostPeer;
@@ -34,7 +33,7 @@ public:
     virtual void peer_failure() noexcept = 0;
 };
 
-enum class HostFamily { unextracted, collection, grid, file_list };
+enum class HostFamily { unextracted, collection, grid, file_list, native_field, text_clear };
 enum class PeerMetric { retained_images, thumbnails, ready_thumbnails, painted_rows };
 
 struct HostPaintContext {
@@ -77,6 +76,7 @@ struct HostPeer {
     virtual void set_theme(UINT, const Palette&) {}
     virtual void publish_accessibility() = 0;
     virtual void disconnect_accessibility() = 0;
+    virtual void publish_invoked() {}
     virtual void detach_owner() {}
     virtual void cancel_input() {}
     virtual bool capture_active() const { return false; }
@@ -92,15 +92,14 @@ struct HostPeer {
     virtual void native_moved() {}
 
     // Temporary native capabilities used by window-wide placement and composition.
-    virtual NativeEditBridge* edit_bridge() const { return nullptr; }
-    virtual NativeDocumentBridge* document_bridge() const { return nullptr; }
+    virtual NativeFieldHostPeer* native_field() const { return nullptr; }
     virtual NativeRuntimeHost* runtime_host() const { return nullptr; }
     virtual NativeSwapChainHost* swap_chain_host() const { return nullptr; }
     virtual Drawing* overlay_surface() const { return nullptr; }
     virtual ImagePeer* image_peer() const { return nullptr; }
     virtual HWND caption_window() const { return nullptr; }
     virtual HWND child_content_window() const { return nullptr; }
-    bool native() const { return edit_bridge() || document_bridge(); }
+    bool native() const { return native_field() != nullptr; }
     void track_pointer_leave();
     void retire_native();
 };

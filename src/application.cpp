@@ -1,6 +1,8 @@
 #include "xui/application.hpp"
-#include "xui/native_edit.hpp"
-#include "native_document.hpp"
+#include "text_input_host.hpp"
+#include "document_host.hpp"
+#include "password_host.hpp"
+#include "date_time_host.hpp"
 #include "native_file_dialog.hpp"
 #include "content_inspection.hpp"
 #include "native_runtime_host.hpp"
@@ -86,26 +88,16 @@ std::unique_ptr<WindowIcons> file_type_icons(const std::wstring& extension, bool
 }
 }
 
-struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServices {
+struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServices, NativeFieldServices {
     using Peer = HostPeer;
     struct UnextractedPeer final : Peer {
-        HWND caption{};
-        std::wstring caption_text;
-        std::unique_ptr<NativeEditBridge> edit;
-        std::shared_ptr<Button> clear_button;
-        HWND clear_window{};
-        std::weak_ptr<Control> clear_owner;
-        std::unique_ptr<NativeDocumentBridge> document;
         std::unique_ptr<NativeRuntimeHost> runtime;
         std::unique_ptr<NativeSwapChainHost> swap_chain;
         std::unique_ptr<Drawing> overlay_drawing;
         std::unique_ptr<ImagePeer> image;
         std::unique_ptr<RowImages> row_images;
         std::shared_ptr<ControlAccessibility> accessibility = std::make_shared<ControlAccessibility>();
-        std::shared_ptr<ControlAccessibility> caption_accessibility;
-        IRawElementProviderSimple* caption_provider{};
         bool repeating{}, repeat_cycle{};
-        bool native_occluded{};
         std::wstring typeahead;
         ULONGLONG typeahead_time{};
         HWND scroll_content{};
@@ -127,15 +119,13 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
             runtime.reset(); swap_chain.reset(); overlay_drawing.reset();
             retire_native();
-            if (caption && IsWindow(caption)) DestroyWindow(caption);
             disconnect_accessibility();
-            if (caption_accessibility) disconnect_control(caption_accessibility, caption_provider);
-            if (caption_provider) caption_provider->Release();
         }
         void attach(HWND, int) override;
         void sync(UINT, const Palette&) override { publish_accessibility(); }
         void publish_accessibility() override { publish_control(accessibility, provider, *control, window); }
         void disconnect_accessibility() override { disconnect_control(accessibility, provider); }
+        void publish_invoked() override { raise_control_invoked(provider); }
         void detach_owner() override {
             if (image) image->detach();
             if (row_images) row_images->clear();
@@ -143,7 +133,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (swap_chain) swap_chain->cancel_owner();
         }
         void cancel_input() override {
-            if (edit) edit->dismiss_suggestions();
             dragging = false;
             if (auto* range = dynamic_cast<RangeInput*>(control.get())) range->cancel_drag();
             control->cancel();
@@ -167,13 +156,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         std::size_t metric(PeerMetric metric) const override {
             return metric == PeerMetric::retained_images && row_images ? row_images->count() : 0;
         }
-        NativeEditBridge* edit_bridge() const override { return edit.get(); }
-        NativeDocumentBridge* document_bridge() const override { return document.get(); }
         NativeRuntimeHost* runtime_host() const override { return runtime.get(); }
         NativeSwapChainHost* swap_chain_host() const override { return swap_chain.get(); }
         Drawing* overlay_surface() const override { return overlay_drawing.get(); }
         ImagePeer* image_peer() const override { return image.get(); }
-        HWND caption_window() const override { return caption; }
         HWND child_content_window() const override { return scroll_content; }
     };
     static Impl& owner(Peer& peer) { return static_cast<Impl&>(peer.host); }
@@ -195,16 +181,22 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         return *value;
     }
     static std::shared_ptr<Button> clear_adornment(const Peer& peer) {
-        const auto* value = unextracted_if(peer);
-        return value ? value->clear_button : nullptr;
+        const auto* value = text_input_peer(peer);
+        return value ? value->clear_button() : nullptr;
     }
     static std::shared_ptr<Control> clear_owner(const Peer& peer) {
-        const auto* value = unextracted_if(peer);
-        return value ? value->clear_owner.lock() : nullptr;
+        return peer.family == HostFamily::text_clear ? static_cast<const TextClearHostPeer&>(peer).owner() : nullptr;
     }
     static bool is_clear_adornment(const Peer& peer) {
-        const auto* value = unextracted_if(peer);
-        return value && !value->clear_owner.expired();
+        return peer.family == HostFamily::text_clear;
+    }
+    static TextInputHostPeer* text_input_peer(const Peer& peer) {
+        const auto* field = peer.native_field();
+        return field ? field->text_input() : nullptr;
+    }
+    static NativeFieldHostPeer* native_document_peer(const Peer& peer) {
+        auto* field = peer.native_field();
+        return field && !field->text_input() ? field : nullptr;
     }
 
     HWND create_input_surface(Peer& peer, HWND native_parent, int id) override {
@@ -507,7 +499,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         backdrop_presented = presented;
         root_drawing.discard();
         for (const auto& peer : peers)
-            if (peer->edit_bridge() || peer->document_bridge()) platform::opaque_native_paint(peer->window, presented);
+            if (peer->native()) platform::opaque_native_paint(peer->window, presented);
         InvalidateRect(window, nullptr, FALSE);
     }
     std::function<void(HWND)> native_created;
@@ -809,66 +801,22 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         } catch (...) { owner(*peer).fail(); return 0; }
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
-    static LRESULT CALLBACK native_clip_procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
-        UINT_PTR id, DWORD_PTR data) noexcept {
-        auto& peer = unextracted(*reinterpret_cast<Peer*>(data));
-        InputScope scope(owner(peer));
-        if (message == WM_SETFOCUS && !owner(peer).enabled(peer)) {
-            try { owner(peer).traverse(false); } catch (...) { owner(peer).fail(); }
-            return 0;
+    LRESULT dispatch_native_field(NativeFieldHostPeer& peer, HWND hwnd, UINT message,
+        WPARAM wparam, LPARAM lparam) noexcept override {
+        InputScope scope(*this);
+        try {
+            if (message == WM_SETFOCUS && !enabled(peer)) { traverse(false); return 0; }
+            if (!enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
+                message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
+                message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
+            if (message == WM_NCHITTEST && drag_hit(lparam)) return HTCAPTION;
+            if (message == WM_NCLBUTTONDOWN && wparam == HTCAPTION && options.transparent)
+                return SendMessageW(window, message, wparam, lparam);
+            return peer.native_message(hwnd, message, wparam, lparam, 2, composing_native);
+        } catch (...) {
+            fail();
+            return message == control_action_message ? E_FAIL : 0;
         }
-        if (!owner(peer).enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
-            message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
-            message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
-        if (message == WM_NCHITTEST && owner(peer).drag_hit(lparam)) return HTCAPTION;
-        if (message == WM_NCLBUTTONDOWN && wparam == HTCAPTION && owner(peer).options.transparent)
-            return SendMessageW(owner(peer).window, message, wparam, lparam);
-        const bool caption = hwnd == peer.caption_window();
-        // Keep STATIC for EDIT's accessible name, but paint its text in the retained frame.
-        if (caption && message == WM_ERASEBKGND) return 1;
-        if (caption && message == WM_PAINT) {
-            ValidateRect(hwnd, nullptr);
-            return 0;
-        }
-        if (caption && (message == WM_PRINTCLIENT || message == WM_PRINT)) return 0;
-        auto* provider = caption ? peer.caption_provider : peer.provider;
-        if ((message == WM_PRINTCLIENT || message == WM_PRINT) && unextracted(peer).native_occluded && !owner(peer).composing_native) {
-            const auto dc = reinterpret_cast<HDC>(wparam);
-            const auto region = CreateRectRgn(0, 0, 0, 0);
-            const auto saved = SaveDC(dc);
-            if (!region || !saved) {
-                if (region) DeleteObject(region);
-                if (saved) RestoreDC(dc, saved);
-                return 0;
-            }
-            if (GetWindowRgn(hwnd, region) != ERROR) {
-                POINT viewport{}, origin{}; GetViewportOrgEx(dc, &viewport); GetWindowOrgEx(dc, &origin);
-                OffsetRgn(region, viewport.x - origin.x, viewport.y - origin.y);
-                ExtSelectClipRgn(dc, region, RGN_AND);
-            }
-            const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
-            RestoreDC(dc, saved); DeleteObject(region);
-            return result;
-        }
-        // RichEdit supplies its own server-side Text provider. Replacing it with
-        // an override provider would hide its native Text/Text2 patterns.
-        if (message == WM_GETOBJECT && static_cast<LONG>(lparam) == UiaRootObjectId &&
-            peer.control->role() == ControlRole::document_text) return DefSubclassProc(hwnd, message, wparam, lparam);
-        if (message == WM_GETOBJECT && static_cast<LONG>(lparam) == UiaRootObjectId && provider)
-            return UiaReturnRawElementProvider(hwnd, wparam, lparam, provider);
-        if (message == control_action_message) {
-            if (wparam != peer.control->id()) return UIA_E_ELEMENTNOTAVAILABLE;
-            if (caption) return UIA_E_INVALIDOPERATION;
-            if (!owner(peer).enabled(peer)) return UIA_E_ELEMENTNOTENABLED;
-            try { return owner(peer).focus(peer, true) ? S_OK : UIA_E_INVALIDOPERATION; }
-            catch (...) { owner(peer).fail(); return E_FAIL; }
-        }
-        if (message == WM_NCDESTROY) {
-            RemoveWindowSubclass(hwnd, native_clip_procedure, id);
-            disconnect_control(caption ? peer.caption_accessibility : peer.accessibility, provider);
-            UiaReturnRawElementProvider(hwnd, 0, 0, nullptr);
-        }
-        return DefSubclassProc(hwnd, message, wparam, lparam);
     }
     std::optional<LRESULT> navigation_message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         if (!navigation || !IsWindowEnabled(window)) return {};
@@ -941,7 +889,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             try { owner(peer).dismiss_adaptive_outside(peer); }
             catch (...) { owner(peer).fail(); return 0; }
         }
-        if (peer.document_bridge() && (message == WM_SETFOCUS || message == WM_KILLFOCUS)) {
+        if (native_document_peer(peer) && (message == WM_SETFOCUS || message == WM_KILLFOCUS)) {
             try {
                 peer.control->set_focused(message == WM_SETFOCUS);
                 if (message == WM_SETFOCUS) { owner(peer).last_focus = hwnd; owner(peer).reveal(peer); }
@@ -1010,8 +958,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             try { owner(peer).focus_departing(reinterpret_cast<HWND>(wparam)); }
             catch (...) { owner(peer).fail(); return 0; }
         }
-        if (message == WM_CONTEXTMENU && peer.edit_bridge() && peer.control->has_context_menu()) {
-            if (peer.edit_bridge()->composing()) return 0;
+        if (message == WM_CONTEXTMENU && text_input_peer(peer) && peer.control->has_context_menu()) {
+            if (text_input_peer(peer)->composing()) return 0;
             auto* host = &owner(peer);
             try { show_control_menu(*peer.control, hwnd, lparam, host->palette, host->dpi); }
             catch (...) { host->fail(); }
@@ -1021,14 +969,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (auto result = owner(peer).navigation_message(hwnd, message, wparam, lparam)) return *result;
         } catch (...) { owner(peer).fail(); return 0; }
         if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, navigation_procedure, id);
-        if (peer.edit_bridge() && (message == WM_IME_STARTCOMPOSITION || message == WM_IME_ENDCOMPOSITION)) {
+        if (text_input_peer(peer) && (message == WM_IME_STARTCOMPOSITION || message == WM_IME_ENDCOMPOSITION)) {
             auto* host = &owner(peer);
             const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
             host->invalidate(Invalidation::layout);
             return result;
         }
-        if (peer.edit_bridge() && peer.parent && peer.parent->control->role() == ControlRole::numeric_input &&
-            peer.control->visual_style() == VisualStyle::winui && !peer.edit_bridge()->composing() &&
+        if (text_input_peer(peer) && peer.parent && peer.parent->control->role() == ControlRole::numeric_input &&
+            peer.control->visual_style() == VisualStyle::winui && !text_input_peer(peer)->composing() &&
             (message == WM_SETFOCUS || (message == WM_LBUTTONDOWN && GetFocus() != hwnd))) {
             const auto input = peer.control;
             const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
@@ -1100,48 +1048,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
     }
     void attach_unextracted(UnextractedPeer& peer, HWND native_parent, int id) {
         const auto role = peer.control->role();
-        if (role == ControlRole::document_text || role == ControlRole::password_input || role == ControlRole::date_time) {
-            peer.document = std::make_unique<NativeDocumentBridge>(peer.control);
-            peer.document->on_failure([this] { fail(); });
-            peer.document->attach(native_parent, id);
-            peer.window = peer.document->window();
-            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
-            peer.provider = create_native_clip_provider(peer.accessibility);
-            win32_require(SetWindowSubclass(peer.window, native_clip_procedure, 2,
-                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native document clipping provider");
-        } else if (role == ControlRole::text_input) {
-            auto& input = static_cast<TextInput&>(*peer.control);
-            // The preceding native STATIC supplies EDIT's accessible name.
-            peer.caption = CreateWindowExW(WS_EX_TRANSPARENT, L"STATIC", peer.control->name().c_str(),
-                WS_CHILD | (input.caption_visible() ? WS_VISIBLE : 0) | SS_LEFT | SS_NOPREFIX, 0, 0, 1, 1, native_parent,
-                nullptr, GetModuleHandleW(nullptr), nullptr);
-            win32_require(peer.caption != nullptr, "Create text input label");
-            peer.caption_text = input.name();
-            peer.edit = std::make_unique<NativeEditBridge>();
-            peer.edit->set_font_family(drawing().edit_font_family());
-            peer.edit->on_failure([this] { fail(); });
-            peer.edit->set_placeholder(input.placeholder());
-            peer.edit->set_insets({input.search_style() ? 40.0f : 12.0f, 10,
-                input.shortcut_hint().empty() ? 12.0f : 78.0f, 10});
-            peer.edit->attach(native_parent, id);
-            peer.window = peer.edit->window();
-            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
-            peer.provider = create_native_clip_provider(peer.accessibility);
-            win32_require(SetWindowSubclass(peer.window, native_clip_procedure, 2,
-                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native input focus and clipping provider");
-            peer.caption_accessibility = std::make_shared<ControlAccessibility>();
-            peer.caption_accessibility->snapshot.window = peer.caption;
-            peer.caption_accessibility->snapshot.id = peer.control->id();
-            peer.caption_provider = create_native_clip_provider(peer.caption_accessibility);
-            win32_require(SetWindowSubclass(peer.caption, native_clip_procedure, 2,
-                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native caption clipping provider");
-        } else {
-            peer.window = create_input_surface(peer, native_parent, id);
-            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
-            peer.provider = role == ControlRole::tab_strip || role == ControlRole::split_view || role >= ControlRole::popup ||
-                    dynamic_cast<MenuBar*>(peer.control.get()) || dynamic_cast<MenuBar::Heading*>(peer.control.get()) ?
-                create_workspace_provider(peer.accessibility) : create_control_provider(peer.accessibility);
-        }
+        peer.window = create_input_surface(peer, native_parent, id);
+        publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
+        peer.provider = role == ControlRole::tab_strip || role == ControlRole::split_view || role >= ControlRole::popup ||
+                dynamic_cast<MenuBar*>(peer.control.get()) || dynamic_cast<MenuBar::Heading*>(peer.control.get()) ?
+            create_workspace_provider(peer.accessibility) : create_control_provider(peer.accessibility);
         if (auto runtime = std::dynamic_pointer_cast<RuntimeHost>(peer.control))
             peer.runtime = std::make_unique<NativeRuntimeHost>(runtime, peer.window, [this] { fail(); }, [this] {
                 return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
@@ -1152,11 +1063,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 return !closing && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
                     [](const auto* layout) { return layout->overlay_active(); });
             }, presenter, window);
-        if (backdrop_presented && (peer.edit || peer.document)) platform::opaque_native_paint(peer.window, true);
-        if (options.composition && (peer.edit || peer.document)) platform::layered_child(peer.window);
         prepare_popup_surface(peer);
     }
-    void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
+    void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr,
+        AdaptiveLayout* adaptive = nullptr, TextInputHostPeer* clear_owner = nullptr) {
         claim(element);
         apply_typography(*element);
         if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
@@ -1195,7 +1105,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         }
         std::unique_ptr<Peer> peer;
         const auto role = control->role();
-        if (role == ControlRole::file_list) {
+        if (clear_owner) {
+            if (control != clear_owner->clear_button()) throw std::logic_error("Mismatched native clear adornment owner");
+            peer = std::make_unique<TextClearHostPeer>(*this, clear_owner->clear_button(),
+                std::static_pointer_cast<TextInput>(clear_owner->control));
+        } else if (role == ControlRole::text_input) {
+            auto input = std::dynamic_pointer_cast<TextInput>(control);
+            if (!input) throw std::invalid_argument("The text-input role requires TextInput");
+            peer = std::make_unique<TextInputHostPeer>(*this, *this, std::move(input));
+        } else if (role == ControlRole::document_text) {
+            auto document = std::dynamic_pointer_cast<DocumentText>(control);
+            if (!document) throw std::invalid_argument("The document-text role requires DocumentText");
+            peer = std::make_unique<DocumentTextHostPeer>(*this, *this, std::move(document));
+        } else if (role == ControlRole::password_input) {
+            auto password = std::dynamic_pointer_cast<PasswordInput>(control);
+            if (!password) throw std::invalid_argument("The password-input role requires PasswordInput");
+            peer = std::make_unique<PasswordHostPeer>(*this, *this, std::move(password));
+        } else if (role == ControlRole::date_time) {
+            auto date = std::dynamic_pointer_cast<DateTimePicker>(control);
+            if (!date) throw std::invalid_argument("The date/time role requires DateTimePicker");
+            peer = std::make_unique<DateTimeHostPeer>(*this, *this, std::move(date));
+        } else if (role == ControlRole::file_list) {
             auto list = std::dynamic_pointer_cast<FileList>(control);
             if (!list) throw std::invalid_argument("The file-list role requires a FileList control");
             peer = std::make_unique<FileListHostPeer>(*this, std::move(list));
@@ -1214,6 +1144,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         const HWND native_parent = parent ? (parent->child_content_window() ?
             parent->child_content_window() : parent->window) : window;
         peer->attach(native_parent, static_cast<int>(100 + peers.size()));
+        if (peer->native_field()) {
+            if (backdrop_presented) platform::opaque_native_paint(peer->window, true);
+            if (options.composition) platform::layered_child(peer->window);
+            prepare_popup_surface(*peer);
+        }
         win32_require(SetWindowSubclass(peer->window, navigation_procedure, 3,
             reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach browser navigation input");
         if (peer->caption_window())
@@ -1224,7 +1159,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             unextracted(*peer).image = std::make_unique<ImagePeer>(static_cast<Image&>(*peer->control));
             has_images = true;
         }
-        if (role == ControlRole::label || role == ControlRole::button || role == ControlRole::toggle)
+        if (!is_clear_adornment(*peer) &&
+            (role == ControlRole::label || role == ControlRole::button || role == ControlRole::toggle))
             peer->control->set_text_measurer([this, added](std::wstring_view text, TextStyle style) {
                 Size measured{};
                 const auto& control = *added->control;
@@ -1296,67 +1232,51 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         }
         collect_clear_button(*added);
     }
-    bool can_clear(const Peer& value) const {
-        const auto* state = unextracted_if(value);
-        if (!state) return false;
-        const auto& peer = *state;
-        if (!peer.edit || options.visual_style != VisualStyle::winui || peer.edit->composing()) return false;
-        const auto& input = static_cast<const TextInput&>(*peer.control);
-        return !input.search_style() && !input.shortcut_visible(input.bounds().width) &&
-            (!peer.parent || (peer.parent->control->role() != ControlRole::numeric_input &&
-                peer.parent->control->role() != ControlRole::combo_box));
-    }
     void sync_clear_button(Peer& value) {
-        auto* state = unextracted_if(value);
-        if (!state) return;
-        auto& peer = *state;
-        if (!peer.clear_button) return;
-        const auto& input = static_cast<const TextInput&>(*peer.control);
-        const bool focused = GetFocus() == peer.window || (peer.clear_window && GetFocus() == peer.clear_window);
-        const bool show = can_clear(peer) && enabled(peer) && input.visible() && focused &&
-            !input.text().empty() && input.bounds().width >= 5 * VisualMetrics::body_size;
-        peer.clear_button->set_visible(show);
-        peer.clear_button->set_enabled(show);
-        const auto bounds = input.bounds();
-        const float header = input.caption_extent();
-        peer.clear_button->arrange({bounds.x + std::max(0.0f, bounds.width - 31), bounds.y + header + 1,
-            std::min(30.0f, bounds.width), std::max(0.0f, bounds.height - header - 2)});
+        if (auto* input = text_input_peer(value)) input->synchronize_clear();
     }
     void collect_clear_button(Peer& value) {
-        auto* state = unextracted_if(value);
-        if (!state) return;
-        auto& peer = *state;
-        if (!peer.edit) return;
-        if (!peer.clear_button && can_clear(peer) && GetFocus() == peer.window &&
-            !static_cast<const TextInput&>(*peer.control).text().empty()) {
-            peer.clear_button = std::make_shared<Button>(L"Clear " + peer.control->name());
-            peer.clear_button->set_icon(ButtonIcon::close);
-            peer.clear_button->set_appearance(ButtonAppearance::subtle);
-            peer.clear_button->set_tab_stop(false);
-            peer.clear_button->set_automation_id(L"xui-text-clear-" + (peer.control->automation_id().empty() ?
-                std::to_wstring(peer.control->id()) : peer.control->automation_id()));
-            peer.clear_button->set_invalidator([this](Invalidation kind) { invalidate(kind); });
-            std::weak_ptr<Control> owner = peer.control;
-            peer.clear_button->on_click([this, owner] {
-                const auto control = owner.lock();
-                auto* input_peer = control ? find_peer(control.get()) : nullptr;
-                if (!input_peer || !can_clear(*input_peer) || !enabled(*input_peer) || !visible(*input_peer)) return;
-                const auto edit = input_peer->window;
-                input_peer->edit_bridge()->focus(false);
-                if (closing || !window || !IsWindow(edit) || GetFocus() != edit) return;
-                SendMessageW(edit, EM_SETSEL, 0, -1);
-                SendMessageW(edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
-            });
+        if (auto* input = text_input_peer(value)) input->collect_clear();
+    }
+    void collect_text_clear(TextInputHostPeer& input) override {
+        collect(input.clear_button(), input.surface, input.parent, input.adaptive, &input);
+        if (!input.clear_window()) input.set_clear_window(find_peer(input.clear_button().get())->window);
+    }
+    void activate_text_clear(std::uint64_t id) override {
+        InputScope scope(*this);
+        for (const auto& peer : peers)
+            if (peer->control->id() == id) {
+                if (auto* input = text_input_peer(*peer)) input->clear_text();
+                return;
+            }
+    }
+    void invalidate_native_field(Invalidation kind) override { invalidate(kind); }
+    const wchar_t* native_font_family() const override { return root_drawing.edit_font_family(); }
+    HFONT native_caption_font() const override { return font; }
+    std::shared_ptr<NativeFieldServices> acquire_native_lease() override {
+        return std::shared_ptr<NativeFieldServices>(shared_from_this(), this);
+    }
+    NativeFieldEmbedding native_embedding(const NativeFieldHostPeer& field) const override {
+        NativeFieldEmbedding result;
+        const Peer* owner = &field;
+        if (field.parent) {
+            const auto* number = dynamic_cast<const NumericInput*>(field.parent->control.get());
+            result.numeric = number != nullptr;
+            result.combo = field.parent->control->role() == ControlRole::combo_box;
+            result.composite = result.numeric || dynamic_cast<const ComboBox*>(field.parent->control.get());
+            result.invalid = number && !number->valid();
+            result.reserved_end = result.combo || (number && number->spin_placement() == NumberSpinPlacement::inline_buttons);
+            if (result.numeric || result.combo) owner = field.parent;
         }
-        if (!peer.clear_button) return;
-        sync_clear_button(peer);
-        // The native EDIT owns only its text line. The affordance is a sibling in the same clipped surface.
-        collect(peer.clear_button, peer.surface, peer.parent, peer.adaptive);
-        if (!peer.clear_window) {
-            auto* clear_peer = find_peer(peer.clear_button.get());
-            unextracted(*clear_peer).clear_owner = peer.control;
-            peer.clear_window = clear_peer->window;
-        }
+        if (result.numeric || result.combo) result.field_style = owner->control->effective_control_style_values(StylePart::field);
+        result.styled = owner->control->has_control_styling();
+        result.enabled = enabled(*owner);
+        result.focused = GetFocus() == owner->window || IsChild(owner->window, GetFocus());
+        result.hovered = owner->control->hovered();
+        for (const auto& child : owner->control->owned_children())
+            if (const auto* control = dynamic_cast<const Control*>(child.get())) result.hovered |= control->hovered();
+        result.surface = owner->surface;
+        return result;
     }
     Peer* find_peer(const Control* control) const {
         const auto found = peer_lookup.find(control);
@@ -1515,7 +1435,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             const auto owner = popup_owner(peer.get());
             const auto inline_begin = std::find_if(inline_surfaces.begin(), inline_surfaces.end(),
                 [&](const auto& surface) { return surface.peer == peer.get(); });
-            if (!unextracted(*peer).native_occluded) {
+            if (!peer->native_field()->native_occluded) {
                 const auto bounds = clipped_bounds(*peer);
                 if (bounds.width <= 0 || bounds.height <= 0) continue;
                 const auto overlaps = [&](Rect overlay) {
@@ -1588,7 +1508,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 }
                 clipped = clipped || occluded;
             }
-            unextracted(*peer).native_occluded = clipped;
+            peer->native_field()->native_occluded = clipped;
         }
     }
     void offer_tooltip(Peer& peer) {
@@ -1652,7 +1572,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (auto range = std::dynamic_pointer_cast<RangeInput>(peer->control)) notify([&] { range->cancel_drag(); });
             if (owner != closed.end() && owner->popup->is_open()) continue;
             peer->control->cancel();
-            if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            if (text_input_peer(*peer)) text_input_peer(*peer)->dismiss_suggestions();
             KillTimer(peer->window, repeat_timer); if (auto* state = unextracted_if(*peer)) state->repeating = false;
             ShowWindow(peer->window, SW_HIDE);
             if (GetCapture() == peer->window) ReleaseCapture();
@@ -1890,7 +1810,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (auto range = std::dynamic_pointer_cast<RangeInput>(peer->control)) range->cancel_drag();
             peer->control->cancel();
             peer->control->pointer_move(false);
-            if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            if (text_input_peer(*peer)) text_input_peer(*peer)->dismiss_suggestions();
             detach_peer(*peer);
         }
         // Remove peers from lookups before DestroyWindow sends synchronous notifications.
@@ -2027,16 +1947,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             DEFAULT_QUALITY, DEFAULT_PITCH, drawing().edit_font_family());
         win32_require(next_font != nullptr, "Create input caption font");
         for (const auto& peer : peers) {
-            peer->set_theme(dpi, palette);
-            if (peer->document_bridge()) {
-                peer->document_bridge()->update(dpi, palette);
-                publish_control(unextracted(*peer).accessibility, nullptr, *peer->control, peer->window);
-            } else if (peer->edit_bridge()) {
-                peer->edit_bridge()->set_font_family(drawing().edit_font_family());
-                peer->edit_bridge()->set_dpi(dpi);
-                SendMessageW(peer->caption_window(), WM_SETFONT, reinterpret_cast<WPARAM>(next_font), TRUE);
-                InvalidateRect(peer->window, nullptr, FALSE);
-            }
+            if (auto* field = peer->native_field()) field->theme_native(dpi, palette, next_font);
+            else peer->set_theme(dpi, palette);
         }
         if (font) DeleteObject(font);
         font = next_font;
@@ -2185,9 +2097,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             for (const auto& peer : peers) if (clear_adornment(*peer)) sync_clear_button(*peer);
             for (const auto& peer : peers) {
                 auto bounds = peer->control->bounds();
-                if (peer->edit_bridge() && peer->arranged &&
+                if (text_input_peer(*peer) && peer->arranged &&
                     (bounds.x != peer->absolute_bounds.x || bounds.y != peer->absolute_bounds.y))
-                    peer->edit_bridge()->dismiss_suggestions();
+                    text_input_peer(*peer)->dismiss_suggestions();
                 peer->absolute_bounds = bounds;
                 if (peer->child_content_window()) {
                     // One native translation moves the retained editors without recreating them
@@ -2232,60 +2144,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                     bounds.width = std::max(0.0f, static_cast<float>(
                         std::lround((bounds.x + bounds.width) * scale) - std::lround(bounds.x * scale)) / scale);
                 }
-                if (peer->document_bridge()) {
-                    if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed())
-                        bounds.height = std::max(0.0f, bounds.height - password->reveal_extent());
-                    const auto* field_style = peer->control->effective_control_style_values(StylePart::root);
-                    if (field_style) {
-                        const auto padding = field_style->padding.value_or(Insets{4, 3, 4, 3});
-                        const auto border = field_style->border_thickness.value_or(Insets{});
-                        bounds.x += padding.left + border.left; bounds.y += padding.top + border.top;
-                        bounds.width = std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right);
-                        bounds.height = std::max(0.0f, bounds.height - padding.top - padding.bottom - border.top - border.bottom);
-                    } else if (palette.style == VisualStyle::winui &&
-                        (dynamic_cast<DocumentText*>(peer->control.get()) || dynamic_cast<PasswordInput*>(peer->control.get()))) {
-                        bounds.x += 4; bounds.y += 3;
-                        bounds.width = std::max(0.0f, bounds.width - 8);
-                        bounds.height = std::max(0.0f, bounds.height - 6);
-                    }
-                    if (visible(*peer)) {
-                        const float scale = dpi / 96.0f;
-                        const RECT target{static_cast<LONG>(std::lround(bounds.x * scale)),
-                            static_cast<LONG>(std::lround(bounds.y * scale)),
-                            static_cast<LONG>(std::lround(bounds.width * scale)),
-                            static_cast<LONG>(std::lround(bounds.height * scale))};
-                        if (!peer->placed || !EqualRect(&target, &peer->placed_bounds)) {
-                            platform::place(peer->window, bounds, dpi); peer->placed_bounds = target; peer->placed = true;
-                        }
-                    }
-                } else if (peer->edit_bridge()) {
-                    const bool search = static_cast<TextInput&>(*peer->control).search_style();
-                    const auto& input = static_cast<TextInput&>(*peer->control);
-                    const bool winui = options.visual_style == VisualStyle::winui;
-                    const auto number = peer->parent ? dynamic_cast<const NumericInput*>(peer->parent->control.get()) : nullptr;
-                    const bool combo = peer->parent && peer->parent->control->role() == ControlRole::combo_box;
-                    const bool reserved_end = combo || (number && number->spin_placement() == NumberSpinPlacement::inline_buttons);
-                    const auto* field_style = input.effective_control_style_values(StylePart::root);
-                    auto insets = input.field_insets({search ? 40.0f : winui && !combo ? 11.0f : 12.0f, winui ? 6.0f : 10.0f,
-                        input.shortcut_visible(bounds.width) ? input.shortcut_size().width + 28.0f :
-                            clear_adornment(*peer) && clear_adornment(*peer)->visible() ? 37.0f :
-                            winui ? reserved_end ? 1.0f : 7.0f : 12.0f, winui ? 7.0f : 10.0f});
-                    if (field_style && field_style->padding) {
-                        if (search) insets.left += 28;
-                        if (input.shortcut_visible(bounds.width)) insets.right += input.shortcut_size().width + 16;
-                        else if (clear_adornment(*peer) && clear_adornment(*peer)->visible()) insets.right += 30;
-                    }
-                    peer->edit_bridge()->set_insets(insets);
-                    const bool caption_visible = input.caption_visible() && visible(*peer);
-                    if (((GetWindowLongPtrW(peer->caption_window(), GWL_STYLE) & WS_VISIBLE) != 0) != caption_visible)
-                        ShowWindow(peer->caption_window(), caption_visible ? SW_SHOWNA : SW_HIDE);
-                    if (input.caption_visible()) {
-                        const float caption_height = input.caption_height();
-                        platform::place(peer->caption_window(), {bounds.x, bounds.y, bounds.width, std::min(caption_height, bounds.height)}, dpi);
-                        bounds.y += input.caption_extent();
-                        bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
-                    }
-                    peer->edit_bridge()->arrange(bounds);
+                if (auto* field = peer->native_field()) {
+                    field->arrange_native(bounds, dpi, visible(*peer), palette);
                 } else if (has_images || animation_timer_running || !arrange_layout) {
                     const float scale = dpi / 96.0f;
                     RECT target{static_cast<LONG>(std::lround(bounds.x * scale)),
@@ -2400,45 +2260,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 (!enabled(*peer) || !visible(*peer) || !control.pressed() || !IsWindowVisible(window))) {
                 KillTimer(peer->window, repeat_timer); state->repeating = false;
             }
-            if (peer->document_bridge()) {
-                peer->document_bridge()->update(dpi, palette);
-                publish_control(unextracted(*peer).accessibility, nullptr, control, peer->window);
-            } else if (peer->edit_bridge()) {
-                if ((IsWindowEnabled(peer->caption_window()) != FALSE) != enabled(*peer))
-                    EnableWindow(peer->caption_window(), enabled(*peer));
-                auto& input = static_cast<TextInput&>(*peer->control);
-                peer->edit_bridge()->sync_suggestions(input);
-                peer->edit_bridge()->set_suggestion_colors(platform::native_color(palette.field),
-                    platform::native_color(palette.text), platform::native_color(palette.secondary));
-                SendMessageW(peer->window, EM_SETLIMITTEXT, input.maximum_length(), 0);
-                peer->edit_bridge()->set_placeholder(input.placeholder());
-                const auto* placeholder = input.effective_control_style_values(StylePart::placeholder);
-                peer->edit_bridge()->set_placeholder_color(platform::native_color(placeholder && placeholder->foreground && !palette.high_contrast ?
-                    D2D1::ColorF(placeholder->foreground->resolve(palette.mode)) : enabled(*peer) ? palette.secondary : palette.disabled));
-                peer->edit_bridge()->set_colors(platform::native_color(input_ink(*peer)), platform::native_color(input_fill(*peer)));
-                const auto* text_style = input.effective_control_style_values(StylePart::text);
-                const PartStyleValues default_text;
-                const auto native_font = Drawing::font_descriptor(text_style ? *text_style : default_text,
-                    drawing().edit_font_family(), 14.0f);
-                peer->edit_bridge()->set_font(native_font.family_name(), native_font.size, static_cast<int>(native_font.weight),
-                    native_font.style == StyleFontStyle::italic);
-                const auto* header_values = input.effective_control_style_values(StylePart::header);
-                peer->edit_bridge()->set_caption_font(peer->caption_window(), header_values, font,
-                    drawing().edit_font_family(), palette.style == VisualStyle::winui ? VisualMetrics::body_size : VisualMetrics::caption_size);
-                peer->edit_bridge()->set_caption_color(peer->caption_window(), platform::native_color(header_values && header_values->foreground &&
-                    !palette.high_contrast ? D2D1::ColorF(header_values->foreground->resolve(palette.mode)) :
-                    enabled(*peer) ? palette.text : palette.disabled));
-                if (!peer->edit_bridge()->composing() && peer->edit_bridge()->text() != input.text())
-                    peer->edit_bridge()->set_model_text(input.text());
-                if (unextracted(*peer).caption_text != input.name()) {
-                    SetWindowTextW(peer->caption_window(), input.name().c_str());
-                    unextracted(*peer).caption_text = input.name();
-                }
-                if (peer->provider) publish_control(unextracted(*peer).accessibility, nullptr, control, peer->window);
-            } else {
-                if (peer->family == HostFamily::file_list && GetFocus() == peer->window) last_focus = peer->window;
-                peer->sync(dpi, palette);
-            }
+            if (peer->family == HostFamily::file_list && GetFocus() == peer->window) last_focus = peer->window;
+            peer->sync(dpi, palette);
         }
         if (disabled_focus) {
             bool repaired{};
@@ -2540,11 +2363,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         if ((msg.message != WM_KEYDOWN && msg.message != WM_SYSKEYDOWN) || (msg.hwnd != window && !IsChild(window, msg.hwnd))) return false;
         for (const auto& peer : peers)
             if (peer->runtime_host() && peer->control->role() == ControlRole::web_content && peer->runtime_host()->contains_native(msg.hwnd)) return false;
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->edit_bridge()) {
-            if (peer->edit_bridge()->composing()) return false;
-            if (peer->edit_bridge()->suggestion_key(msg.wParam)) return true;
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && text_input_peer(*peer)) {
+            if (text_input_peer(*peer)->composing()) return false;
+            if (text_input_peer(*peer)->pretranslate_key(msg.wParam)) return true;
         }
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->document_bridge() && peer->document_bridge()->composing()) return false;
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && native_document_peer(*peer) && native_document_peer(*peer)->composing()) return false;
         if (translate_menu_bar(msg)) return true;
         Control* target{};
         for (const auto& peer : peers) if (peer->window == msg.hwnd) target = peer->control.get();
@@ -2562,7 +2385,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 (GetKeyState(VK_SHIFT) & 0x8000) != 0, target, alt, text_input})) return true;
             // Redirect before TranslateMessage so dead keys, Unicode and IME stay in the native editor.
             if (text_input && GetFocus() != msg.hwnd) {
-                for (const auto& peer : peers) if (peer->window == GetFocus() && peer->edit_bridge() && enabled(*peer)) {
+                for (const auto& peer : peers) if (peer->window == GetFocus() && text_input_peer(*peer) && enabled(*peer)) {
                     msg.hwnd = peer->window;
                     return false;
                 }
@@ -2607,7 +2430,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             // Application shortcuts cannot activate controls behind a modal dialog.
             return false;
         }
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->edit_bridge() && peer->parent) {
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && text_input_peer(*peer) && peer->parent) {
             if (auto* numeric = dynamic_cast<NumericInput*>(peer->parent->control.get());
                 numeric && (msg.wParam == VK_UP || msg.wParam == VK_DOWN)) {
                 numeric->step(msg.wParam == VK_UP ? 1 : -1); return true;
@@ -2930,7 +2753,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
     }
     void update_paint_bounds() {
         for (const auto& peer : peers) {
-            if (peer->edit_bridge()) continue;
+            if (text_input_peer(*peer)) continue;
             RECT pixels{};
             win32_require(GetWindowRect(peer->window, &pixels) != 0, "Read control paint bounds");
             MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&pixels), 2);
@@ -3054,49 +2877,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                             drawing().winui_focus_ring(layout_style::content(*range, peer->paint_bounds), palette, 4, 7,
                                 Drawing::SurfaceCorners::all, 0);
                     }
-                    else if (peer->document_bridge()) {
-                        const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
-                        if (root_style) {
-                            const auto bounds = peer->control->bounds();
-                            drawing().styled_surface(bounds, palette, *root_style, palette.field, palette.border, 4, {1, 1, 1, 1});
-                            if (peer->control->focused()) drawing().styled_field_focus(bounds, palette, *root_style);
-                        } else if (palette.style == VisualStyle::winui &&
-                            (dynamic_cast<DocumentText*>(peer->control.get()) || dynamic_cast<PasswordInput*>(peer->control.get()))) {
-                            const auto bounds = peer->control->bounds();
-                            drawing().field_frame({bounds.x + 1, bounds.y + 1, std::max(0.0f, bounds.width - 2),
-                                std::max(0.0f, bounds.height - 2)}, palette, peer->control->focused(), enabled(*peer));
-                        }
-                        if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed()) {
-                            const auto bounds = password->bounds();
-                            const float inset = palette.style == VisualStyle::winui ? 4.0f : 0.0f;
-                            const Rect preview{bounds.x + inset, bounds.y + std::max(0.0f, bounds.height - password->reveal_extent()),
-                                std::max(0.0f, bounds.width - 2 * inset), std::min(password->reveal_extent() - inset, bounds.height)};
-                            drawing().push_clip(preview);
-                            drawing().fill(preview, root_style && root_style->background && !palette.high_contrast ?
-                                D2D1::ColorF(root_style->background->resolve(palette.mode)) :
-                                palette.style == VisualStyle::winui ? palette.field : palette.surface);
-                            const auto* text_style = password->effective_control_style_values(StylePart::text);
-                            const auto ink = text_style && text_style->foreground && !palette.high_contrast ?
-                                D2D1::ColorF(text_style->foreground->resolve(palette.mode)) : enabled(*peer) ? palette.text : palette.disabled;
-                            password->with_password([&](std::wstring_view value) {
-                                const Rect text{preview.x + 8, preview.y, std::max(0.0f, preview.width - 16), preview.height};
-                                if (text_style) {
-                                    auto native_text = *text_style;
-                                    if (!native_text.font_family) {
-                                        static const auto family = make_style_font_family("Segoe UI");
-                                        native_text.font_family = family;
-                                    }
-                                    native_text.font_size = native_text.font_size.value_or(14.0f);
-                                    native_text.font_weight = native_text.font_weight.value_or(FW_NORMAL);
-                                    native_text.font_style = native_text.font_style.value_or(StyleFontStyle::normal);
-                                    drawing().private_text(value, text, ink, native_text);
-                                }
-                                else drawing().text(value, text, ink);
-                            });
-                            drawing().pop_clip();
-                        }
+                    else if (peer->native_field()) {
+                        peer->paint({drawing(), palette, enabled(*peer), keyboard_focus_visible && peer->control->focused()});
                     }
-                    else if (peer->edit_bridge()) paint_edit(*peer);
                     else {
                         const auto bounds = peer->paint_bounds;
                         auto clip = bounds;
@@ -3386,92 +3169,17 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         changed = sync_images() || changed;
         if (changed) invalidate(Invalidation::paint);
     }
-    D2D1_COLOR_F input_ink(const Peer& peer) const {
-        if (!palette.high_contrast) {
-            const auto* text_values = peer.control->effective_control_style_values(StylePart::text);
-            if (text_values && text_values->foreground) return D2D1::ColorF(text_values->foreground->resolve(palette.mode));
-            if (peer.parent && (peer.parent->control->role() == ControlRole::numeric_input ||
-                peer.parent->control->role() == ControlRole::combo_box)) {
-                const auto* owner_field = peer.parent->control->effective_control_style_values(StylePart::field);
-                if (owner_field && owner_field->foreground) return D2D1::ColorF(owner_field->foreground->resolve(palette.mode));
-            }
-        }
-        return enabled(peer) ? palette.text : palette.disabled;
-    }
     D2D1_COLOR_F input_fill(const Peer& peer) const {
-        if (peer.edit_bridge()) {
-            const auto* editor_style = peer.control->effective_control_style_values(StylePart::root);
-            if (editor_style && editor_style->background && !palette.high_contrast)
-                return D2D1::ColorF(editor_style->background->resolve(palette.mode));
+        if (peer.control->role() == ControlRole::numeric_input || peer.control->role() == ControlRole::combo_box) {
+            const auto* field = peer.control->effective_control_style_values(StylePart::field);
+            if (field && field->background && !palette.high_contrast)
+                return D2D1::ColorF(field->background->resolve(palette.mode));
         }
-        const auto* owner = &peer;
-        if (peer.edit_bridge() && peer.parent && (peer.parent->control->role() == ControlRole::numeric_input ||
-            peer.parent->control->role() == ControlRole::combo_box)) owner = peer.parent;
-        if (owner->control->role() == ControlRole::numeric_input || owner->control->role() == ControlRole::combo_box) {
-            const auto* owner_field = owner->control->effective_control_style_values(StylePart::field);
-            if (owner_field && owner_field->background && !palette.high_contrast)
-                return D2D1::ColorF(owner_field->background->resolve(palette.mode));
-        }
-        bool hovered = owner->control->hovered();
-        for (const auto& child : owner->control->owned_children())
+        bool hovered = peer.control->hovered();
+        for (const auto& child : peer.control->owned_children())
             if (const auto* control = dynamic_cast<const Control*>(child.get())) hovered |= control->hovered();
-        const auto focused = GetFocus() == owner->window || IsChild(owner->window, GetFocus()) ||
-            (unextracted(*owner).clear_window && GetFocus() == unextracted(*owner).clear_window);
-        return palette.input_fill(enabled(*owner), focused, hovered, owner->surface);
-    }
-    void paint_edit(Peer& peer) {
-        auto bounds = peer.control->bounds();
-        const auto& input = static_cast<TextInput&>(*peer.control);
-        if (input.caption_visible()) {
-            const auto* header = input.effective_control_style_values(StylePart::header);
-            auto typography = header ? *header : PartStyleValues{};
-            typography.horizontal_alignment = StyleAlignment::start;
-            typography.vertical_alignment = StyleAlignment::start;
-            typography.wrapping = true;
-            const auto ink = header && header->foreground && !palette.high_contrast ?
-                D2D1::ColorF(header->foreground->resolve(palette.mode)) : enabled(peer) ? palette.text : palette.disabled;
-            drawing().styled_text(input.name(), {bounds.x, bounds.y, bounds.width, std::min(input.caption_height(), bounds.height)},
-                ink, typography, palette.style == VisualStyle::winui ? TextStyle::body : TextStyle::caption);
-            bounds.y += input.caption_extent();
-            bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
-        }
-        drawing().push_clip(bounds);
-        const auto number = peer.parent ? dynamic_cast<NumericInput*>(peer.parent->control.get()) : nullptr;
-        const bool invalid = number && !number->valid();
-        const bool focused = GetFocus() == peer.window || (unextracted(peer).clear_window && GetFocus() == unextracted(peer).clear_window);
-        const bool composite = peer.parent && (number || dynamic_cast<ComboBox*>(peer.parent->control.get())) &&
-            (palette.style == VisualStyle::winui || peer.parent->control->has_control_styling());
-        const auto* style = input.effective_control_style_values(StylePart::root);
-        if (!composite || style) {
-            const Rect frame = palette.style == VisualStyle::winui ? Rect{bounds.x + 0.5f, bounds.y + 0.5f,
-                std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)} : bounds;
-            if (style) {
-                drawing().styled_surface(frame, palette, *style, input_fill(peer), palette.border, 4, {1, 1, 1, 1});
-                if (focused) drawing().styled_field_focus(frame, palette, *style);
-            } else drawing().field_frame(frame, palette, focused, enabled(peer), invalid, input_fill(peer));
-        }
-        const auto ink = [&](StylePart part, D2D1_COLOR_F fallback) {
-            const auto* values = input.effective_control_style_values(part);
-            return values && values->foreground && !palette.high_contrast ?
-                D2D1::ColorF(values->foreground->resolve(palette.mode)) : enabled(peer) ? fallback : palette.disabled;
-        };
-        const auto padding = style && style->padding ? *style->padding : Insets{12, 0, 12, 0};
-        const auto border = style && style->border_thickness ? *style->border_thickness : Insets{};
-        if (input.search_style()) drawing().search_icon({bounds.x + padding.left + border.left,
-            bounds.y + (bounds.height - 18) / 2, 18, 18}, ink(StylePart::icon, palette.secondary));
-        const auto& hint = input.shortcut_hint();
-        if (input.shortcut_visible(bounds.width)) {
-            const auto size = input.shortcut_size();
-            const Rect badge{bounds.x + std::max(0.0f, bounds.width - size.width - padding.right - border.right),
-                bounds.y + (bounds.height - size.height) / 2, size.width, size.height};
-            const auto* shortcut = input.effective_control_style_values(StylePart::shortcut);
-            if (shortcut) drawing().styled_surface(badge, palette, *shortcut, input_fill(peer), palette.border, 4, {1, 1, 1, 1});
-            else drawing().rounded(badge, palette.border, 4, true);
-            const Rect text{badge.x + 6, badge.y, std::max(0.0f, badge.width - 8), badge.height};
-            if (shortcut) drawing().styled_text(hint, text, ink(StylePart::shortcut, palette.secondary), *shortcut, TextStyle::caption);
-            else drawing().text(hint, text, palette.secondary, true);
-        }
-        drawing().pop_clip();
+        const auto focused = GetFocus() == peer.window || IsChild(peer.window, GetFocus());
+        return palette.input_fill(enabled(peer), focused, hovered, peer.surface);
     }
     D2D1_COLOR_F status_fill(StatusSeverity severity) const {
         if (palette.high_contrast || palette.style == VisualStyle::classic) return palette.surface;
@@ -4272,21 +3980,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         const Rect box{inset_size, inset_size, std::max(0.0f, bounds.width - 2 * inset_size), std::max(0.0f, bounds.height - 2 * inset_size)};
         const auto text = enabled(peer) ? palette.text : palette.disabled;
         const auto role = control.role();
-        if (role == ControlRole::button) {
-            if (const auto owner = peer.clear_owner.lock(); owner && (owner->has_control_styling() || control.has_control_styling())) {
-                const auto& input = static_cast<const TextInput&>(*owner);
-                const auto state = (control.focused() ? style_states::focused : 0) |
-                    (control.hovered() ? style_states::hovered : 0) | (control.pressed() ? style_states::pressed : 0) |
-                    (!enabled(peer) ? style_states::disabled : 0) | (input.text().empty() ? style_states::empty : 0);
-                const auto defaults = input.resolve_control_style_part(StylePart::clear_action, state);
-                if (!defaults.empty() || control.has_control_styling()) {
-                    canvas.styled_button(static_cast<const Button&>(control), {0, 0, bounds.width, bounds.height},
-                        palette, enabled(peer), focus_visible, {}, 0, {}, &defaults,
-                        fluent ? std::optional{Symbol::clear} : std::nullopt);
-                    return;
-                }
-            }
-        }
         if (role == ControlRole::button && peer.parent) {
             const auto* breadcrumb = dynamic_cast<const Breadcrumb*>(peer.parent->control.get());
             if (breadcrumb && (breadcrumb->has_control_styling() || control.has_control_styling())) {
@@ -4421,8 +4114,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 if (bounds.width > (winui ? 44.0f : 64.0f))
                     canvas.text(control.name(), {12, winui ? 6.0f : 0.0f, std::max(0.0f, bounds.width - 44),
                         std::max(0.0f, bounds.height - (winui ? 13 : 0))}, ink);
-            } else if (winui && !peer.clear_owner.expired())
-                canvas.symbol(Symbol::clear, {0, 0, bounds.width, bounds.height}, ink, 12);
+            }
             else if (icon != ButtonIcon::none)
                 canvas.button_icon({(bounds.width - 16) / 2, (bounds.height - 16) / 2, 16, 16}, ink, icon);
             else canvas.text_layout(peer.text_layout.Get(),
@@ -4440,7 +4132,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         if (invoked && peer.control->role() == ControlRole::combo_box) open_combo(peer);
         update();
         if (invoked && window && peer.control->role() == ControlRole::button && !dynamic_cast<MenuBar::Heading*>(peer.control.get()))
-            raise_control_invoked(peer.provider);
+            peer.publish_invoked();
     }
     bool focus(Peer& peer, bool activate_window) {
         if (!ready || closing || !peer.control->focusable() || !enabled(peer)) return false;
@@ -4460,7 +4152,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         SetFocus(peer.window);
         if (window && !closing && peer.runtime_host() && peer.runtime_host()->active())
             if (auto* web = dynamic_cast<WebContent*>(peer.control.get())) web->focus_content();
-        return GetFocus() == peer.window || (peer.document_bridge() && IsChild(peer.window, GetFocus())) ||
+        return GetFocus() == peer.window || (native_document_peer(peer) && IsChild(peer.window, GetFocus())) ||
             (peer.runtime_host() && peer.runtime_host()->contains_native(GetFocus()));
     }
     Peer* edit_at(HWND source, LPARAM position) const {
@@ -4469,7 +4161,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         const float x = point.x * 96.0f / dpi, y = point.y * 96.0f / dpi;
         for (auto it = peers.rbegin(); it != peers.rend(); ++it) {
             auto& peer = **it;
-            if (!peer.edit_bridge() || (GetParent(peer.window) != source && peer.window != source) ||
+            if (!text_input_peer(peer) || (GetParent(peer.window) != source && peer.window != source) ||
                 !visible(peer) || !enabled(peer) || !in_top_popup(peer)) continue;
             const auto rect = peer.control->bounds();
             if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height)
@@ -4604,6 +4296,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (lparam == 6) { reveal(peer); return S_OK; }
             if (!enabled(peer) || !visible(peer)) return UIA_E_ELEMENTNOTENABLED;
             if (lparam == 1) return focus(peer, true) ? S_OK : UIA_E_INVALIDOPERATION;
+            if (const auto result = peer.input(message, wparam, lparam, {dpi, palette})) return *result;
             return UIA_E_INVALIDOPERATION;
         case foundation_action_message: return UIA_E_INVALIDOPERATION;
         case WM_NCDESTROY:
@@ -4946,7 +4639,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             }
             control.pointer_move(inside());
             if (control.pointer_down()) {
-                if (peer.clear_owner.expired()) SetFocus(hwnd);
+                SetFocus(hwnd);
                 SetCapture(hwnd);
                 repeat_start(peer, true);
             }
@@ -5400,7 +5093,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
             }
-            for (const auto& peer : peers) if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            for (const auto& peer : peers) if (text_input_peer(*peer)) text_input_peer(*peer)->dismiss_suggestions();
             for (auto& task : samples) task->suspend(wparam == SIZE_MINIMIZED);
             if (wparam == SIZE_MINIMIZED) for (const auto& peer : peers) {
                 if (peer->runtime_host()) peer->runtime_host()->suspend();
@@ -5438,7 +5131,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         case WM_MOVE:
             hide_tooltip();
             if (!popups.empty()) invalidate(Invalidation::layout);
-            for (const auto& peer : peers) if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            for (const auto& peer : peers) if (text_input_peer(*peer)) text_input_peer(*peer)->dismiss_suggestions();
             for (const auto& peer : peers) peer->native_moved();
             return 0;
         case update_message: if (pending) update(); return 0;
@@ -5472,25 +5165,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             auto native_ink = IsWindowEnabled(reinterpret_cast<HWND>(lparam)) ? palette.text : palette.disabled;
             bool styled_field{};
             for (const auto& peer : peers) {
+                const auto* native = peer->native_field();
+                if (!native) continue;
                 const bool caption = peer->caption_window() == reinterpret_cast<HWND>(lparam);
-                if (!caption && (!peer->native() || peer->window != reinterpret_cast<HWND>(lparam))) continue;
-                on_surface = peer->surface;
-                const auto* text_style = peer->control->effective_control_style_values(caption ? StylePart::header : StylePart::text);
-                if (!caption && peer->edit_bridge()) native_ink = input_ink(*peer);
-                else if (text_style && text_style->foreground && !palette.high_contrast)
-                    native_ink = D2D1::ColorF(text_style->foreground->resolve(palette.mode));
-                if (!caption) {
-                    if (peer->edit_bridge()) editable_fill = input_fill(*peer);
-                    else {
-                        const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
-                        if (root_style && root_style->background && !palette.high_contrast)
-                            editable_fill = D2D1::ColorF(root_style->background->resolve(palette.mode));
-                    }
-                    styled_field = peer->control->has_control_styling();
-                    if (peer->edit_bridge() && peer->parent &&
-                        (peer->parent->control->role() == ControlRole::numeric_input || peer->parent->control->role() == ControlRole::combo_box))
-                        styled_field = styled_field || peer->parent->control->has_control_styling();
-                }
+                if (!caption && peer->window != reinterpret_cast<HWND>(lparam)) continue;
+                const auto colors = native->native_colors(caption, palette);
+                on_surface = colors.surface;
+                native_ink = colors.ink;
+                editable_fill = colors.fill;
+                styled_field = colors.styled;
                 break;
             }
             SetTextColor(dc, platform::native_color(native_ink));
@@ -5508,22 +5191,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         case WM_NOTIFY: {
             const auto* notification = reinterpret_cast<const NMHDR*>(lparam);
             if (notification) for (const auto& peer : peers)
-                if (peer->document_bridge() && peer->window == notification->hwndFrom) return enabled(*peer) ? peer->document_bridge()->notify(*notification) : 0;
+                if (auto* field = peer->native_field(); field && peer->window == notification->hwndFrom)
+                    return enabled(*peer) ? field->native_notify(*notification) : 0;
             break;
         }
         case WM_COMMAND:
-            for (const auto& peer : peers) if (peer->document_bridge() && peer->window == reinterpret_cast<HWND>(lparam)) {
-                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer)) peer->document_bridge()->changed();
-                return 0;
-            }
-            for (const auto& peer : peers) if (peer->edit_bridge() && peer->window == reinterpret_cast<HWND>(lparam)) {
-                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer) && !peer->edit_bridge()->composing()) {
-                    static_cast<TextInput&>(*peer->control).commit_text(peer->edit_bridge()->text());
-                    peer->edit_bridge()->text_changed();
+            for (const auto& peer : peers) if (auto* field = peer->native_field();
+                field && peer->window == reinterpret_cast<HWND>(lparam)) {
+                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer)) field->native_change();
+                if (field->text_input()) {
+                    if (HIWORD(wparam) == EN_SETFOCUS || HIWORD(wparam) == EN_KILLFOCUS)
+                        peer->control->set_focused(HIWORD(wparam) == EN_SETFOCUS);
+                    if (HIWORD(wparam) == EN_SETFOCUS) { last_focus = peer->window; reveal(*peer); }
                 }
-                if (HIWORD(wparam) == EN_SETFOCUS || HIWORD(wparam) == EN_KILLFOCUS)
-                    peer->control->set_focused(HIWORD(wparam) == EN_SETFOCUS);
-                if (HIWORD(wparam) == EN_SETFOCUS) { last_focus = peer->window; reveal(*peer); }
                 return 0;
             }
             break;
@@ -6054,7 +5734,7 @@ bool Window::focus(Control& control, bool select_all) {
     // InputScope retains the peer itself across those synchronous updates.
     auto* peer = impl->find_peer(&control);
     if (!peer || !impl->focus(*peer, false)) return false;
-    if (peer->edit_bridge() && select_all) SendMessageW(peer->window, EM_SETSEL, 0, -1);
+    if (Impl::text_input_peer(*peer) && select_all) SendMessageW(peer->window, EM_SETSEL, 0, -1);
     return true;
 }
 void Window::show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial) {

@@ -27,6 +27,38 @@ The [3a companion](stage3a-collection-host.md) separates baseline-matched deskto
 and earlier unresolved optimizer/foreground/IME/Narrator/inspection limitations from
 this extraction's own evidence.
 
+## Native editor host boundary
+
+`tests\native_field_accessibility_tests.cpp` is a required headless/lifetime test:
+native-field metadata isolation, long UTF-16 clear/root metadata, password denial,
+pattern non-impersonation, COM/runtime identity, disconnected providers, malformed
+capabilities, clear-policy negative calls and checked GUI-resource result handling.
+It also detects the extraction's clear cancellation scheduling regression: repeated
+idle `WM_CANCELMODE` must schedule no paint; capture loss must schedule one.
+The unfixed archived library fails that negative test.
+
+`tests\native_editor_host_window_tests.cpp` exercises actual native attachment failure,
+destructive/throwing callbacks, composition, HWND identity, selection/undo/redo,
+native formats/ranges/notifications and 63 retirements. Calendar selection compares
+native YMD, not MonthCal's unspecified clock fields; controlled notifications prove
+the complete model's existing clock is retained.
+
+`tests\native_editor_host_probe.cpp` uses the same current source on both revisions.
+It covers actual factory materialization and type sizes, real NumericInput/ComboBox
+embedding presentation, six native editor phases and 51,200 real HWND UIA/Text/Text2
+queries with live-root subtree retirement. Ordinary global C++ new/new[] counters
+exclude aligned new and COM/OS/DLL heaps. GetGuiResources distinguishes valid zero
+from zero with a captured Win32 error. Raw owning/query/process kernel/user CPU is
+separate from wall time and setup; `--verify` does not take timing measurements.
+
+The UIA observer retains every position notification. Its move/size counter examines
+`WM_WINDOWPOSCHANGED` flags, not every SetWindowPos API request. A RichEdit frame-only
+notification with NOMOVE/NOSIZE is not outer movement: exact outer/clipped bounds
+and runtime identities are checked separately for every native field/document.
+This does not establish unchanged client rectangles or zero native work.
+Synthetic composition and owned-window UIA do not establish physical IME, Narrator,
+foreground latency, complete private-memory attribution or full desktop acceptance.
+
 ## Release packaging and local deployment
 
 The public contract is in [Packages and deployment](../specs/packages.md).

@@ -1058,6 +1058,43 @@ ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
+### Native editor family host checks
+
+The ordinary gate requires `xui_native_field_accessibility_tests` alongside both
+collection-family accessibility tests. Native ownership/presentation and real UIA
+work need an environment with visible-window-station and native keyboard services:
+
+```powershell
+cmake --build $build --config Release --target xui_native_editor_host_window_tests xui_native_editor_host_probe
+& ".\$build\Release\xui_native_editor_host_window_tests.exe"
+& ".\$build\Release\xui_native_editor_host_probe.exe" --verify
+```
+
+The probe also accepts `--verify-storage`, `--verify-embedding` and `--verify-uia`;
+unknown selectors fail before native work. `--verify` checks actual factory/type
+storage, NumericInput/editable ComboBox font/color/geometry/selection presentation,
+native source/notification/composition/caret/scroll/paint work and OS Text/Text2/UIA
+identity/retirement without timing. NumericInput's existing focus select-all policy
+is distinct from preserving selection during theme/font/inset updates.
+
+Do not substitute a new invisible window station for native visible/focus services.
+The stage-3b evidence uses a bounded, unswitched owned desktop on the existing visible
+station, without changing the input desktop or global cursor. A separate desktop
+does not isolate the clipboard; these probes do not mutate it. Pixel capture has
+additional prerequisites and failures must remain visible.
+
+For comparison, build the exact same probe/support-header sources against the
+immediate accepted baseline and a fresh immutable candidate with matching `/MT`,
+`/GL` and full `/LTCG`. Archive source/library/binary/command identities before
+execution. Only after an explicit quiet reservation run `--measure`, with at least
+two warmups and seven counterbalanced recorded pairs, no competing native/binding/
+build work, and all samples retained. Stop on any failure or work mismatch.
+Wall time, raw owning/query/process kernel/user CPU, ordinary C++ allocations,
+native message categories, exact effects/identities and resource samples are
+separate evidence. Position notifications with NOMOVE/NOSIZE are retained, not
+misreported as actual outer moves. This is not physical IME/Narrator/foreground
+latency or complete private-memory attribution.
+
 ### Collection-family host checks
 
 The ordinary gate includes `xui_family_accessibility_tests` and
@@ -1065,7 +1102,8 @@ The ordinary gate includes `xui_family_accessibility_tests` and
 and ten source/full-source/nonempty-selection release cases. The retirement test uses
 another thread's bounded `try_lock`, not same-owner mutex behavior. Unknown selectors
 and incomplete coverage fail explicitly. Both tests are required by name, with at
-least 49 headless and two lifetime registrations; the core minimum remains 37.
+least 50 headless and three lifetime registrations, including the required
+`xui_native_field_accessibility_tests`; the core minimum remains 37.
 
 Build the native probe and focused collection fixtures in a separate Release directory:
 

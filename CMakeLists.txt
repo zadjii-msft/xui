@@ -170,6 +170,14 @@ if(WIN32)
         src/drawing.cpp
         src/native_edit.cpp
         src/native_document.cpp
+        src/native_password.cpp
+        src/native_date_time.cpp
+        src/native_field_accessibility.cpp
+        src/native_field_host.cpp
+        src/text_input_host.cpp
+        src/document_host.cpp
+        src/password_host.cpp
+        src/date_time_host.cpp
         src/native_file_dialog.cpp
         src/native_runtime_host.cpp
         src/native_swap_chain_host.cpp
@@ -201,11 +209,22 @@ if(WIN32)
         target_compile_options(xui_collection_host_probe PRIVATE /W4 /permissive- /utf-8 /EHsc)
         target_link_options(xui_collection_host_probe PRIVATE /MANIFEST:NO)
         xui_add_desktop_test(xui_collection_host_probe 90 xui_collection_host_probe)
+        add_executable(xui_native_editor_host_probe tests/native_editor_host_probe.cpp demo/xui.rc)
+        target_include_directories(xui_native_editor_host_probe PRIVATE src)
+        target_link_libraries(xui_native_editor_host_probe PRIVATE xui_windows psapi)
+        target_compile_options(xui_native_editor_host_probe PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_native_editor_host_probe PRIVATE /MANIFEST:NO)
+        xui_add_desktop_test(xui_native_editor_host_probe 180 xui_native_editor_host_probe --verify)
         add_executable(xui_family_accessibility_tests tests/family_accessibility_tests.cpp)
         target_link_libraries(xui_family_accessibility_tests PRIVATE xui_windows)
         target_compile_options(xui_family_accessibility_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
         add_test(NAME xui_family_accessibility_tests COMMAND xui_family_accessibility_tests)
         set_tests_properties(xui_family_accessibility_tests PROPERTIES TIMEOUT 30 LABELS "headless;lifetime")
+        add_executable(xui_native_field_accessibility_tests tests/native_field_accessibility_tests.cpp)
+        target_link_libraries(xui_native_field_accessibility_tests PRIVATE xui_windows)
+        target_compile_options(xui_native_field_accessibility_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        add_test(NAME xui_native_field_accessibility_tests COMMAND xui_native_field_accessibility_tests)
+        set_tests_properties(xui_native_field_accessibility_tests PROPERTIES TIMEOUT 30 LABELS "headless;lifetime")
         add_executable(xui_family_accessibility_retirement_tests tests/family_accessibility_retirement_tests.cpp)
         target_link_libraries(xui_family_accessibility_retirement_tests PRIVATE xui_windows)
         target_compile_options(xui_family_accessibility_retirement_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
@@ -314,6 +333,11 @@ if(WIN32)
         target_compile_options(xui_document_syntax_window_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
         target_link_options(xui_document_syntax_window_tests PRIVATE /MANIFEST:NO)
         xui_add_desktop_test(xui_document_syntax_window_tests 60 xui_document_syntax_window_tests)
+        add_executable(xui_native_editor_host_window_tests tests/native_editor_host_window_tests.cpp demo/xui.rc)
+        target_link_libraries(xui_native_editor_host_window_tests PRIVATE xui_windows)
+        target_compile_options(xui_native_editor_host_window_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        target_link_options(xui_native_editor_host_window_tests PRIVATE /MANIFEST:NO)
+        xui_add_desktop_test(xui_native_editor_host_window_tests 60 xui_native_editor_host_window_tests)
     endif()
     add_library(xui SHARED src/c_api.cpp)
     target_link_libraries(xui PRIVATE xui_windows)
@@ -868,7 +892,8 @@ if(WIN32)
         add_custom_target(xui_headless_tests DEPENDS ${xui_core_test_targets} xui_headless_runner
             xui_syntax_highlighting_tests xui_document_syntax_tests xui_explorer_tests
             xui_abi_tests xui_abi_c_test xui_abi_features_tests xui_document_editing_abi_tests
-            xui_style_catalog xui_image_tests xui_content_host_window_tests xui_family_accessibility_retirement_tests xui_family_accessibility_tests)
+            xui_style_catalog xui_image_tests xui_content_host_window_tests xui_family_accessibility_retirement_tests xui_family_accessibility_tests
+            xui_native_field_accessibility_tests)
         get_property(xui_registered_tests DIRECTORY PROPERTY TESTS)
         foreach(test IN LISTS xui_registered_tests)
             get_property(labels TEST ${test} PROPERTY LABELS)

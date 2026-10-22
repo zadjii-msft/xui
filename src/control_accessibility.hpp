@@ -38,7 +38,6 @@ struct ControlAccessibility {
     std::map<std::uint64_t, FoundationAction> foundation_actions;
 };
 IRawElementProviderSimple* create_control_provider(std::shared_ptr<ControlAccessibility> state);
-IRawElementProviderSimple* create_native_clip_provider(std::shared_ptr<ControlAccessibility> state);
 void publish_control(const std::shared_ptr<ControlAccessibility>& state,
     IRawElementProviderSimple* provider, const Control& control, HWND window);
 void disconnect_control(const std::shared_ptr<ControlAccessibility>& state,
