@@ -2612,7 +2612,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl> {
             if (auto* reveal = dynamic_cast<Reveal*>(ancestor->control.get()); reveal && !reveal->open()) return false;
         for (auto* ancestor = &peer; ancestor && ancestor->parent; ancestor = ancestor->parent)
             if (auto* split = dynamic_cast<SplitView*>(ancestor->parent->control.get());
-                split && ancestor->control == split->second() && !split->expanded()) return false;
+                split && ancestor->control == split->owned_children()[1] && !split->expanded()) return false;
         return true;
     }
     bool command_popup_current(const PopupEntry& entry) const {
