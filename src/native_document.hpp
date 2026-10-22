@@ -9,8 +9,10 @@
 namespace xui {
 class NativeDocumentBridge final {
 public:
-    explicit NativeDocumentBridge(std::shared_ptr<Control> model);
+    explicit NativeDocumentBridge(std::shared_ptr<DocumentText> model);
     ~NativeDocumentBridge();
+    NativeDocumentBridge(const NativeDocumentBridge&) = delete;
+    NativeDocumentBridge& operator=(const NativeDocumentBridge&) = delete;
     void attach(HWND parent, int id);
     HWND window() const { return window_; }
     bool composing() const { return composing_; }
@@ -27,10 +29,9 @@ private:
     void paint_document();
     void paint_line_numbers(HDC dc);
     void invalidate_line_numbers();
-    std::shared_ptr<Control> model_;
+    std::shared_ptr<DocumentText> model_;
     HWND window_{};
     HFONT font_{};
-    NativeFieldFont styled_font_;
     LOGFONTW document_font_{};
     bool document_font_set_{};
     HFONT line_number_font_{};

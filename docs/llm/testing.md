@@ -3,6 +3,16 @@
 This reference describes regression scope and measurement methods.
 Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry points.
 
+## Complete host-family boundary
+
+`tests\control_host_tests.cpp` is a required headless/lifetime test for the completed
+stage-3 partition. It checks detached basic/scene/navigation/composite owners,
+family capability isolation, cancellation without realization, exact retirement,
+null-model rejection, storage bounds and disjoint accessibility payloads. Native
+text and the existing collection/grid retirement cases remain separate requirements.
+The [source map](stage3-host-boundaries.md) records the consolidated delivery scope
+and preserved performance evidence; it does not claim an unmeasured timing pass.
+
 ## Collection-family host boundary
 
 `tests\family_accessibility_tests.cpp` checks five malformed row-role capabilities,
@@ -26,6 +36,42 @@ Use the [contributor procedure](../../CONTRIBUTING.md#collection-family-host-che
 The [3a companion](stage3a-collection-host.md) separates baseline-matched desktop failures
 and earlier unresolved optimizer/foreground/IME/Narrator/inspection limitations from
 this extraction's own evidence.
+
+## Native editor host boundary
+
+`tests\native_field_accessibility_tests.cpp` is a required headless/lifetime test:
+native-field metadata isolation, long UTF-16 clear/root metadata, password denial,
+pattern non-impersonation, COM/runtime identity, disconnected providers, malformed
+capabilities, clear-policy negative calls and checked GUI-resource result handling.
+It also detects the extraction's clear cancellation scheduling regression: repeated
+idle `WM_CANCELMODE` must schedule no paint; capture loss must schedule one.
+The unfixed archived library fails that negative test.
+Repeated unchanged clear publication constructs each of its three long metadata
+strings once, not a second full identity for possible events. Changed publication
+retains an owning Name event value and scalar snapshots across reentrant COM calls;
+retired metadata and COM operations stay outside the state mutex.
+
+`tests\native_editor_host_window_tests.cpp` exercises actual native attachment failure,
+destructive/throwing callbacks, composition, HWND identity, selection/undo/redo,
+native formats/ranges/notifications and 63 retirements. Calendar selection compares
+native YMD, not MonthCal's unspecified clock fields; controlled notifications prove
+the complete model's existing clock is retained.
+
+`tests\native_editor_host_probe.cpp` uses the same current source on both revisions.
+It covers actual factory materialization and type sizes, real NumericInput/ComboBox
+embedding presentation, six native editor phases and 51,200 real HWND UIA/Text/Text2
+queries with live-root subtree retirement. Ordinary global C++ new/new[] counters
+exclude aligned new and COM/OS/DLL heaps. GetGuiResources distinguishes valid zero
+from zero with a captured Win32 error. Raw owning/query/process kernel/user CPU is
+separate from wall time and setup; `--verify` does not take timing measurements.
+
+The UIA observer retains every position notification. Its move/size counter examines
+`WM_WINDOWPOSCHANGED` flags, not every SetWindowPos API request. A RichEdit frame-only
+notification with NOMOVE/NOSIZE is not outer movement: exact outer/clipped bounds
+and runtime identities are checked separately for every native field/document.
+This does not establish unchanged client rectangles or zero native work.
+Synthetic composition and owned-window UIA do not establish physical IME, Narrator,
+foreground latency, complete private-memory attribution or full desktop acceptance.
 
 ## Release packaging and local deployment
 
@@ -115,7 +161,9 @@ its exit status. A kill-on-close job bounds the subprocess tree and a 15-minute 
 each invocation. It neither activates an interactive desktop nor proves desktop correctness.
 The binding step runs its complete command sequence in a fresh PowerShell process on that station.
 
-The current native inventory is **47 headless tests**:
+The stage-2 inventory below contained **47 headless tests**. The current stage-3
+gate requires **51**, additionally covering family providers, lock retirement,
+native-field providers and the completed control-host partition:
 
 | Label | Exact selection (all names have the `xui_` prefix) |
 | --- | --- |

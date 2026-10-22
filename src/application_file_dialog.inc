@@ -17,7 +17,7 @@ std::optional<std::wstring> Window::show_file_dialog(bool save, const FileDialog
     if (impl->native_file_dialog || impl->replacing || impl->syncing || !impl->popups.empty())
         throw std::logic_error("Close the current popup or dialog before opening a file dialog");
     for (const auto& peer : impl->peers)
-        if ((peer->edit_bridge() && peer->edit_bridge()->composing()) || (peer->document_bridge() && peer->document_bridge()->composing()))
+        if (const auto* native = peer->native_field(); native && native->composing())
             throw std::logic_error("Finish native text composition before opening a file dialog");
     Impl::InputScope input(*impl);
     const auto owner = impl->window;
