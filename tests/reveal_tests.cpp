@@ -20,7 +20,7 @@ void contracts() {
     Reveal reveal(content);
     require(!reveal.open() && !reveal.animating() && reveal.duration() == 0, "Reveal is closed and motion is opt-in");
     near(reveal.measure({500, 500}).height, 0, "Closed reveal reserves no height");
-    require(reveal.retained_children().size() == 1 && reveal.content() == content, "Reveal retains one child");
+    require(reveal.owned_children().size() == 1 && reveal.content() == content, "Reveal retains one child");
     reveal.set_open(true);
     near(reveal.progress(), 1, "Default opening is immediate");
     near(reveal.measure({500, 500}).height, 56, "Open reveal uses full child height");

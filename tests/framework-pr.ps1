@@ -27,7 +27,7 @@ try {
         $inventory | Set-Content (Join-Path $build 'headless-inventory.json') -Encoding utf8
         $tests = ($inventory | ConvertFrom-Json).tests
         $names = @($tests | ForEach-Object { $_.name })
-        foreach ($required in @('xui_core_tests', 'xui_control_tests', 'xui_layout_performance_tests',
+        foreach ($required in @('xui_core_tests', 'xui_control_tests', 'xui_owned_children_tests', 'xui_content_host_model_tests', 'xui_layout_performance_tests',
             'xui_performance_tests', 'xui_collections_tests', 'xui_document_editing_tests',
             'xui_abi_tests', 'xui_abi_c_test', 'xui_abi_features_headless_tests', 'xui_control_style_catalog_parity',
             'xui_row_image_performance_tests', 'xui_syntax_highlighting_tests')) {
@@ -39,7 +39,7 @@ try {
                 throw "Unexpected test registration with desktop tests OFF: $($test.name)"
             }
         }
-        foreach ($label in @{ headless = 45; core = 36; abi = 4; syntax = 2; schema = 1; allocation = 1; model = 1 }.GetEnumerator()) {
+        foreach ($label in @{ headless = 47; core = 37; abi = 4; syntax = 2; schema = 1; allocation = 1; model = 2 }.GetEnumerator()) {
             $selected = @($tests | Where-Object {
                 $label.Key -in @($_.properties | Where-Object name -eq 'LABELS' | ForEach-Object { $_.value })
             })

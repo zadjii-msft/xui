@@ -335,8 +335,8 @@ Writing this plan does not complete any runtime finding.
 | Stage | PR scope | Current status | Must merge first | Finding coverage |
 | --- | --- | --- | --- | --- |
 | 0 | `architecture-refactor-roadmap` | Merged: [#57](https://github.com/zadjii-msft/xui/pull/57); accepted `b00835a76d10d0188722f25551b6c375e66e4a30`, squash `3f86e085aad8ac36445a47061e1f7640da407fb6` | None | Records all seven findings and the complete rollout |
-| 1 | `baseline-gates` | In review preparation: [#58](https://github.com/zadjii-msft/xui/pull/58); implementation/headless evidence below, desktop/timing limits unresolved; no accepted/merged head yet | 0 | Establishes evidence and ordinary PR protection for every later stage |
-| 2 | `child-contract` | Not started | 1 | Finding 3: owned children and separate traversal policies |
+| 1 | `baseline-gates` | Verified merged: [#58](https://github.com/zadjii-msft/xui/pull/58); accepted `dce6ae447cc566816b32653fe3dd43de5fb9432a`, squash `8fdc2269a065837737b1dc5dcc0962a574ce10cd`; recorded desktop/timing limits remain unresolved | 0 | Establishes evidence and ordinary PR protection for every later stage |
+| 2 | `child-contract` | In review preparation; based on fetched `8fdc2269`; implementation and evidence below | 1 | Finding 3: owned children and separate traversal policies |
 | 3 | `host-boundaries` | Not started | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Not started | 3, including all approved subdivisions | Finding 2: originating identity and targeted ordered work |
 | 5 | `callback-ownership` | Not started | 4 | Finding 4: composition/observation separation and scoped retirement |
@@ -404,9 +404,12 @@ from its unresolved multiwindow, window-resource, retained-scroll and native-inp
 There is no valid paired local-edit/native-text/content-replacement/realized-lifetime timing
 baseline or physical IME/Narrator acceptance yet. Those criteria remain explicitly unresolved;
 the headless gate must not be substituted for them in later refactors.
-The parent must review the exact PR head/checks and decide acceptance of these recorded
-environment limits before merging. Stage 2 and every later stage remain **not started**;
-the next stage may start only after this PR's merge is verified.
+The parent independently verified the exact accepted head
+`dce6ae447cc566816b32653fe3dd43de5fb9432a` and hosted checks, accepted the recorded
+stage-1 evidence limits, and merged [#58](https://github.com/zadjii-msft/xui/pull/58)
+as `8fdc2269a065837737b1dc5dcc0962a574ce10cd`.
+Stage 2 fetched and verified that merged main before implementation.
+This does not resolve the remaining desktop/performance criteria or authorize stage 3.
 
 ### Stage 2: Owned-child contract and traversal policies
 
@@ -421,6 +424,50 @@ Separate presentation/realization tests prove unopened content gains no HWNDs;
 replacement, retirement, inspection, clipping, focus, and accessibility retain their intended behavior.
 No allocation is added to steady-state child enumeration.
 Update the source map and public ownership contract only where its documented behavior actually changes.
+
+**Implementation:** `Element::owned_children()` provides one borrowed direct-child range
+for layouts and controls. Stack projects its existing Child records; contiguous composites
+borrow their existing shared handles. No per-Element/control storage, per-walk vector,
+ownership copy or native realization is added. SplitView's two slots use the same total
+shared-handle storage. The obsolete retained-child API is removed throughout repository
+consumers rather than kept as a compatibility shim.
+
+All affected native ownership, collection, visual/paint, inspection and dialog consumers use
+the contract. Ownership registration still includes every page and closed/lazy descendant;
+active collection, visited native retention, replacement exceptions, scrolling/clipping and
+host adornments remain separate. Ordinary PageView collection does not apply typography or
+claims to unvisited pages. Dialog presentation now reaches nested ContentView/SplitView
+slots; inspection uses actual axis-aware split-pane clips. These are explicit tightly
+coupled coverage corrections, not a promise that logical/native/UIA trees are identical.
+See the [source map and policy matrix](architecture.md#owned-model-tree-and-traversal-policies).
+
+#### Stage 2 evidence: October 21, 2026
+
+The implementation starts from fetched merged main `8fdc2269a065837737b1dc5dcc0962a574ce10cd`.
+The readonly original `99016573d633636c54da71af5db247e5c249051e` artifacts supply native
+and performance comparisons; they are never rebuilt or modified by this stage.
+Both use x64 MSVC 19.44.35217, SDK 10.0.26100, Release with default IPO ON;
+the current gate requires LSH.
+
+Completed focused checks:
+
+| Command / comparison | Actual evidence |
+| --- | --- |
+| `tests\framework-pr.ps1` | 47/47 native headless tests pass on the private non-visible station, including the new mandatory owned-child and ContentHost model registrations; 37 core / 2 model classifications are selected, not zero-test name filters. Generator drift/native-export guards, 45,403 generator and 11 MSBuild assertions, managed 80/374/11,006/58 Reveal/23 tab assertions, and complete Rust 1/39/2-doc tests pass. |
+| `xui_owned_children_tests` | Every family/direct slot, exact identity/order/reference addresses, empty leaves, custom typed-member projection, nested dialog presentation, invalid topology and weak retirement pass. Repeated direct enumeration and 17,474,000 nested visits allocate zero times. Hidden ColorPicker swatch slots remain owned after its visible palette shrinks. |
+| `xui_owned_children_tests --benchmark` and invalid selectors | Explicit benchmark mode reports only its work/allocation checks. Unknown, empty and extra arguments return 2 before work. The ContentHost fixture's new modes reject the same malformed selectors before model/native work. |
+| `xui_content_host_window_tests --model-only` | Existing candidate ownership/thread/duplicate/cycle/foreign-host errors plus nested slots, inactive inspection registration, selected/clipped pointer policy and discarded descendants pass without `show`/`run`. |
+| `xui_abi_features_tests --headless` | 264,826 assertions pass, including 32 inactive-page/closed-Reveal/ScrollView/SplitView/NumericInput/ColorPicker content-scope commits and clears; stale child/root handles fail and each cycle restores the exact handle baseline. |
+| `xui_content_host_window_tests --owned-only` | Classic and WinUI selected-only initial realization, 100 exact model walks without new HWNDs, visited/inactive replacement, closed-Reveal replacement exception and open/close retention pass. Active updates perform exactly 32 active typography calls and zero inactive calls with both 128 and 2,048 unvisited items, retaining exactly one HWND. |
+| Full original/candidate `xui_content_host_window_tests` | Both exit 0: 200 native replacement cycles, outside editor text/selection/undo/identity, popup retirement, map/runtime disposal, UIA and explicit fatal failure remain covered. Candidate additionally runs the new focused contracts. Both focus traces report zero activation/focus requests and zero foreground changes. |
+| Original/candidate `xui_content_inspection_window_tests` | Both exit 1 with the same `Pointer inspection encountered an unproven native descendant` / `Native inspection fixture completed` failure. Not passed or waived. |
+| Original/candidate `xui_content_highlight_window_tests` | Both pass 100 highlight/clear/replacement cycles with exact HWND/USER/GDI baseline, then exit 1 in the clipped-layout fixture at `Newly active page is visible`. Identical failure is retained, not converted into a pass. |
+
+The focused native evidence does not establish physical IME/Narrator behavior, valid
+foreground-native input latency/private-memory comparisons, or a green complete desktop
+suite. Stage-1 desktop limitations remain unresolved; the two additional baseline-matched
+inspection/highlight failures above are also explicit. This stage does not alter those
+assertions or attempt unrelated host fixes. Stage 3 and every later stage remain **not started**.
 
 ### Stage 3: Meaningful control-family host boundaries
 

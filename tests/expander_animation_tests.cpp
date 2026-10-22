@@ -86,7 +86,7 @@ void animated_layout(unsigned variant, bool explicit_size) {
         if (clip.height > 0)
             require(clip.y + clip.height <= surface.y + surface.height + 0.01f,
                 "The content viewport cannot extend beyond the animated body");
-        require(expander->content() == child && expander->retained_children().size() == 1,
+        require(expander->content() == child && expander->owned_children().size() == 1,
             "Animation preserves the single owned child and hierarchy");
     }
     require(!expander->animating() && expander->progress() == 1, "Entry completes exactly");

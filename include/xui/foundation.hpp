@@ -122,7 +122,7 @@ class Popup final : public Control {
 public:
     explicit Popup(std::shared_ptr<Element> content, std::wstring name = L"Popup");
     const std::shared_ptr<Element>& content() const { return children_[0]; }
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
     Size measure(Size available) override;
     Rect content_bounds() const;
@@ -170,7 +170,7 @@ public:
     const std::shared_ptr<TextInput>& editor() const { return editor_; }
     const std::shared_ptr<Popup>& popup() const { return popup_; }
     const std::shared_ptr<RadioGroup>& choices() const { return choices_; }
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
     Rect editor_bounds() const;
     Rect drop_down_bounds() const;
@@ -208,7 +208,7 @@ public:
     const std::locale& locale() const { return locale_; }
     bool valid() const { return valid_; }
     const std::shared_ptr<TextInput>& editor() const { return editor_; }
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     const std::shared_ptr<Button>& decrease_button() const { return decrease_; }
     const std::shared_ptr<Button>& increase_button() const { return increase_; }
     void arrange(Rect bounds) override;
@@ -246,7 +246,7 @@ class Expander final : public Control, public Animation {
 public:
     Expander(std::wstring header, std::shared_ptr<Element> content);
     const std::shared_ptr<Element>& content() const { return children_[0]; }
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     bool expanded() const { return expanded_; }
     void set_expanded(bool value);
     void set_duration(unsigned milliseconds);

@@ -16,7 +16,7 @@ void numeric_layout() {
     NumericInput number;
     number.set_locale(std::locale::classic());
     number.set_value(12);
-    const auto children = number.retained_children();
+    const auto children = number.owned_children();
     const auto editor = children[0], decrease = children[1], increase = children[2];
     number.arrange({10, 20, 320, 44});
     require(same(editor->bounds(), {10, 20, 240, 44}) &&
@@ -34,8 +34,8 @@ void numeric_layout() {
         same(decrease->bounds(), {294, 24, 32, 36}), "WinUI puts Up before Down with template margins and vertical stretch");
     require(std::static_pointer_cast<Button>(decrease)->appearance() == ButtonAppearance::subtle,
         "Inline spin buttons are subtle actions");
-    require(number.retained_children()[0] == editor && number.retained_children()[1] == decrease &&
-        number.retained_children()[2] == increase && number.value() == 12 && !changes,
+    require(number.owned_children()[0] == editor && number.owned_children()[1] == decrease &&
+        number.owned_children()[2] == increase && number.value() == 12 && !changes,
         "Style switches retain NumberBox peers and value without callbacks");
     number.commit_text(L"invalid");
     number.set_visual_style(VisualStyle::classic);
@@ -71,7 +71,7 @@ void numeric_layout() {
         "Placement remains independent of theme");
     number.set_spin_placement(NumberSpinPlacement::inline_buttons);
     require(up->visible() && number.decrease_bounds().x < number.increase_bounds().x &&
-        number.retained_children()[1] == decrease && number.retained_children()[2] == increase,
+        number.owned_children()[1] == decrease && number.owned_children()[2] == increase,
         "Restoring Classic Inline retains peers and decrement/increment order");
     bool rejected{};
     try { number.set_spin_placement(static_cast<NumberSpinPlacement>(99)); }

@@ -26,7 +26,7 @@ No hosted site is required to read these pages.
 
 - [Packages and deployment](packages.md): `dotnet new xui`, NuGet, Cargo, native-only C++ integration, sample and Designer archives, and local DLL selection.
 - [Declarative XUI](xui-language.md): Components, C# state, [compiler diagnostics](xui-language.md#compiler-diagnostics), project integration, hot reload, and VS Code or Microsoft Edit syntax support.
-- [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, ownership, native file dialogs, and accessibility.
+- [Application composition and lifecycle](application.md): C++ examples, controls, sizing, scrolling, [owned-child enumeration](application.md#owned-child-enumeration), native file dialogs, and accessibility.
 - [C ABI, C#, and Rust](bindings.md): Binding coverage, examples, data limits, and error contracts.
 - [WinUI-style appearance](winui-style.md): Optional style selection, supported controls, and platform boundaries.
 - [Mica and acrylic materials](materials.md): Windows 11 window backdrops, in-app acrylic surfaces, fallbacks, and binding coverage.

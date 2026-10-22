@@ -51,7 +51,7 @@ public:
     void on_select(std::function<void(ShapeId)> callback) { selected_callback_ = std::move(callback); }
     // The list is the keyboard and UIA alternative for interactive shapes.
     const std::shared_ptr<VirtualCollection>& accessible_items() const { return items_; }
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
     void arrange(Rect bounds) override;
     Rect canvas_bounds() const;
     Rect content_bounds() const;

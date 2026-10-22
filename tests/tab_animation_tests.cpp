@@ -59,7 +59,7 @@ void contracts() {
     same(tabs.tab_bounds(2), last);
     near(tabs.tab_bounds(1).width, 0);
     require(tabs.close_bounds(1).width == 0, "A zero-width incoming tab has no close target");
-    require(tabs.new_tab_button() == button && tabs.retained_children().size() == 1,
+    require(tabs.new_tab_button() == button && tabs.owned_children().size() == 1,
         "All tabs share one strip and the original retained New tab button");
     geometry(tabs);
     const auto tick = Animation::Clock::now();

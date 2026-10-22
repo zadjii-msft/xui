@@ -1341,6 +1341,48 @@ void parity_control_contracts() {
     v = value(); expect(xui_feature_get(link, XUI_F_CHECK_STATE, &v) == XUI_WRONG_KIND);
     ok(xui_window_destroy(window));
 }
+void owned_content_contracts() {
+    xui_window_options options{sizeof(options), XUI_ABI_VERSION, text("Owned content"), 600, 400};
+    xui_handle window{}, host{}, root{};
+    ok(xui_window_create(&options, &window));
+    ok(xui_content_host_create(window, &host));
+    ok(xui_stack_create(window, 1, &root));
+    ok(xui_stack_add(root, host, 1));
+    ok(xui_window_content(window, root));
+    uint32_t baseline{};
+    ok(xui_content_handle_count(window, &baseline));
+    for (unsigned iteration = 0; iteration < 32; ++iteration) {
+        xui_handle scope{}, active{}, scroll{}, reveal{}, editor{};
+        ok(xui_content_begin(host, &scope));
+        const auto pages = create(window, XUI_PAGE_VIEW);
+        ok(xui_create(window, XUI_LABEL, text("Active"), 0, &active));
+        const auto number = create(window, XUI_NUMERIC_INPUT);
+        const auto color = create(window, XUI_COLOR_PICKER);
+        ok(xui_feature_child(number, 0, &editor));
+        const auto split = create(window, XUI_SPLIT_VIEW, number, color);
+        ok(xui_create(window, XUI_SCROLL_VIEW, text("Scroll"), split, &scroll));
+        ok(xui_reveal_create(window, scroll, text("Deferred"), &reveal));
+        ok(xui_panel_add(pages, active, 0, 0, 1, 1));
+        ok(xui_panel_add(pages, reveal, 0, 0, 1, 1));
+        const xui_content_inspection_target targets[]{{0, 0, pages}, {1, 0, active}, {2, 0, editor}, {3, 0, color}};
+        unsigned events{};
+        ok(xui_content_inspection_targets(scope, targets, 4, count_event, &events));
+        ok(xui_content_commit(scope, pages));
+        xui_handle owner{};
+        ok(xui_content_owner(editor, &owner));
+        expect(owner == scope && events == 0);
+        uint32_t open{};
+        ok(xui_reveal_get_open(reveal, &open));
+        expect(open == 0);
+        ok(xui_content_clear(host));
+        expect(xui_content_owner(editor, &owner) == XUI_INVALID_HANDLE);
+        expect(xui_content_owner(pages, &owner) == XUI_INVALID_HANDLE);
+        uint32_t after{};
+        ok(xui_content_handle_count(window, &after));
+        expect(after == baseline);
+    }
+    ok(xui_window_destroy(window));
+}
 int main(int argc, char** argv) {
     const bool headless = argc == 2 && std::strcmp(argv[1], "--headless") == 0;
 #ifdef _MSC_VER
@@ -1377,6 +1419,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (!headless) backdrop_contracts();
+    owned_content_contracts();
     toggle_control_contracts();
     retained_navigation_style_bridges();
     split_first_visibility_contracts();

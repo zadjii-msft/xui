@@ -158,7 +158,7 @@ void button_appearance() {
 }
 void composite_appearances() {
     NavigationView navigation(L"Explore");
-    const auto title = std::dynamic_pointer_cast<Label>(navigation.retained_children()[1]);
+    const auto title = std::dynamic_pointer_cast<Label>(navigation.owned_children()[1]);
     require(title && title->text_style() == TextStyle::heading, "Classic navigation retains its original title typography");
     navigation.set_visual_style(VisualStyle::winui);
     require(title->text_style() == TextStyle::body_strong &&
@@ -192,7 +192,7 @@ void composite_appearances() {
     require(dialog.primary()->appearance() == ButtonAppearance::standard, "Applications can override dialog button appearance");
     InlineStatus status(L"Saved");
     status.set_dismissible(true);
-    const auto dismiss = std::dynamic_pointer_cast<Button>(status.retained_children().back());
+    const auto dismiss = std::dynamic_pointer_cast<Button>(status.owned_children().back());
     require(dismiss && dismiss->appearance() == ButtonAppearance::subtle, "Status dismiss action uses subtle appearance");
 }
 void presentation_measurement() {

@@ -125,7 +125,7 @@ struct Fixture {
     }
     void flush() { SendMessageW(host, update, 0, 0); UpdateWindow(host); }
     void geometry() {
-        require(expander->content() == body && expander->retained_children().size() == 1,
+        require(expander->content() == body && expander->owned_children().size() == 1,
             "The original Expander owns its original body without another host");
         require(GetParent(editor) == header && named_peer(host, L"Animated details") == header,
             "The editor keeps its original native Expander parent");

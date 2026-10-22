@@ -74,7 +74,7 @@ public:
     void move_active(bool right);
     Size measure(Size available) override;
     void arrange(Rect bounds) override;
-    std::span<const std::shared_ptr<Element>> retained_children() const override { return children_; }
+    OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
 private:
     friend class MillerColumnList;
     bool select_item(std::size_t index, ItemKey key, SelectionGesture gesture);
