@@ -84,7 +84,8 @@ struct HostPeer {
     virtual std::optional<LRESULT> input(UINT, WPARAM, LPARAM, const HostInputContext&) = 0;
     virtual void cancel_wheel() {}
     virtual bool advance_wheel(Animation::Clock::time_point, bool, bool) { return false; }
-    virtual bool image_work(RowImageWork&, bool) { return false; }
+    virtual bool image_sync_required() const { return false; }
+    virtual bool image_work(RowImageWork&) { return false; }
     virtual bool sync_images(RowImageWork, UINT, const std::shared_ptr<TaskWake>&,
         std::vector<std::uint64_t>&, std::size_t&) { return false; }
     virtual std::size_t metric(PeerMetric) const { return 0; }

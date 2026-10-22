@@ -19,7 +19,8 @@ public:
     std::optional<LRESULT> input(UINT, WPARAM, LPARAM, const HostInputContext&) override;
     void cancel_wheel() override { wheel_.active = false; }
     bool advance_wheel(Animation::Clock::time_point, bool, bool) override;
-    bool image_work(RowImageWork&, bool) override;
+    bool image_sync_required() const override { return true; }
+    bool image_work(RowImageWork&) override;
     bool sync_images(RowImageWork, UINT, const std::shared_ptr<TaskWake>&,
         std::vector<std::uint64_t>&, std::size_t&) override;
     std::size_t metric(PeerMetric) const override;

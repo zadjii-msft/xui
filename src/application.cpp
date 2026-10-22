@@ -156,7 +156,10 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         }
         void paint(const HostPaintContext&) override;
         std::optional<LRESULT> input(UINT, WPARAM, LPARAM, const HostInputContext&) override { return {}; }
-        bool image_work(RowImageWork&, bool) override;
+        bool image_sync_required() const override {
+            return image || dynamic_cast<const TabStrip*>(control.get());
+        }
+        bool image_work(RowImageWork&) override;
         bool sync_images(RowImageWork work, UINT dpi, const std::shared_ptr<TaskWake>& wake,
             std::vector<std::uint64_t>& retained, std::size_t&) override {
             return row_images->sync_visuals(std::move(work.rows), dpi, wake, retained, 16);
@@ -3340,8 +3343,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         std::vector<std::uint64_t> retained;
         std::vector<RowImageWork> work;
         for (const auto& peer : peers) {
-            if (peer->family == HostFamily::unextracted && !peer->image_peer() &&
-                !dynamic_cast<TabStrip*>(peer->control.get())) continue;
+            if (!peer->image_sync_required()) continue;
             Rect rect = peer->control->bounds();
             const auto intersect = [&](Rect clip) {
                 const auto right = std::min(rect.x + rect.width, clip.x + clip.width);
@@ -3359,7 +3361,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 if (image->pixels) retained.push_back(image->pixels->id);
             } else {
                 RowImageWork item{peer.get(), rect, shown};
-                if (peer->image_work(item, enabled(*peer))) work.push_back(std::move(item));
+                if (peer->image_work(item)) work.push_back(std::move(item));
             }
         }
         std::size_t remaining = 48;
@@ -5658,7 +5660,7 @@ void Window::Impl::UnextractedPeer::attach(HWND parent, int id) { owner(*this).a
 void Window::Impl::UnextractedPeer::paint(const HostPaintContext& context) {
     owner(*this).paint_unextracted(*this, context.focus_visible);
 }
-bool Window::Impl::UnextractedPeer::image_work(RowImageWork& work, bool) {
+bool Window::Impl::UnextractedPeer::image_work(RowImageWork& work) {
     const auto* tabs = dynamic_cast<TabStrip*>(control.get());
     if (!tabs) return false;
     if (!row_images) row_images = std::make_unique<RowImages>();

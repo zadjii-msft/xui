@@ -25,8 +25,10 @@ void FileListHostPeer::publish_accessibility() { list_.publish(); }
 void FileListHostPeer::native_moved() { list_.publish(); }
 void FileListHostPeer::detach_owner() { list_.detach_thumbnails(); }
 void FileListHostPeer::paint(const HostPaintContext& context) { list_.paint(context.canvas); }
-bool FileListHostPeer::image_work(RowImageWork& work, bool) {
-    if (!static_cast<const FileList&>(*control).thumbnails() && !list_.thumbnail_count()) return false;
+bool FileListHostPeer::image_sync_required() const {
+    return static_cast<const FileList&>(*control).thumbnails() || list_.thumbnail_count();
+}
+bool FileListHostPeer::image_work(RowImageWork& work) {
     work.clip.y -= control->bounds().y;
     return true;
 }

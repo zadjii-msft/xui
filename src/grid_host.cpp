@@ -333,7 +333,7 @@ void GridHostPeer::paint(const HostPaintContext& context) {
     return;
 }
 
-bool GridHostPeer::image_work(RowImageWork& work, bool) {
+bool GridHostPeer::image_work(RowImageWork& work) {
     if (!row_images_) row_images_ = std::make_unique<RowImages>();
     auto* grid = &grid_;
     auto rect = work.clip;

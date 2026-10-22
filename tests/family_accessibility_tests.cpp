@@ -3,6 +3,9 @@
 #include "xui/documents.hpp"
 #include "../src/collection_accessibility.hpp"
 #include "../src/grid_accessibility.hpp"
+#include "../src/collection_host.hpp"
+#include "../src/grid_host.hpp"
+#include "../src/file_list_host.hpp"
 #include <UIAutomation.h>
 #include <wrl/client.h>
 #include <iostream>
@@ -12,6 +15,38 @@ using namespace xui;
 using collections_test::require;
 using Microsoft::WRL::ComPtr;
 void success(HRESULT value, const char* message) { require(SUCCEEDED(value), message); }
+struct DetachedServices final : PeerHostServices {
+    HWND create_input_surface(HostPeer&, HWND, int) override { std::terminate(); }
+    LRESULT dispatch_input(HostPeer&, HWND, UINT, WPARAM, LPARAM) noexcept override { std::terminate(); }
+    bool input_enabled(const HostPeer&) const override { std::terminate(); }
+    bool input_visible(const HostPeer&) const override { std::terminate(); }
+    bool owner_open() const override { std::terminate(); }
+    bool focus_peer(HostPeer&, bool) override { std::terminate(); }
+    void reveal_peer(HostPeer&) override { std::terminate(); }
+    void update_peer_state() override { std::terminate(); }
+    void invalidate_peer_paint() override { std::terminate(); }
+    bool wheel_animation_allowed() const override { std::terminate(); }
+    void offer_row_tooltip(HostPeer&) override { std::terminate(); }
+    bool file_drag_eligible(const Control&, HWND) const override { std::terminate(); }
+    void deliver_file_drop(std::function<void()>) noexcept override { std::terminate(); }
+    std::shared_ptr<PeerHostServices> acquire_owner_lease() override { std::terminate(); }
+    void forget_peer(HostPeer&) noexcept override {}
+    void peer_failure() noexcept override { std::terminate(); }
+};
+void image_participation() {
+    DetachedServices host;
+    auto list = std::make_shared<FileList>(L"No image work");
+    FileListHostPeer files(host, list);
+    require(!files.image_sync_required(), "A plain legacy list is rejected before image visibility/geometry work");
+    list->set_thumbnails(true);
+    require(files.image_sync_required(), "Enabled legacy thumbnails participate in image synchronization");
+    list->set_thumbnails(false);
+    require(!files.image_sync_required(), "A plain list with no retained thumbnails stops participating");
+    CollectionHostPeer collection(host, std::make_shared<ItemsView>(L"Collection"));
+    GridHostPeer grid(host, std::make_shared<DataGrid>(L"Grid"));
+    require(collection.image_sync_required() && grid.image_sync_required(),
+        "Collection/grid owners participate even for empty sources, preserving cancellation");
+}
 class RoleControl final : public Control {
 public:
     explicit RoleControl(ControlRole role) : Control(role, L"Role capability probe", {100, 24}) {}
@@ -103,7 +138,7 @@ void grid() {
 }
 int main() {
     try {
-        role_capabilities(); collection(); grid();
+        image_participation(); role_capabilities(); collection(); grid();
         std::cout << "Typed provider identity, token replay, retained-child and disconnect contracts passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

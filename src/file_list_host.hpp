@@ -18,7 +18,8 @@ public:
     bool capture_active() const override { return true; }
     void paint(const HostPaintContext&) override;
     std::optional<LRESULT> input(UINT, WPARAM, LPARAM, const HostInputContext&) override { return {}; }
-    bool image_work(RowImageWork&, bool) override;
+    bool image_sync_required() const override;
+    bool image_work(RowImageWork&) override;
     bool sync_images(RowImageWork, UINT, const std::shared_ptr<TaskWake>&,
         std::vector<std::uint64_t>&, std::size_t&) override;
     std::size_t metric(PeerMetric) const override;

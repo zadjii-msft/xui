@@ -71,6 +71,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
         $stderr = Join-Path $evidence "$name.stderr.log"
         $binary = Join-Path $evidence "$($revision.Name)\collection_host_probe.exe"
         $clock = [Diagnostics.Stopwatch]::StartNew()
+        $startedUtc = [DateTime]::UtcNow.ToString('o')
         $process = Start-Process -FilePath $binary -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         $exited = $process.WaitForExit(90000)
         $terminationErrors = @()
@@ -79,6 +80,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
             if (!$process.WaitForExit(10000)) {
                 [pscustomobject]@{
                     Revision = $revision.Name; Kind = $kind; Round = $index
+                    StartedUtc = $startedUtc; CompletedUtc = [DateTime]::UtcNow.ToString('o')
                     TimedOut = $true; TerminationUnconfirmed = $true; ProcessId = $process.Id
                     TerminationErrors = @($terminationErrors | ForEach-Object { $_.ToString() })
                     Stdout = $stdout; Stderr = $stderr
@@ -90,6 +92,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
         $process.Refresh()
         $record = [ordered]@{
             Revision = $revision.Name; Kind = $kind; Round = $index
+            StartedUtc = $startedUtc; CompletedUtc = [DateTime]::UtcNow.ToString('o')
             ExitCode = $process.ExitCode; TimedOut = !$exited
             TerminationErrors = @($terminationErrors | ForEach-Object { $_.ToString() })
             ProcessWallMilliseconds = $clock.Elapsed.TotalMilliseconds
@@ -103,6 +106,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
         if (!$exited -or $process.ExitCode -ne 0) { throw "Probe failed: $name (raw logs retained)" }
         $record.Phases = @(Get-Content -LiteralPath $stdout | ConvertFrom-Json)
         $records[-1].Phases = $record.Phases
+        $records | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'samples.json') -Encoding utf8
         $expected = @{
             'scroll-sync' = 32768
             'selection-publication' = 8192
@@ -146,17 +150,18 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
             $retained.targets -ne 1 -or $retained.selection_terms -ne 2 -or $retained.editor_scroll_writes -ne 0) {
             throw "Invalid retained resource/work bounds in $name"
         }
+        foreach ($phaseName in $expected.Keys) {
+            $reference = @($records[0].Phases | Where-Object phase -eq $phaseName)[0]
+            $actual = @($record.Phases | Where-Object phase -eq $phaseName)[0]
+            foreach ($counter in @('checksum', 'item_reads', 'item_keys', 'item_lookups', 'grid_reads',
+                'grid_keys', 'grid_lookups', 'item_callbacks', 'grid_callbacks', 'updates',
+                'selected_item', 'selected_grid', 'selected_file', 'source_transitions', 'paints')) {
+                if ($actual.$counter -ne $reference.$counter) {
+                    throw "Actual $phaseName $counter work changed in $name (raw record retained)"
+                }
+            }
+        }
         $records | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'samples.json') -Encoding utf8
         Write-Host "$name completed"
-    }
-}
-foreach ($phaseName in $expected.Keys) {
-    foreach ($counter in @('checksum', 'item_reads', 'item_keys', 'item_lookups', 'grid_reads',
-        'grid_keys', 'grid_lookups', 'item_callbacks', 'grid_callbacks', 'updates',
-        'selected_item', 'selected_grid', 'selected_file', 'source_transitions', 'paints')) {
-        $values = @($records | ForEach-Object {
-            $_.Phases | Where-Object phase -eq $phaseName | ForEach-Object { $_.$counter }
-        } | Sort-Object -Unique)
-        if ($values.Count -ne 1) { throw "Revisions/processes differ in $phaseName actual $counter work" }
     }
 }

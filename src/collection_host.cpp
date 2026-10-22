@@ -139,7 +139,7 @@ void CollectionHostPeer::paint(const HostPaintContext& context) {
     return;
 }
 
-bool CollectionHostPeer::image_work(RowImageWork& work, bool enabled) {
+bool CollectionHostPeer::image_work(RowImageWork& work) {
     if (!row_images_) row_images_ = std::make_unique<RowImages>();
     auto* collection = &collection_;
     auto rect = work.clip;
@@ -163,7 +163,7 @@ bool CollectionHostPeer::image_work(RowImageWork& work, bool enabled) {
             const auto* tree = dynamic_cast<const TreeView*>(collection);
             if (collection->presentation() == ItemsPresentation::gallery || tree) {
                 const auto state = collection_row_style_state(row, collection->selection().contains(row.key),
-                    collection->focused() && collection->selection().focused() == row.key, enabled,
+                    collection->focused() && collection->selection().focused() == row.key, host.input_enabled(*this),
                     !GetCapture() && collection->hovered() && command_pointer &&
                         collection->hit_test(*command_pointer) == row.index);
                 if (collection->presentation() == ItemsPresentation::gallery)
