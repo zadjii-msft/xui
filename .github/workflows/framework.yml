@@ -1,0 +1,53 @@
+name: Framework
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: framework-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  headless:
+    name: Windows headless core and contracts
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Require Rust tools
+        shell: pwsh
+        run: |
+          rustc --version
+          if ($LASTEXITCODE -ne 0) { throw 'Rust compiler is required.' }
+          cargo --version
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo is required.' }
+          rustfmt --version
+          if ($LASTEXITCODE -ne 0) { throw 'rustfmt is required.' }
+      - name: Build and run window-free native checks
+        shell: pwsh
+        run: .\tests\framework-pr.ps1 -Suite Native
+      - name: Check generated contracts, compiler, and bindings
+        shell: pwsh
+        run: .\tests\framework-pr.ps1 -Suite Bindings
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: framework-headless-evidence
+          path: |
+            build/framework-pr/headless-inventory.json
+            build/framework-pr/headless.xml
+            build/framework-pr/Testing/Temporary/
+            build/framework-pr/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: error

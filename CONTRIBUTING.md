@@ -963,26 +963,76 @@ The [template guide](docs/specs/packages.md#create-a-project-with-dotnet-new) co
 
 ### Native regression checks
 
-Run the registered native tests after a build:
+The ordinary [Framework workflow](.github/workflows/framework.yml) runs on every PR
+(without template/path filters), pushes to `main`, and manual dispatch.
+Its Windows x64 MSVC job requires Python, .NET 10, Cargo, rustfmt, the bundled LSH
+package/runtime, and a working native schema exporter. Missing requirements fail the job.
+It is a correctness/allocation gate, not a desktop or timing acceptance run.
+Repository branch protection must require **Windows headless core and contracts**;
+adding the workflow alone does not change GitHub branch protection.
+
+Run the same gate locally from the repository root in PowerShell 7:
 
 ```powershell
-ctest --test-dir $build -C Release --output-on-failure
+.\tests\framework-pr.ps1
+# Equivalent individual workflow steps, sharing the same output:
+.\tests\framework-pr.ps1 -Suite Native
+.\tests\framework-pr.ps1 -Suite Bindings
 ```
 
-Some registered tests open Windows controls even without the desktop option.
-`XUI_DESKTOP_TESTS` adds the interactive smoke, presentation, image, and lifecycle regressions.
-For those additional tests, configure and rebuild:
+Use `-BuildDirectory build\another-gate` for isolated outputs. The validated ordinary
+runner is Windows x64; `-Architecture ARM64` is available for matching local toolchains
+but is not an ordinary CI matrix promise. No Linux portability is implied.
+The script uses the existing Visual Studio/CMake discovery helpers.
+It explicitly selects the Rust target rather than inheriting the checkout's ARM64 Cargo default.
+`Bindings` requires the matching `Native` outputs; it cannot silently become compiler-only.
+
+`xui_headless_tests` builds the headless CTest prerequisites, including `xui.dll`,
+the style exporter, LSH, and the noninteractive runner. The runner starts CTest and the
+binding/compiler commands on a private, non-visible Windows window station, with a bounded
+child-process lifetime. It fails if that isolation cannot be established.
+The [test inventory](docs/llm/testing.md#ordinary-framework-pr-gate) enumerates the selected
+model, ABI, compiler, generated-contract, managed, and Rust coverage and exclusions.
+Do not replace it with `-LE desktop`: absence of a label is not evidence of suitability.
+
+To inspect the actual native selection after configuration:
+
+```powershell
+ctest --test-dir build\framework-pr -C Release -L "^headless$" --show-only=json-v1
+ctest --test-dir build\framework-pr -C Release -L "^headless$" --no-tests=error --output-on-failure -j 1
+```
+
+The second command runs in the caller's session; use the gate script for the demonstrated
+noninteractive execution. CI retains `headless-inventory.json`, JUnit `headless.xml`,
+CTest logs, and configuration diagnostics. CTest failures, empty selections, compiler
+failures, generated-file drift, and missing native exports must remain nonzero failures.
+`python bindings\generate_features.py --check` and the native style `--check` do not rewrite outputs.
+`tests\framework-gates.py --native-executable <absolute exporter path>` exercises stale
+C#/Rust outputs, native schema mismatch, and a missing exporter in disposable copies.
+
+`XUI_DESKTOP_TESTS=OFF` now omits all desktop registrations, including previously
+unconditional swap-chain, ContentHost/inspection, editor, dialog, pixel, menu, and host fixtures.
+The separate `system`-labelled Task Manager process-sampling fixture is not part of the PR
+selection. Desktop executables remain buildable with the option OFF.
+Enable the serial desktop registrations in a separate build:
 
 ```powershell
 cmake -S . -B $build -DXUI_DESKTOP_TESTS=ON
 cmake --build $build --config Release --parallel 4
-ctest --test-dir $build -C Release --output-on-failure
+ctest --test-dir $build -C Release -L "^desktop$" --no-tests=error --output-on-failure -j 1
 ```
 
-Run desktop tests sequentially on an interactive desktop.
-Focus-dependent tests require foreground ownership of their own windows.
-Do not remove those safeguards to force a passing result.
-Do not run builds, desktop tests, and measurements concurrently.
+Use an unlocked, interactive Windows desktop with working foreground/focus ownership,
+matching DPI/monitor state, required fonts, and the expected Windows/GPU capabilities.
+Graphics-capture tests need Windows Graphics Capture/DirectComposition and valid owned-window capture;
+backdrop tests need Windows 11. Native editing acceptance needs installed **and enabled**
+IME/TSF keyboards, physical composition/candidate coverage, clipboard/undo/selection, and UIA
+providers/events plus manual screen-reader coverage as applicable.
+A console session named `Default`, successful API calls, or a remotely accessible machine
+does not prove those prerequisites. Ordinary hosted headless CI is not that acceptance environment.
+Never weaken focus/pixel assertions, disable capture, or translate missing prerequisites into a pass.
+Preserve failing logs and classify unresolved baseline failures separately from candidate failures.
+Do not run builds, desktop suites, and measurements concurrently.
 
 For a focused native change, select the relevant tests:
 
@@ -994,6 +1044,84 @@ ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
 ### Performance regression checks
+
+#### Baseline/candidate acceptance protocol
+
+Before a refactor, preserve separately built baseline and candidate artifacts identified by
+**full commit IDs**, not just branch names. Record dirty state (must be clean for accepted
+comparisons), generator, compiler/SDK/.NET/Rust versions, architecture, Release/Debug,
+IPO and feature options (`XUI_REQUIRE_LSH`, WebView2, desktop registration), and binary hashes.
+Keep equivalent toolchains/options and workload inputs; record intentional differences.
+Record Windows build, CPU/RAM, GPU/driver, power plan, DPI/monitors, desktop/foreground state,
+IME/provider availability, background processes, and any interference.
+
+Build both revisions and finish correctness suites **before** measuring.
+Coordinate a machine-wide quiet interval: no builds, other suites, competing measurements,
+debugger, or unrelated desktop interaction. Do not reuse a mutable output directory.
+For each workload, run at least two discarded warmups per revision and seven recorded runs
+per revision; alternate baseline/candidate order, including which revision runs first.
+Increase the sample count when dispersion obscures a decision. Existing fixture-internal
+sampling does not replace repeated process-level comparisons.
+For example, with two prebuilt x64 Release directories:
+
+```powershell
+$versions = @{ baseline = $baselineRelease; candidate = $candidateRelease }
+$workloads = @("xui_layout_performance_tests", "xui_performance_tests", "xui_image_tests")
+New-Item -ItemType Directory -Force $evidence | Out-Null
+foreach ($workload in $workloads) {
+    foreach ($revision in @("baseline", "candidate")) {
+        1..2 | ForEach-Object {
+            & (Join-Path $versions[$revision] "$workload.exe") --benchmark | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Warmup failed: $revision $workload" }
+        }
+    }
+    foreach ($sample in 1..7) {
+        $order = if ($sample % 2) { @("baseline", "candidate") } else { @("candidate", "baseline") }
+        foreach ($revision in $order) {
+            & (Join-Path $versions[$revision] "$workload.exe") --benchmark `
+                1> (Join-Path $evidence "$workload-$sample-$revision.out") `
+                2> (Join-Path $evidence "$workload-$sample-$revision.err")
+            if ($LASTEXITCODE -ne 0) { throw "Sample failed: $revision $workload $sample" }
+        }
+    }
+}
+```
+
+`$baselineRelease`, `$candidateRelease`, and `$evidence` must be explicit, distinct absolute
+paths. Save the environment/commit/workload record beside these raw samples. Keep exit codes,
+order, timestamps, errors, and invariant counts, not only successful timing lines.
+Summarize medians and tails where the fixture reports them, dispersion/uncertainty,
+**absolute deltas with units** and relative deltas for latency, CPU, and private memory.
+A reproducible regression **greater than 5%** on default-path latency, CPU work, or private
+memory fails acceptance unless explicitly approved with a documented reason.
+Small/noisy denominators require absolute deltas and more evidence, not a percentage-only claim.
+Noisy, incomparable, missing, or failed runs are **unresolved/blocking**, never a pass.
+Record results and approved exceptions in dated maintainer evidence, not the root README.
+
+Use the existing fixtures rather than inventing a universal benchmark:
+
+| Surface | Fixtures and evidence |
+| --- | --- |
+| Layout/core/large sources | `xui_layout_performance_tests --benchmark` (10,000-frame Stack/Grid cases, styled/unstyled); `xui_performance_tests --benchmark` (60/100k/1m legacy rows); `xui_collections_tests --benchmark` (projection, selection, source lookups). |
+| Image identity/reconciliation | `xui_image_tests --benchmark` (8/64/512 preloaded rows); `--row-sync-only` enforces allocations without decode/windows. Full image/window fixtures separately cover decode, upload, stale delivery and cancellation. |
+| Local property/style edits | `xui_styling_window_tests --benchmark`, repeating with `--styled-first`; retain CPU, p50/p95, HWND/target/paint counts and unchanged editor identity. `--lifetime-only` covers repeated style changes and cleanup. |
+| Native text/retained scroll | `xui_scroll_tests --retained-only`, `xui_native_integration_tests`, `xui_window_tests`; verify focus/caret/IME/selection/undo/clipboard, placement and HWND/provider identity, not just elapsed time. |
+| Content replacement/lifetime | `xui_content_host_window_tests`, `xui_content_inspection_window_tests`, `xui_application_abi_tests`, `xui_multiwindow_tests`, managed `Tests --headless`/`--window-native`/`--multiwindow`, and Rust `--lib`/application integration tests. Keep model-only and realized-desktop evidence distinct. |
+
+Require zero steady-state layout/row-reconciliation allocations where already asserted,
+bounded retained memory after warmup/settling and repeated cycles, and recorded peer/control
+sizes where storage changes. Count HWNDs, render targets, idle paints/wakeups, topology/native/UIA
+sync work, and editor/provider identity changes for affected surfaces. Unchanged controls may
+not gain HWNDs, targets or idle activity; virtual sources may not gain per-item visuals.
+Keep source lookups viewport-bounded, text/image caches bounded, row admission at 512 and its
+pending queue at 48, and collection selection within its 4,096-term bound.
+Exercise scroll, theme/style changes, lazy open/close, popup/modal cycles, replacement, close,
+callback failure, cancellation, and stale delivery. A 5% tolerance cannot excuse an invariant
+violation, lost native input/UIA events, unbounded retention, or silent errors.
+
+For each later architecture PR, link the applicable pre-refactor functional baseline and
+new comparison artifacts. A headless correctness pass or a build/CI-only change is **not**
+a runtime speedup or complete native/performance acceptance.
 
 Build the layout, collection, row-image, and text-cache fixtures:
 

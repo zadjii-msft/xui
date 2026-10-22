@@ -28,6 +28,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Collection hot paths](architecture.md#collection-projection-and-selection): Indexed projection spans and per-call source lookup reuse.
 - [Reveal animation](architecture.md#opt-in-reveal): Active-only scheduling, coordinated layout, native placement, lifecycle, and the public roadmap.
 - [Test coverage and protocols](testing.md): Regression scope, project templates, sample and Designer release checks, fixture behavior, and measurement methods.
+- [Ordinary framework PR gate](testing.md#ordinary-framework-pr-gate): Explicit noninteractive Windows selection, required native/generated/compiler/binding coverage, desktop partition, and stage-1 evidence limits.
 - [Framework performance evidence](testing.md#framework-performance-pass-september-19-2026): Allocation counts, retained cache sizes, and measurement limits.
 - [Layout and selection allocation pass](testing.md#layout-and-selection-allocation-pass-october-1-2026): Grid track buffers, selection enumeration, grid focus changes, and baseline native-test limitations.
 - [Row-image reconciliation pass](testing.md#row-image-reconciliation-pass-october-1-2026): Bounded identity lookup, allocation and CPU comparisons, and image ownership/cancellation coverage.

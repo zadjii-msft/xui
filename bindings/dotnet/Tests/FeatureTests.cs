@@ -295,14 +295,14 @@ internal static class FeatureTests
         menu.SetCommands([]); Fails(() => menu.Invoke(2));
         Console.WriteLine($"Parity control feature assertions: {assertions}");
     }
-    internal static void Run()
+    internal static void Run(bool headless = false)
     {
         ParityControls();
         ToggleControls();
         NavigationStyleBridges();
         MillerContracts();
-        VisualTests.Run();
-        ExplorerPrimitives();
+        if (!headless) VisualTests.Run();
+        ExplorerPrimitives(headless);
         FluentSetters();
         using (var w = new Window(customTitlebar: true))
         {
@@ -502,7 +502,7 @@ internal static class FeatureTests
         [DllImport("user32.dll")] private static extern nint GetFocus();
         [DllImport("user32.dll")] private static extern nint SendMessageW(nint window, uint message, nuint wparam, nint lparam);
         [DllImport("user32.dll", EntryPoint = "PostMessageW")] private static extern bool PostMessage(nint window, uint message, nuint key, nint data);
-        private static void ExplorerPrimitives()
+        private static void ExplorerPrimitives(bool headless)
         {
             using (var w = new Window(customTitlebar: true))
             {
@@ -551,6 +551,7 @@ internal static class FeatureTests
                 Expect(Task.Run(() => w.Post(() => ++executed)).GetAwaiter().GetResult());
                 w.Close(); Expect(executed == 0 && !w.Post(() => ++executed));
             }
+            if (headless) return;
             using (var w = new Window("Posted callbacks"))
             {
                 var anchor = w.TextInput("Anchor");

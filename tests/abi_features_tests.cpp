@@ -1342,6 +1342,7 @@ void parity_control_contracts() {
     ok(xui_window_destroy(window));
 }
 int main(int argc, char** argv) {
+    const bool headless = argc == 2 && std::strcmp(argv[1], "--headless") == 0;
 #ifdef _MSC_VER
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
@@ -1375,7 +1376,7 @@ int main(int argc, char** argv) {
         std::cout << "Backdrop contracts: " << assertions << " assertions\n";
         return 0;
     }
-    backdrop_contracts();
+    if (!headless) backdrop_contracts();
     toggle_control_contracts();
     retained_navigation_style_bridges();
     split_first_visibility_contracts();
@@ -1384,7 +1385,7 @@ int main(int argc, char** argv) {
     tooltip_style_contracts();
     miller_contracts();
     collection_navigation_contracts();
-    tree_details_contracts();
+    if (!headless) tree_details_contracts();
     explorer_contracts();
     static_assert(sizeof(xui_feature_options)==48);
     static_assert(sizeof(xui_feature_value)==72);

@@ -23,7 +23,7 @@ The user requested one refactor at a time: file, verify, and **merge each PR bef
 Each PR gets one session based on the newly merged `main`; do not stack or implement later stages ahead.
 Every intermediate merge must leave a working, bisectable main branch.
 The documentation PR is stage 0; it authorizes no runtime or build changes by itself.
-The parent coordinator verifies and merges it before starting stage 1.
+The parent coordinator verified and merged it before stage 1 began.
 
 There are no external consumers constraining this cleanup.
 Backward compatibility is not a reason to retain redundant abstractions, obsolete entry points, or compatibility shims.
@@ -332,10 +332,10 @@ Status vocabulary: **in review preparation** means documentation or implementati
 **merged** requires a PR link, exact accepted head/merge identity, and evidence.
 Writing this plan does not complete any runtime finding.
 
-| Stage | PR scope | Status at document creation | Must merge first | Finding coverage |
+| Stage | PR scope | Current status | Must merge first | Finding coverage |
 | --- | --- | --- | --- | --- |
-| 0 | `architecture-refactor-roadmap` | In review preparation; documentation only | None | Records all seven findings and the complete rollout |
-| 1 | `baseline-gates` | Not started | 0 | Establishes evidence and ordinary PR protection for every later stage |
+| 0 | `architecture-refactor-roadmap` | Merged: [#57](https://github.com/zadjii-msft/xui/pull/57); accepted `b00835a76d10d0188722f25551b6c375e66e4a30`, squash `3f86e085aad8ac36445a47061e1f7640da407fb6` | None | Records all seven findings and the complete rollout |
+| 1 | `baseline-gates` | In review preparation: [#58](https://github.com/zadjii-msft/xui/pull/58); implementation/headless evidence below, desktop/timing limits unresolved; no accepted/merged head yet | 0 | Establishes evidence and ordinary PR protection for every later stage |
 | 2 | `child-contract` | Not started | 1 | Finding 3: owned children and separate traversal policies |
 | 3 | `host-boundaries` | Not started | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Not started | 3, including all approved subdivisions | Finding 2: originating identity and targeted ordered work |
@@ -355,6 +355,12 @@ check document links using existing documentation checks, and create a non-draft
 Runtime tests are not required for this documentation-only change.
 The parent verifies and merges the PR; only then may stage 1 begin.
 
+**Merged evidence:** the parent verified documentation and merged
+[#57](https://github.com/zadjii-msft/xui/pull/57) at accepted head
+`b00835a76d10d0188722f25551b6c375e66e4a30`, squash merge
+`3f86e085aad8ac36445a47061e1f7640da407fb6`.
+Stage 1 fetched and started from that current `origin/main`.
+
 ### Stage 1: Baseline gates and measurement protocol
 
 **Scope:** establish ordinary PR core, ABI/binding/compiler, and generated-contract checks using existing runners/tools.
@@ -372,6 +378,35 @@ hard allocation/HWND/target/idle/resource invariants, and unresolved evidence.
 Collect a reproducible pre-refactor baseline for representative core/layout, local property edits,
 large virtual collections, native text, content replacement, and lifetime workloads.
 A correctness gate is not a timing benchmark; do not claim an unmeasured improvement.
+
+**Implementation/evidence (October 21, 2026):** the unfiltered ordinary Framework PR/main
+workflow runs a Windows x64 MSVC headless target plus generated-contract/compiler/managed/Rust
+coverage using the existing CMake, Python, .NET and Cargo tools.
+All 45 selected native tests and the binding/compiler sequence executed successfully on a
+private non-visible window station, not an interactive desktop.
+The headless ABI partition preserves full basic C/C++ and detached-document checks and
+all feature ABI checks except the two realized desktop sections.
+Managed `--headless` preserves model/ownership/style/callback coverage while excluding native runs;
+all 39 Rust library tests, sys layouts and thread-safety doc tests run without name-filter skips.
+Required Python/native exports/LSH cannot silently disappear.
+Core assertion/compiler-error/generated-drift negative checks demonstrated nonzero failure.
+Desktop OFF/ON inventories are reconciled (45 headless + 1 system; plus 129 serial desktop tests
+when ON). Menu target placement and the collection fixture's outdated Drawing output type
+were repaired without runtime architecture changes.
+See the [exact selection and evidence](testing.md#ordinary-framework-pr-gate) and
+[contributor comparison protocol](../../CONTRIBUTING.md#baselinecandidate-acceptance-protocol).
+
+**Remaining limitations:** this stage claims no Linux validation, ARM64 ordinary CI matrix,
+runtime speedup, or controlled timing acceptance. GitHub branch protection still needs the
+workflow check required by a repository administrator.
+The coordinator's pristine model/ABI/compiler/binding/resource baseline is recorded separately
+from its unresolved multiwindow, window-resource, retained-scroll and native-input failures.
+There is no valid paired local-edit/native-text/content-replacement/realized-lifetime timing
+baseline or physical IME/Narrator acceptance yet. Those criteria remain explicitly unresolved;
+the headless gate must not be substituted for them in later refactors.
+The parent must review the exact PR head/checks and decide acceptance of these recorded
+environment limits before merging. Stage 2 and every later stage remain **not started**;
+the next stage may start only after this PR's merge is verified.
 
 ### Stage 2: Owned-child contract and traversal policies
 
