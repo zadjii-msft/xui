@@ -108,12 +108,12 @@ public:
     Element& operator=(Element&&) = delete;
 
     std::uint64_t id() const;
+    virtual Size measure(Size available);
+    virtual void arrange(Rect bounds);
     // Non-null children in deterministic storage/slot order, including hidden and
     // deferred content. Leaves return empty. No allocation, ownership copy, or
     // native realization; separately coordinated popup roots/adornments are excluded.
     virtual OwnedChildren owned_children() const { return {}; }
-    virtual Size measure(Size available);
-    virtual void arrange(Rect bounds);
     Rect bounds() const;
     void set_invalidator(std::function<void(Invalidation)> callback);
     void invalidate(Invalidation kind);
