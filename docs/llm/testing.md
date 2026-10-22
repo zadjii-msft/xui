@@ -73,6 +73,129 @@ The model tests disable reflection-based JSON serialization and cover the persis
 
 ## Tests and measurements
 
+### Ordinary framework PR gate
+
+Source owners: `.github/workflows/framework.yml`, `tests\framework-pr.ps1`,
+`tests\headless_runner.cpp`, and `CMakeLists.txt`.
+The workflow has unfiltered ordinary PR and main-push triggers, not just release/template triggers.
+The entry script's Native step builds `xui_headless_tests`, verifies mandatory registrations,
+rejects unclassified/desktop tests with the desktop option OFF, and runs the explicit
+`headless` label with `--no-tests=error`. Its Bindings step requires that native output.
+Commands/prerequisites and the separate performance protocol are in
+[CONTRIBUTING](../../CONTRIBUTING.md#native-regression-checks).
+Branch-protection configuration remains a repository-admin responsibility.
+
+The native runner uses the existing `PrivateDesktop` helper to create a non-visible window
+station and desktop, checks `WSF_VISIBLE` is absent, starts the command there, and propagates
+its exit status. A kill-on-close job bounds the subprocess tree and a 15-minute wait bounds
+each invocation. It neither activates an interactive desktop nor proves desktop correctness.
+The binding step runs its complete command sequence in a fresh PowerShell process on that station.
+
+The current native inventory is **45 headless tests**:
+
+| Label | Exact selection (all names have the `xui_` prefix) |
+| --- | --- |
+| `core` (36) | `navigation_animation_tests`, `collection_presentation_tests`, `progress_animation_tests`, `expander_animation_tests`, `tab_animation_tests`, `split_animation_tests`, `reveal_tests`, `core_tests`, `layout_performance_tests`, `control_tests`, `styling_tests`, `control_styling_tests`, `control_style_expansion_tests`, `style_layouts_tests`, `style_collections_tests`, `style_basic_tests`, `style_fields_tests`, `style_choices_tests`, `style_grid_tests`, `style_navigation_tests`, `style_hosts_tests`, `winui_style_tests`, `winui_form_layout_tests`, `foundation_tests`, `next_controls_tests`, `menu_bar_tests`, `collections_tests`, `navigation_tests`, `navigation_view_tests`, `miller_columns_tests`, `documents_tests`, `document_editing_tests`, `file_dialog_tests`, `hosts_tests`, `gallery_catalog_tests`, `performance_tests`. |
+| `syntax` (2) | `syntax_highlighting_tests` (requires functioning LSH in the PR configuration), `document_syntax_tests`. |
+| `abi` (4) | Full `abi_tests`, full `abi_c_test`, `document_editing_abi_tests`, `abi_features_headless_tests` (`abi_features_tests --headless`). |
+| `model` (1) | `explorer_tests` (model/path/command logic, no running window). |
+| `schema` (1) | `control_style_catalog_parity`, invoking Python `--native-executable ... --check`. |
+| `allocation` (1) | `row_image_performance_tests`, invoking `image_tests --row-sync-only`. |
+
+`Window` construction is not HWND realization: `Window::Impl` construction only initializes
+options/model state; native `create()` is deferred to show/run. The full basic ABI/C fixtures
+therefore remain covered, including callbacks, UTF-8, threads, ownership and cancellation.
+The feature ABI headless mode excludes only backdrop realization and tree-details rendered-cell
+delivery; the activation mode remains a separate desktop test. `document_editing_abi_tests`
+checks detached/closed/stale document errors and syntax but never runs its window.
+The `style_collections_tests` and `style_grid_tests` default model paths are headless;
+their explicit `--desktop` variants create HWNDs/providers/pixel surfaces.
+The row-image short path returns before COM/decode/window work.
+
+Binding/compiler/generated checks additionally run:
+
+- Both generators in non-writing `--check` mode, with the actual native schema exporter required.
+  `generate_features.py` uses rustfmt on standard input, not checked-in files.
+  `framework-gates.py` mutates six C#/Rust outputs in disposable copies, checks stale-file
+  rejection without rewriting, and rejects missing exporters/native catalog mismatch.
+- `GeneratorTests` and its existing `BuildTests.ps1` MSBuild add/rename/delete/no-op fixtures.
+- Managed `Tests --headless`: immutable style definitions, basic wrapper assertions,
+  feature constructors/properties/sources/callback lifetimes, native style ownership,
+  Reveal and tab-animation contracts. `FeatureTests.Run(headless: true)` excludes
+  `VisualTests.Run` and the realized-window part of `ExplorerPrimitives`.
+  Do **not** substitute `--text-only`: that path invokes `ExplorerTextTests`, which runs windows.
+- Complete Rust `xui-sys --lib`, `xui --lib` and `xui --doc` (compile-fail thread-safety contracts).
+  Explicit MSVC architecture, DLL path and minimum successful test counts prevent the previous
+  risk of wrong-name filters returning success after running zero tests.
+
+All actual HWND/capture/focus/editor/dialog/clipboard/menu/host/swap-chain registrations
+are option-controlled and serial `desktop` tests. This includes formerly unconditional
+ContentHost/inspection/highlight, document syntax/editing, stack layout, file dialogs/transfer,
+window icon, styling pixels, navigation/collections, suggestion and presentation tests.
+Desktop OFF registers 46 tests: the 45 selected above plus the separate `system` Task Manager
+process-sampling fixture. Desktop ON registers 175: those 46 plus 129 serial desktop tests.
+Desktop executables remain available with registration OFF. The early menu target now lives
+inside the Windows block. Python is REQUIRED for Windows `BUILD_TESTING`, rather than silently
+omitting native schema parity. Required-LSH tests fail if their runtime cannot load.
+The collection software-render fixture now initializes `Drawing::hwnd_target_` before assigning
+the common `target_`, matching current Drawing ownership; the former base-interface output
+argument could not compile when the newly selected fixture was built.
+
+#### Stage 1 evidence: October 21, 2026
+
+Base: merged stage-0 `3f86e085aad8ac36445a47061e1f7640da407fb6`.
+Local toolchain: Windows 10.0.26200, x64, Visual Studio 2022 Preview/MSVC 19.44.35217,
+Windows SDK 10.0.26100, Release native/default IPO ON, Python 3.11.9,
+.NET SDK 11.0.100-rc.2.26504.105 targeting net10, Rust 1.95.
+The ordinary hosted job separately selects .NET 10 and Python 3.13.
+Rust unit harnesses use their existing debug test profile against the Release native DLL;
+these executions are correctness evidence, not comparable timing measurements.
+
+`framework-pr.ps1 -Suite Native` passed **45/45** CTests on the noninteractive station.
+Bindings passed **45,403** generator assertions, **11** MSBuild assertions,
+**80** basic wrapper assertions, **374** feature assertions, **11,006** styling assertions,
+**58** Reveal and **23** tab-animation assertions; Rust passed **1** sys-layout,
+**39** wrapper and **2** compile-fail doc tests with none ignored/filtered.
+Managed styling reported **1,024 issued/0 live** handles after 512 apply/clear/GC cycles and
+**256 buttons/8,192 updates/zero new handles** after first application.
+The first `GeneratorTests --no-restore` invocation explicitly failed NETSDK1004 for missing assets;
+normal execution restored the required assets and passed.
+
+Negative checks deliberately changed the core fixture's first expected width to -1 and
+inserted a compiler `#error`; isolated CTest returned failure for the real core assertion,
+and the complete binding command failed at the real compiler build.
+Both mutations were reverted before the final positive run.
+Disabling CMake Python discovery failed configuration at REQUIRED `find_package`.
+Removing the required LSH DLL made the syntax command fail; an empty CTest label selection
+also failed through the isolated runner rather than succeeding with zero tests.
+`BUILD_TESTING=OFF` configured successfully. Desktop ON/OFF inventories were inspected
+without executing desktop tests; all desktop registrations were labelled and serial.
+Generated-output drift and missing/native-schema mismatches failed without changing tracked files.
+Raw native inventory/JUnit/CTest/configuration artifacts are produced in `build\framework-pr`;
+CI uploads them even on failure. Dated command output is local evidence, not a retained timing baseline.
+
+The coordinator separately supplied pristine functional evidence for
+`99016573d633636c54da71af5db247e5c249051e`: 5 core/layout/image groups, 9 further model groups,
+full basic/feature/application ABI, 45,403 generator assertions, 39 Rust library tests, and
+managed wrapper/style/selected-feature modes passed. This is attributed evidence, not a
+rerun against that commit by stage 1. Its managed resource counts agree with those above.
+Four pristine desktop fixtures **failed and remain unresolved**:
+
+| Fixture | Baseline diagnostic |
+| --- | --- |
+| `xui_multiwindow_tests` | Failures remain observable after healthy windows finish. |
+| `xui_window_tests` | First page visit expected a larger composition buffer; measured buffer remained 94,500. |
+| `xui_scroll_tests` | Translated layer forwards native editor notifications; foreground/focus/active were null. |
+| `xui_native_integration_tests` | Complete native editing checks; enabled TSF keyboards = 0. |
+
+A readonly probe found console session 1 and accessible `Default` input/thread desktops,
+but no foreground HWND; that is not a working focus/IME/rendering baseline.
+No physical IME/Narrator or paired controlled latency/CPU/private-memory acceptance is claimed.
+Pre-refactor local-property/native-text/content-replacement/realized-lifetime timing remains
+**unresolved**, not green because the model/CI tests passed. Later refactors touching those
+surfaces must supply valid serial desktop and paired performance evidence or an explicit
+approved limitation. Stage 1 changes no runtime architecture and claims no runtime speedup.
+
 ### Framework consolidation gate
 
 The September 18, 2026 consolidation merged `origin/main` at `972d144` through `15a81e2`.

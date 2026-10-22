@@ -24,6 +24,15 @@ internal static class Tests
             if (args is ["--item-actions"]) { ItemActionTests.Run(); return 0; }
             if (args is ["--tab-animation"]) { TabAnimationTests.Run(); return 0; }
             StylingTests.Definitions();
+            if (args is ["--headless"])
+            {
+                Run();
+                FeatureTests.Run(headless: true);
+                StylingTests.Native();
+                RevealTests.Run();
+                TabAnimationTests.Run();
+                return 0;
+            }
             if (args is ["--navigation-bridges"]) { FeatureTests.NavigationStyleBridges(); return 0; }
             if (args is ["--features"]) { FeatureTests.Run(); return 0; }
             if (args is ["--toggle-controls"]) { FeatureTests.ToggleControls(); return 0; }

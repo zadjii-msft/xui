@@ -26,9 +26,12 @@ void token(const xui::MultilineText& document, std::wstring_view text, xui::Synt
     throw std::runtime_error("Missing expected syntax color");
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
         using namespace xui;
+        const bool require_lsh = argc == 2 && std::string_view(argv[1]) == "--require-lsh";
+        check(argc == 1 || require_lsh, "Usage: xui_syntax_highlighting_tests [--require-lsh]");
+        check(!require_lsh || syntax_highlighting_available(), "Required LSH runtime is unavailable");
         check(syntax_language_for_path(L"C:\\Demo\\CODE.XUI") == "xui", "XUI extension");
         check(syntax_language_for_path(L".gitignore") == "ignore", "Ignore filename");
         check(syntax_language_for_path(L"test.cs") == "csharp", "C# extension");

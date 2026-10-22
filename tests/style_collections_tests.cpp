@@ -42,8 +42,10 @@ struct DrawingTestAccess {
             D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
                 D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
                 96, 96, D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE),
-            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(320, 180)), &drawing.target_);
+            D2D1::HwndRenderTargetProperties(window, D2D1::SizeU(320, 180)), &drawing.hwnd_target_);
         if (FAILED(result)) throw std::runtime_error("Create collection software target");
+        drawing.target_ = drawing.hwnd_target_;
+        drawing.host_window_ = window;
         ++Drawing::live_targets_;
         if (FAILED(drawing.target_->CreateSolidColorBrush(D2D1::ColorF(0), &drawing.brush_)))
             throw std::runtime_error("Create collection software brush");
