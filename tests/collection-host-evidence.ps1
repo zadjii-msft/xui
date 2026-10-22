@@ -94,6 +94,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
             Revision = $revision.Name; Kind = $kind; Round = $index
             StartedUtc = $startedUtc; CompletedUtc = [DateTime]::UtcNow.ToString('o')
             ExitCode = $process.ExitCode; TimedOut = !$exited
+            ExceededWallBudget = $clock.Elapsed.TotalMilliseconds -gt 90000
             TerminationErrors = @($terminationErrors | ForEach-Object { $_.ToString() })
             ProcessWallMilliseconds = $clock.Elapsed.TotalMilliseconds
             ProcessCpuMilliseconds = $process.TotalProcessorTime.TotalMilliseconds
@@ -107,6 +108,9 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
         $record.Phases = @(Get-Content -LiteralPath $stdout | ConvertFrom-Json)
         $records[-1].Phases = $record.Phases
         $records | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $evidence 'samples.json') -Encoding utf8
+        if ($record.ExceededWallBudget) {
+            throw "Probe exceeded its 90-second elapsed budget: $name (raw record retained)"
+        }
         $expected = @{
             'scroll-sync' = 32768
             'selection-publication' = 8192
@@ -140,7 +144,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
             if ($phaseName -eq 'source-publication' -and $phase.source_transitions -ne 16384) {
                 throw "Incomplete source identity transitions in $name"
             }
-            if ($phaseName -eq 'paint-visible-rows' -and $phase.paints -ne 256) {
+            if ($phaseName -eq 'paint-visible-rows' -and ($phase.paints -ne 256 -or $phase.item_keys -ne 19422)) {
                 throw "Incomplete painted-frame work in $name"
             }
         }

@@ -250,6 +250,9 @@ void probe() {
         const auto grid_hwnd = named(hwnd, L"Probe grid");
         const auto file_hwnd = named(hwnd, L"Probe legacy list");
         const auto editor_hwnd = named(hwnd, editor->text().c_str());
+        SendMessageW(item_hwnd, WM_MOUSELEAVE, 0, 0);
+        flush(); UpdateWindow(hwnd);
+        require(!items->hovered(), "Measured collection starts without native pointer hover");
         const auto native_count = descendants(hwnd);
         const auto peer_count = SendMessageW(hwnd, metrics, 14, 0);
         const auto target_count = SendMessageW(hwnd, metrics, 11, 0);
@@ -265,7 +268,10 @@ void probe() {
         };
         Work before;
         std::uint64_t checksum{};
-        const auto begin = [&] { before = work(); checksum = 1; };
+        const auto begin = [&] {
+            require(!items->hovered(), "Every measured phase starts without collection hover");
+            before = work(); checksum = 1;
+        };
         const auto finish = [&](const char* phase, unsigned count, const Measurement& timing,
             unsigned source_transitions = 0, LRESULT paints = 0) {
             require(window.state() == WindowState::open && IsWindow(hwnd),
@@ -343,6 +349,8 @@ void probe() {
         const auto painted = SendMessageW(hwnd, metrics, 0, 0) - painted_before;
         require(painted == 256 && items->offset() == 255 * 41.0 && grid->offset() == 255 * 37.0,
             "Paint phase presents every requested frame at its expected final offsets");
+        require(!items->hovered() && work().item_keys - before.item_keys == 19422,
+            "Paint retains nonhovered collection and canonical source-key work");
         finish("paint-visible-rows", 256, timing, 0, painted);
         require(named(hwnd, L"Probe collection") == item_hwnd && named(hwnd, L"Probe grid") == grid_hwnd &&
             named(hwnd, L"Probe legacy list") == file_hwnd, "Native identities survive all operations");
