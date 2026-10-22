@@ -3,6 +3,16 @@
 This reference describes regression scope and measurement methods.
 Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry points.
 
+## Complete host-family boundary
+
+`tests\control_host_tests.cpp` is a required headless/lifetime test for the completed
+stage-3 partition. It checks detached basic/scene/navigation/composite owners,
+family capability isolation, cancellation without realization, exact retirement,
+null-model rejection, storage bounds and disjoint accessibility payloads. Native
+text and the existing collection/grid retirement cases remain separate requirements.
+The [source map](stage3-host-boundaries.md) records the consolidated delivery scope
+and preserved performance evidence; it does not claim an unmeasured timing pass.
+
 ## Collection-family host boundary
 
 `tests\family_accessibility_tests.cpp` checks five malformed row-role capabilities,
@@ -151,7 +161,9 @@ its exit status. A kill-on-close job bounds the subprocess tree and a 15-minute 
 each invocation. It neither activates an interactive desktop nor proves desktop correctness.
 The binding step runs its complete command sequence in a fresh PowerShell process on that station.
 
-The current native inventory is **47 headless tests**:
+The stage-2 inventory below contained **47 headless tests**. The current stage-3
+gate requires **51**, additionally covering family providers, lock retirement,
+native-field providers and the completed control-host partition:
 
 | Label | Exact selection (all names have the `xui_` prefix) |
 | --- | --- |

@@ -1102,8 +1102,8 @@ The ordinary gate includes `xui_family_accessibility_tests` and
 and ten source/full-source/nonempty-selection release cases. The retirement test uses
 another thread's bounded `try_lock`, not same-owner mutex behavior. Unknown selectors
 and incomplete coverage fail explicitly. Both tests are required by name, with at
-least 50 headless and three lifetime registrations, including the required
-`xui_native_field_accessibility_tests`; the core minimum remains 37.
+least 51 headless and four lifetime registrations, including the required
+`xui_native_field_accessibility_tests` and `xui_control_host_tests`; the core minimum remains 37.
 
 Build the native probe and focused collection fixtures in a separate Release directory:
 

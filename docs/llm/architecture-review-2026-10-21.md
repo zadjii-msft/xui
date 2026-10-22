@@ -337,7 +337,7 @@ Writing this plan does not complete any runtime finding.
 | 0 | `architecture-refactor-roadmap` | Merged: [#57](https://github.com/zadjii-msft/xui/pull/57); accepted `b00835a76d10d0188722f25551b6c375e66e4a30`, squash `3f86e085aad8ac36445a47061e1f7640da407fb6` | None | Records all seven findings and the complete rollout |
 | 1 | `baseline-gates` | Verified merged: [#58](https://github.com/zadjii-msft/xui/pull/58); accepted `dce6ae447cc566816b32653fe3dd43de5fb9432a`, squash `8fdc2269a065837737b1dc5dcc0962a574ce10cd`; recorded desktop/timing limits remain unresolved | 0 | Establishes evidence and ordinary PR protection for every later stage |
 | 2 | `child-contract` | Verified merged: [#59](https://github.com/zadjii-msft/xui/pull/59); accepted `38f377f4cea2e4632421c4871616dd54501045b4`, squash `a3f112c9293d41998276f3e97e03e6f1f4b1ffd2`; recorded timing/native limits remain unresolved | 1 | Finding 3: owned children and separate traversal policies |
-| 3 | `host-boundaries` | 3a merged; 3b in progress; finite 3a-3f partition below; finding 1 remains incomplete | 2 | Finding 1: family peers and family-specific peer/UIA state |
+| 3 | `host-boundaries` | 3a merged; remaining families implemented directly in one consolidated phase-3 PR per October 22 maintainer direction; review/acceptance pending; [source map and limits](stage3-host-boundaries.md) | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Not started | 3, including all approved subdivisions | Finding 2: originating identity and targeted ordered work |
 | 5 | `callback-ownership` | Not started | 4 | Finding 4: composition/observation separation and scoped retirement |
 | 6 | `contract-metadata` | Not started | 5 | Finding 5: authoritative contracts, adapters, compiler/reload rules |
@@ -616,31 +616,31 @@ popup/scroll/native clipping, theme/DPI, editing/IME/undo, accessibility, and re
 Peer/HWND/provider identity and resource bounds remain stable; dispatch/storage costs satisfy the evidence policy.
 Merely moving monolithic methods into `.inc` files is not acceptance.
 
-The coordinator may subdivide this stage into successive family PRs if required for safe review.
-Before each subdivision, add a ledger entry identifying the family, remaining families, prerequisite merge,
-acceptance evidence, and PR status.
-Use one session per PR and merge it before the next starts.
-Do not mark stage 3 or finding 1 complete after a pilot or begin stage 4 with unrecorded remaining scope.
+The original delivery plan subdivided this stage into successive family PRs.
+On October 22 the maintainer explicitly superseded that delivery arrangement:
+no more child sessions; finish all remaining phase-3 families directly and submit
+one consolidated PR. The ownership partition below remains the scope map, not
+authorization to start stages 4-8. Those future refactors are deferred.
 
 #### Finite stage-3 family ledger
 
 Every row requires real family translation units; concrete peer and accessibility payloads;
 attachment, synchronization, input, painting, cancellation, publication and detachment owners;
 narrow host services; identity/lifetime/error evidence; and measured storage/allocation/CPU
-without new per-row native resources. Each row is a separate sequential PR after its
-predecessor is accepted and verified merged. The temporary `UnextractedPeer` is the explicit
-remainder, not a second universal aggregate underneath extracted behavior objects.
+without new per-row native resources. The original separate-PR delivery was superseded
+by the maintainer direction above. `UnextractedPeer` is now removed; the remaining
+families have concrete owners, not another universal aggregate beneath behavior objects.
 
 | Substage | Family and explicit responsibility boundary | Predecessor | Status |
 | --- | --- | --- | --- |
 | 3a | Collections, grids and legacy-native-list integration: shared `VirtualCollection` engine for ItemsView, TreeView, NavigationList, MillerColumnList and CommandMenu; row gestures/painting/images, grid resize/reorder/check/filter/OLE, typed UIA state/action/publication and retirement; embedded existing ListPeer. Window retains cross-control coordination. | Verified merged #59 | Accepted `b655d0aa`, merged #60 as `9e6673c`; [design and evidence](stage3a-collection-host.md) |
-| 3b | Native editors/documents: TextInput captions/clear adornments/suggestions, native document/password/date-time bridges; HWND/provider identity, native text/composition/caret/selection/undo/clipboard, fonts/insets/clips and close/error ordering. | Accepted and merged 3a, `9e6673c` | Implementation in progress; [source map](architecture.md#native-editor-host-boundary); final validation/evidence pending |
-| 3c | Standalone Image, VectorCanvas/MapView, MediaPlayback/WebContent, SwapChainPanel: scene input/publication, asynchronous source/error/cancellation and native producer/runtime/target integration. Shared image algorithms remain shared; collection row state stays in 3a. | Accepted and merged 3b | Not started |
-| 3d | Basic text/actions/choices/ranges/progress/status/color: Label, Button variants, Toggle/CheckBox/Switch, RadioGroup/ChoiceList/SelectorBar/ComboBox, NumericInput, RangeInput, Progress/ProgressRing, HistoryChart, InlineStatus/InfoBadge and ColorPicker; measurement/layout/input/repeat/choice/range/UIA and composite child integration. Native editor children use 3b; timers remain window-owned. | Accepted and merged 3c | Not started |
-| 3e | Navigation/Miller containers, Breadcrumb/PathBar, tabs/titlebar/menu-bar and command-surface/palette/location coordination, artwork and family UIA. Shared NavigationList/MillerColumnList/CommandMenu row engines remain in 3a; native fields use 3b. Cross-window tab move loop, focus/modal/popup coordination and scheduling remain window-owned. | Accepted and merged 3d | Not started |
-| 3f | Generic content_view, ContentView/ContentHost, Popup/ContentDialog, ScrollView translation, SplitView, Reveal/Expander and Stack/PageView/Wrap/Grid/AdaptiveLayout host integration; owned-child/active/native/UIA policy separation, deferred realization, clipping, animation and replacement. Eliminate UnextractedPeer. Window still owns topology, shared frame/placement batching and lifetime barriers. | Accepted and merged 3e | Not started |
+| 3b | Native editors/documents: TextInput captions/clear adornments/suggestions, native document/password/date-time bridges; HWND/provider identity, native text/composition/caret/selection/undo/clipboard, fonts/insets/clips and close/error ordering. | Merged 3a, `9e6673c` | Implemented in the consolidated phase-3 PR; [native source map](architecture.md#native-editor-host-boundary); prior performance limits preserved |
+| 3c | Standalone Image, VectorCanvas/MapView, MediaPlayback/WebContent, SwapChainPanel: scene input/publication, asynchronous source/error/cancellation and native producer/runtime/target integration. Shared image algorithms remain shared; collection row state stays in 3a. | Consolidated with 3b | Implemented by `SceneHostPeer`; review pending |
+| 3d | Basic text/actions/choices/ranges/progress/status/color: Label, Button variants, Toggle/CheckBox/Switch, RadioGroup/ChoiceList/SelectorBar/ComboBox, NumericInput, RangeInput, Progress/ProgressRing, HistoryChart, InlineStatus/InfoBadge and ColorPicker; measurement/layout/input/repeat/choice/range/UIA and composite child integration. Native editor children use 3b; frame timers remain window-owned. | Consolidated with 3b | Implemented by `BasicHostPeer`; review pending |
+| 3e | Navigation/Miller containers, Breadcrumb/PathBar, tabs/titlebar/menu-bar and command-surface/palette/location coordination, artwork and family UIA. Shared NavigationList/MillerColumnList/CommandMenu row engines remain in 3a; native fields use 3b. Cross-window tab move loop, focus/modal/popup coordination and scheduling remain window-owned. | Consolidated with 3b | Implemented by `NavigationHostPeer` and closed window services; review pending |
+| 3f | Generic content_view, ContentView/ContentHost, Popup/ContentDialog, ScrollView translation, SplitView, Reveal/Expander and Stack/PageView/Wrap/Grid/AdaptiveLayout host integration; owned-child/active/native/UIA policy separation, deferred realization, clipping, animation and replacement. Eliminate UnextractedPeer. Window still owns topology, shared frame/placement batching and lifetime barriers. | Consolidated with 3b | Implemented by `CompositeHostPeer` and existing window ownership transactions; `UnextractedPeer` eliminated; review pending |
 
-Stage 4 remains blocked until **all six** rows are accepted and merged. Stage 7's legacy
+Stage 4 is explicitly deferred and remains blocked until **all six** rows are accepted and merged. Stage 7's legacy
 file-list foundational isolation is not part of 3a's Windows adapter extraction.
 
 ### Stage 4: Origin-aware targeted dirty work

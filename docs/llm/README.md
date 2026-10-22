@@ -18,6 +18,7 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
 - [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
+- [Stage-3 host boundaries](stage3-host-boundaries.md): Completed family extraction, window coordination boundary, typed provider state and preserved performance limitations.
 - [Owned model tree and traversal policies](architecture.md#owned-model-tree-and-traversal-policies): Borrowed Element children, deferred realization, presentation clips, inspection, ABI scopes, and explicit host adornments.
 - [Architecture review and sequential refactoring roadmap](architecture-review-2026-10-21.md): Seven structural findings, source-verified evidence limits, preserved native behavior, and the acceptance-driven merge-before-next-PR ledger.
 - [Stage-2 raw ownership evidence](stage2-owned-children-evidence.json): All 1,278 warmup/recorded processes, intermediate/final source identities and binary hashes, actual link modes, reproducible probe/runner sources, native results, and the coupled LTCG diagnosis. Interpretation and limitations are in the roadmap ledger.
