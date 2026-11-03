@@ -63,7 +63,7 @@ public:
     void set_visual_style(VisualStyle style);
     const std::wstring& name() const { return name_; }
     const std::wstring& automation_id() const { return automation_id_; }
-    void set_automation_id(std::wstring value) { automation_id_ = std::move(value); invalidate(Invalidation::paint); }
+    void set_automation_id(std::wstring value) { automation_id_ = std::move(value); invalidate(Invalidation::accessibility); }
     void set_name(std::wstring name);
     bool enabled() const { return enabled_; }
     bool visible() const { return visible_; }
@@ -412,7 +412,7 @@ public:
     }
     bool caption_visible() const { return caption_visible_ && !search_; }
     bool shortcut_visible(float width) const { return !shortcut_.empty() && (search_ || caption_visible_ || width >= 260); }
-    void set_placeholder(std::wstring value) { placeholder_ = std::move(value); invalidate(Invalidation::paint); }
+    void set_placeholder(std::wstring value) { placeholder_ = std::move(value); invalidate(Invalidation::native); }
     const std::wstring& placeholder() const { return placeholder_; }
     const std::wstring& shortcut_hint() const { return shortcut_; }
     void set_shortcut_hint(std::wstring value);
@@ -420,12 +420,12 @@ public:
     const std::function<void()>& submit_callback() const { return submit_; }
     void submit() { if (submit_) { auto callback = submit_; callback(); } }
     void set_suggestions(std::shared_ptr<SuggestionSource> source) {
-        suggestions_ = std::move(source); ++suggestion_revision_; invalidate(Invalidation::paint);
+        suggestions_ = std::move(source); ++suggestion_revision_; invalidate(Invalidation::native);
     }
     const std::shared_ptr<SuggestionSource>& suggestions() const { return suggestions_; }
     void set_suggestion_context(std::wstring context) {
         if (suggestion_context_ == context) return;
-        suggestion_context_ = std::move(context); ++suggestion_revision_; invalidate(Invalidation::paint);
+        suggestion_context_ = std::move(context); ++suggestion_revision_; invalidate(Invalidation::native);
     }
     const std::wstring& suggestion_context() const { return suggestion_context_; }
     std::uint64_t suggestion_revision() const { return suggestion_revision_; }

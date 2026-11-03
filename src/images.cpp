@@ -466,7 +466,7 @@ void Image::set_source_kind(std::wstring path, ImageSize size, ImageKind kind) {
     kind_ = kind;
     reload();
 }
-void Image::reload() { ++revision_; publish(source_.empty() ? ImageStatus::empty : ImageStatus::loading); invalidate(Invalidation::paint); }
+void Image::reload() { ++revision_; publish(source_.empty() ? ImageStatus::empty : ImageStatus::loading); invalidate(Invalidation::state); }
 void Image::unload() { source_.clear(); reload(); }
 void Image::publish(ImageStatus status, std::wstring error) {
     if (status_ == status && error_ == error) return;

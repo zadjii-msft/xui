@@ -29,7 +29,7 @@ public:
     virtual LRESULT dispatch_native_field(NativeFieldHostPeer&, HWND, UINT, WPARAM, LPARAM) noexcept = 0;
     virtual void collect_text_clear(TextInputHostPeer&) = 0;
     virtual void activate_text_clear(std::uint64_t owner_id) = 0;
-    virtual void invalidate_native_field(Invalidation) = 0;
+    virtual void invalidate_native_field(InvalidationEvent) = 0;
 };
 
 class NativeFieldHostPeer : public HostPeer {

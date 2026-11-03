@@ -53,7 +53,7 @@ struct DetachedServices final : PeerHostServices, NativeFieldServices {
     LRESULT dispatch_native_field(NativeFieldHostPeer&, HWND, UINT, WPARAM, LPARAM) noexcept override { std::terminate(); }
     void collect_text_clear(TextInputHostPeer&) override { std::terminate(); }
     void activate_text_clear(std::uint64_t) override { std::terminate(); }
-    void invalidate_native_field(Invalidation) override { std::terminate(); }
+    void invalidate_native_field(InvalidationEvent) override { std::terminate(); }
 };
 struct ParentPeer final : HostPeer {
     ParentPeer(PeerHostServices& host, std::shared_ptr<Control> model)

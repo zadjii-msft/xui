@@ -89,7 +89,11 @@ struct Point { float x{}, y{}; };
 struct Rect { float x{}, y{}, width{}, height{}; };
 struct Insets { float left{}, top{}, right{}, bottom{}; };
 
-enum class Invalidation { paint, layout, placement, scroll };
+enum class Invalidation { paint, layout, placement, scroll, state, native, accessibility, topology };
+struct InvalidationEvent {
+    std::uint64_t origin{};
+    Invalidation kind{};
+};
 enum class StyleTarget : uint32_t;
 enum class StylePart : uint32_t;
 using StyleStateMask = std::uint64_t;
@@ -116,6 +120,7 @@ public:
     virtual OwnedChildren owned_children() const { return {}; }
     Rect bounds() const;
     void set_invalidator(std::function<void(Invalidation)> callback);
+    void set_invalidation_handler(std::function<void(InvalidationEvent)> callback);
     void invalidate(Invalidation kind);
     void set_preferred_size(Size size);
     void set_fixed_size(Size size);
@@ -143,7 +148,7 @@ protected:
     void set_default_size(Size size);
     virtual std::optional<StyleTarget> control_style_target() const { return std::nullopt; }
     virtual StyleStateMask control_style_state_bits() const;
-    bool invalidate_control_style_state();
+    bool invalidate_control_style_state(Invalidation minimum = Invalidation::paint);
     virtual void control_style_changed(Invalidation kind) { invalidate(kind); }
 
 private:
@@ -151,6 +156,8 @@ private:
     friend class ContentHost;
     void validate_adoption(const std::shared_ptr<Element>& child) const;
     void set_control_style_context_enabled(bool enabled);
+    bool in_subtree(std::uint64_t ancestor) const;
+    std::uint64_t parent_id() const;
     StyleStateMask effective_control_style_state_bits() const;
     struct InvalidationState;
     friend class Stack;
@@ -183,7 +190,7 @@ public:
     void set_separator_inset_enabled(bool value);
     // An acrylic material always paints a surface.
     bool surface() const { return surface_ || material_ != SurfaceMaterial::solid; }
-    void set_surface(bool value) { surface_ = value; invalidate(Invalidation::paint); }
+    void set_surface(bool value) { surface_ = value; invalidate(Invalidation::state); }
     SurfaceMaterial material() const { return material_; }
     void set_material(SurfaceMaterial value);
     bool separator_after() const { return separator_after_; }

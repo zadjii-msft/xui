@@ -21,9 +21,10 @@ StyleStateMask Element::effective_control_style_state_bits() const {
     for (const auto& part : control_style_schema(*target).parts) supported |= part.states;
     return control_style_state_bits() & supported;
 }
-bool Element::invalidate_control_style_state() {
+bool Element::invalidate_control_style_state(Invalidation minimum) {
     if (!control_style_) return false;
-    control_style_changed(control_style_->state_changed(effective_control_style_state_bits()));
+    const auto kind = control_style_->state_changed(effective_control_style_state_bits());
+    control_style_changed(kind == Invalidation::paint ? minimum : kind);
     return true;
 }
 void Element::set_control_style(std::shared_ptr<const ControlStyle> style) {
@@ -139,14 +140,15 @@ std::size_t bounded_index(double value, std::size_t count) {
 } // namespace
 
 struct Element::InvalidationState {
-    std::function<void(Invalidation)> callback;
+    std::function<void(InvalidationEvent)> callback;
     std::weak_ptr<InvalidationState> parent;
+    std::uint64_t id{};
 
-    void notify(Invalidation kind) {
+    void notify(InvalidationEvent event) {
         const auto listener = callback;
         const auto owner = parent.lock();
-        if (listener) listener(kind);
-        if (owner) owner->notify(kind);
+        if (listener) listener(event);
+        if (owner) owner->notify(event);
     }
 };
 
@@ -160,6 +162,7 @@ Element::Element() : invalidation_(std::make_shared<InvalidationState>()) {
         if (next.compare_exchange_weak(candidate, candidate + 1,
             std::memory_order_relaxed)) {
             id_ = candidate;
+            invalidation_->id = id_;
             break;
         }
     }
@@ -190,12 +193,26 @@ void Element::arrange(Rect bounds) {
 Rect Element::bounds() const { return bounds_; }
 
 void Element::set_invalidator(std::function<void(Invalidation)> callback) {
+    if (!callback) { invalidation_->callback = {}; return; }
+    const auto listener = std::make_shared<std::function<void(Invalidation)>>(std::move(callback));
+    invalidation_->callback = [listener](InvalidationEvent event) { (*listener)(event.kind); };
+}
+void Element::set_invalidation_handler(std::function<void(InvalidationEvent)> callback) {
     invalidation_->callback = std::move(callback);
 }
 
 void Element::invalidate(Invalidation kind) {
     const auto state = invalidation_;
-    state->notify(kind);
+    state->notify({state->id, kind});
+}
+bool Element::in_subtree(std::uint64_t ancestor) const {
+    for (auto current = invalidation_; current; current = current->parent.lock())
+        if (current->id == ancestor) return true;
+    return false;
+}
+std::uint64_t Element::parent_id() const {
+    const auto parent = invalidation_->parent.lock();
+    return parent ? parent->id : 0;
 }
 
 void Element::set_preferred_size(Size size) {
@@ -271,7 +288,7 @@ void ContentHost::replace(std::shared_ptr<Element> content) {
         content->invalidation_->parent = invalidation_;
         children_.push_back({std::move(content), 1});
     }
-    invalidate(Invalidation::layout);
+    invalidate(Invalidation::topology);
 }
 
 std::optional<StyleTarget> Stack::control_style_target() const { return StyleTarget::stack; }
@@ -300,7 +317,7 @@ void Stack::set_material(SurfaceMaterial value) {
         throw std::invalid_argument("Invalid surface material");
     if (material_ == value) return;
     material_ = value;
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 const PartStyleValues* Stack::effective_separator_style() const {
     if (!has_control_styling()) return nullptr;
@@ -365,7 +382,7 @@ void Stack::add(std::shared_ptr<Element> child, float flex) {
     flex = std::isfinite(flex) && flex > 0.0f ? flex : 0.0f;
     children_.push_back({child, flex});
     child->invalidation_->parent = invalidation_;
-    invalidate(Invalidation::layout);
+    invalidate(Invalidation::topology);
 }
 
 struct Stack::LayoutScratch {

@@ -115,11 +115,11 @@ void RangeInput::set_value(double value) {
 void RangeInput::set_orientation(Axis value) {
     if (value != Axis::horizontal && value != Axis::vertical) throw std::invalid_argument("Invalid orientation");
     if (orientation_ == value) return;
-    cancel(); orientation_ = value; invalidate(Invalidation::paint);
+    cancel(); orientation_ = value; invalidate(Invalidation::state);
 }
 void RangeInput::set_reversed(bool value) {
     if (reversed_ == value) return;
-    cancel(); reversed_ = value; invalidate(Invalidation::paint);
+    cancel(); reversed_ = value; invalidate(Invalidation::state);
 }
 bool RangeInput::change_value(double value) {
     bounded(value, range_);
@@ -200,12 +200,12 @@ void RadioGroup::set_items(std::vector<ChoiceItem> items, std::optional<std::uin
     if (items_ == items && selected_ == selected) return;
     items_ = std::move(items); selected_ = selected; reveal_selected();
     invalidate(visual_style() == VisualStyle::winui && !preferred_size_explicit() ?
-        Invalidation::layout : Invalidation::paint);
+        Invalidation::layout : Invalidation::state);
 }
 void RadioGroup::set_selected(std::uint64_t id) {
     require_choice(items_, id);
     if (selected_ == id) return;
-    selected_ = id; reveal_selected(); invalidate(Invalidation::paint);
+    selected_ = id; reveal_selected(); invalidate(Invalidation::state);
 }
 bool RadioGroup::select(std::uint64_t id) {
     require_choice(items_, id);
@@ -903,7 +903,7 @@ void Progress::set_range(double minimum, double maximum) {
     if (range_ == value) return;
     range_ = value; value_ = std::clamp(value_, minimum, maximum);
     transition_.settle(); presented_ = value_;
-    text_.clear(); invalidate(Invalidation::paint);
+    text_.clear(); invalidate(Invalidation::state);
 }
 void Progress::set_value(double value) {
     bounded(value, range_);
@@ -918,7 +918,7 @@ void Progress::set_value(double value) {
         transition_.settle();
         presented_ = value_;
     }
-    text_.clear(); invalidate(Invalidation::paint);
+    text_.clear(); invalidate(Invalidation::state);
 }
 void Progress::set_duration(unsigned milliseconds) {
     if (milliseconds > 10000) throw std::invalid_argument("Progress duration must be between 0 and 10000 milliseconds");

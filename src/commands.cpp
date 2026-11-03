@@ -430,7 +430,7 @@ void CommandBar::set_commands(std::shared_ptr<const CommandSet> commands) {
     }
     children_ = std::move(children); ids_ = std::move(ids); commands_ = std::move(commands);
     separators_ = separators;
-    invalidate(Invalidation::layout);
+    invalidate(Invalidation::topology);
 }
 StyleStateMask CommandBar::control_style_state_bits() const {
     return (Control::control_style_state_bits() & style_states::disabled) | (overflowed() ? style_states::overflowed : 0);

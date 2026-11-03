@@ -89,7 +89,7 @@ public:
     void set_line_numbers(bool value) {
         if (line_numbers_ == value) return;
         line_numbers_ = value;
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
     }
 private:
     bool line_numbers_{};

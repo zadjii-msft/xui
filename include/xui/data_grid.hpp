@@ -63,7 +63,7 @@ public:
     void set_selection(CollectionSelection selection);
     void set_full_source(std::shared_ptr<const GridSource> source) {
         if (full_source_ == source) return;
-        full_source_ = std::move(source); invalidate(Invalidation::paint);
+        full_source_ = std::move(source); invalidate(Invalidation::state);
     }
     const std::shared_ptr<const GridSource>& full_source() const { return full_source_; }
     void set_select_all_scope(SelectAllScope scope) { scope_ = scope; }

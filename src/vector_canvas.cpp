@@ -136,7 +136,7 @@ void VectorCanvas::set_scene(std::shared_ptr<const VectorScene> scene) {
     if (selected_ && !source->find({*selected_, 1})) selected_.reset();
     set_selected(selected_);
     invalidate_state();
-    invalidate(layout ? Invalidation::layout : Invalidation::paint);
+    invalidate(layout ? Invalidation::layout : Invalidation::state);
 }
 void VectorCanvas::set_selected(std::optional<ShapeId> id) {
     if (id && (!items_->source() || !items_->source()->find({*id, 1}))) throw std::invalid_argument("Unknown interactive scene ID");

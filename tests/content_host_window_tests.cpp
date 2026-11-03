@@ -500,11 +500,14 @@ void active_collection_contract() {
             const auto count = descendants(owner).size();
             check(count == 1, "Inactive population adds no native peers");
             active_calls = inactive_calls = 0;
+            const auto topology_before = SendMessageW(owner, WM_APP + 60, 44, 0);
             for (int i = 0; i < 32; ++i) {
                 button->pointer_move(i % 2 == 0);
                 SendMessageW(owner, WM_APP + 12, 0, 0);
             }
-            check(active_calls > 0 && inactive_calls == 0, "Ordinary active interactions never collect or apply typography to inactive pages");
+            check(active_calls == 0 && inactive_calls == 0 &&
+                SendMessageW(owner, WM_APP + 60, 44, 0) == topology_before,
+                "Ordinary active interactions do not recollect or apply typography to active or inactive pages");
             check(!previous_active_calls || active_calls == previous_active_calls, "Active collection work is independent of inactive population");
             check(descendants(owner).size() == count, "Active interactions do not realize unvisited peers");
             previous_active_calls = active_calls;

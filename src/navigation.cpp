@@ -60,7 +60,7 @@ void Breadcrumb::set_segments(std::vector<PathSegment> segments) {
         const auto retired = std::static_pointer_cast<Button>(children_[i]);
         retired->on_click({}); retired->on_toggle({}); retired->set_enabled(false);
     }
-    children_ = std::move(children); segments_ = std::move(segments); first_ = 0; invalidate(Invalidation::layout);
+    children_ = std::move(children); segments_ = std::move(segments); first_ = 0; invalidate(Invalidation::topology);
 }
 void Breadcrumb::arrange(Rect bounds) {
     const bool was_overflowed = overflowed();

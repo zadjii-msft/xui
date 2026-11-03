@@ -313,13 +313,13 @@ void toggle_model() {
     require(toggle.effective_control_style_values(StylePart::indicator)->background == ThemeColor{0x222222},
         "Unchecked indicator uses the base color");
     toggle.set_checked(true);
-    require(invalidation == Invalidation::paint, "Checked indicator color is a paint-only change");
+    require(invalidation == Invalidation::state, "Checked indicator updates local semantic state without layout");
     require(toggle.effective_control_style_values(StylePart::indicator)->background == ThemeColor{0x00ff00},
         "Checked state resolves the checked rule");
     toggle.set_checked(false);
 
     toggle.pointer_move(true);
-    require(invalidation == Invalidation::paint, "Hover with no authored hover rule is still a defined no-color-change paint pass");
+    require(invalidation == Invalidation::state, "Hover retains local state synchronization without layout");
     toggle.pointer_move(false);
 
     toggle.set_enabled(false);

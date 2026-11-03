@@ -143,8 +143,9 @@ void TextInputHostPeer::collect_clear() {
         clear_button_->set_automation_id(L"xui-text-clear-" + (control->automation_id().empty() ?
             std::to_wstring(control->id()) : control->automation_id()));
         const std::weak_ptr<NativeFieldServices> owner = fields.acquire_native_lease();
-        clear_button_->set_invalidator([owner](Invalidation kind) {
-            if (const auto services = owner.lock()) services->invalidate_native_field(kind);
+        clear_button_->set_invalidation_handler([owner, id = control->id()](InvalidationEvent event) {
+            if (const auto services = owner.lock())
+                services->invalidate_native_field({id, event.kind == Invalidation::layout ? Invalidation::native : event.kind});
         });
         clear_button_->on_click([owner, id = control->id()] {
             if (const auto services = owner.lock()) services->activate_text_clear(id);

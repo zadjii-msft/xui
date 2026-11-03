@@ -470,10 +470,10 @@ PartStyleValues VirtualCollection::row_style_values(StylePart part, const Collec
     return result;
 }
 void VirtualCollection::changed() {
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
     auto callback = change_; if (callback) callback();
 }
-void VirtualCollection::set_selection(CollectionSelection value) { selection_ = std::move(value); invalidate(Invalidation::paint); }
+void VirtualCollection::set_selection(CollectionSelection value) { selection_ = std::move(value); invalidate(Invalidation::state); }
 void VirtualCollection::set_source(std::shared_ptr<const ItemsSource> value, std::shared_ptr<const CollectionIndex> full,
     std::shared_ptr<const detail::CollectionPresentation> frame) {
     if (value && value->size() > INT_MAX) throw std::length_error("Collection supports at most INT_MAX items");
@@ -489,7 +489,7 @@ void VirtualCollection::set_source(std::shared_ptr<const ItemsSource> value, std
         collection_presentation_version_ = collection_presentation_->version();
         if (selection_.focused() && !source_->find(*selection_.focused())) selection_.set_focus({});
     } else offset_ = std::clamp(offset_, 0.0, maximum_offset());
-    repair_focus(); invalidate(Invalidation::paint);
+    repair_focus(); invalidate(Invalidation::state);
 }
 void VirtualCollection::set_collection_presentation(std::shared_ptr<const detail::CollectionPresentation> frame) {
     if (!frame) clear_collection_presentation();
@@ -557,14 +557,14 @@ void VirtualCollection::set_presentation(ItemsPresentation value) {
     if (presentation_ == value) return;
     clear_collection_presentation();
     presentation_ = value; set_offset(offset_); if (selection_.focused()) reveal(*selection_.focused());
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 void VirtualCollection::set_item_size(Size value) {
     if (!std::isfinite(value.width) || !std::isfinite(value.height) || value.width < 48 || value.height < 32)
         throw std::invalid_argument("Item size must be finite and at least 48 by 32");
     if (item_size_.width == value.width && item_size_.height == value.height) return;
     clear_collection_presentation();
-    item_size_ = value; set_offset(offset_); invalidate(Invalidation::paint);
+    item_size_ = value; set_offset(offset_); invalidate(Invalidation::state);
 }
 std::size_t VirtualCollection::columns() const {
     return wraps_items() ? static_cast<std::size_t>(std::max(1.0f, std::floor(content_viewport().width / item_size().width))) : 1;
@@ -579,7 +579,7 @@ void VirtualCollection::set_offset(double value) {
     clear_collection_presentation();
     value = std::clamp(std::isfinite(value) ? value : 0, 0.0, maximum_offset());
     if (value == offset_) return;
-    offset_ = value; invalidate(Invalidation::paint);
+    offset_ = value; invalidate(Invalidation::state);
 }
 Rect VirtualCollection::item_bounds(std::size_t index) const {
     if (collection_presentation_) return collection_presentation_->bounds(index).in_view(content_viewport(), offset());
@@ -797,7 +797,7 @@ void TreeView::set_columns(std::vector<GridColumn> columns) {
             throw std::invalid_argument("Tree details require widths from 48 to 2000 and read-only columns");
     if (detail_columns_ == columns) return;
     detail_columns_ = std::move(columns);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 TreeDetailsLayout TreeView::details_layout(const CollectionRow& row, StyleStateMask state) const {
     TreeDetailsLayout result;
