@@ -112,10 +112,22 @@ Strong captures that refer back to their own control can create an ownership cyc
 Window teardown clears the host invalidator and disconnects accessible providers.
 Retained controls remain valid after window destruction.
 
-Enabled state and checked state request paint updates.
-Text and typography changes request layout for automatic sizes, or paint for preferred sizes.
-Size limits, spacing, and padding request layout and paint updates.
+Enabled and checked state request local native/accessibility synchronization and repainting.
+Text and typography changes request layout for automatic sizes, or local state updates for preferred sizes.
+Size limits, spacing, and padding request layout and repainting, not rediscovery of unchanged children.
+Owned-child changes and lazy-page selection request topology reconciliation.
+Help text and automation IDs request accessibility updates; native field properties synchronize the relevant field.
+Pure visual changes request repainting without republishing unrelated native or accessibility state.
 The host combines pending updates. It has no continuous render loop.
+Invalidations raised during a host pass remain pending for a subsequent pass.
+Themes, DPI and genuinely global state retain conservative whole-window coverage.
+
+For C++ backend/custom-control integration, `Element::invalidate` distinguishes
+`paint`, `state`, `native`, `accessibility`, `layout`, `placement`, `scroll` and `topology`.
+Use `topology` when owned children change, and `state` when a semantic property also affects native/provider state.
+`set_invalidator` observes categories; `set_invalidation_handler` additionally receives
+the stable originating `Element::id` in `InvalidationEvent`. Neither callback may
+retain an unsafe element pointer just because a notification is pending.
 Opt-in [animations](animations.md) share one window timer only during active transitions.
 Eligible indeterminate progress controls use a separate window-owned timer, without an explicit transition duration.
 The [progress contract](foundation-controls.md#progress-presentations-and-animation) defines its lifecycle and reduced-animation behavior.
