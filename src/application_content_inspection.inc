@@ -80,7 +80,7 @@
             throw std::logic_error("Finish native menu or move input before inspecting content");
         if (GetCapture()) throw std::logic_error("Release native pointer capture before inspecting content");
         for (const auto& peer : peers)
-            if ((peer->edit_bridge() && peer->edit_bridge()->composing()) || (peer->document_bridge() && peer->document_bridge()->composing()))
+            if (const auto* native = peer->native_field(); native && native->composing())
                 throw std::logic_error("Finish native text composition before inspecting content");
     }
     void validate_inspection_ancestors(const inspection::HostPath& path) const {

@@ -1,6 +1,8 @@
 #include "xui/application.hpp"
-#include "xui/native_edit.hpp"
-#include "native_document.hpp"
+#include "text_input_host.hpp"
+#include "document_host.hpp"
+#include "password_host.hpp"
+#include "date_time_host.hpp"
 #include "native_file_dialog.hpp"
 #include "content_inspection.hpp"
 #include "native_runtime_host.hpp"
@@ -13,6 +15,10 @@
 #include "collection_host.hpp"
 #include "grid_host.hpp"
 #include "file_list_host.hpp"
+#include "basic_host.hpp"
+#include "scene_host.hpp"
+#include "navigation_host.hpp"
+#include "composite_host.hpp"
 #include "layout_styling.hpp"
 #include "context_menu.hpp"
 #include "shell_commands_internal.hpp"
@@ -44,7 +50,7 @@ namespace xui {
 namespace {
 constexpr UINT update_message = WM_APP + 12;
 constexpr UINT metrics_message = WM_APP + 60;
-constexpr UINT_PTR tooltip_timer = 41, repeat_timer = 42, animation_timer = 43, progress_timer = 44;
+constexpr UINT_PTR tooltip_timer = 41, animation_timer = 43, progress_timer = 44;
 constexpr wchar_t window_class[] = L"Xui.Window.1";
 constexpr wchar_t control_class[] = L"Xui.Control.1";
 constexpr wchar_t scroll_content_class[] = L"Xui.ScrollContent.1";
@@ -86,125 +92,27 @@ std::unique_ptr<WindowIcons> file_type_icons(const std::wstring& extension, bool
 }
 }
 
-struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServices {
+struct Window::Impl : std::enable_shared_from_this<Window::Impl>, ControlHostServices, NativeFieldServices {
     using Peer = HostPeer;
-    struct UnextractedPeer final : Peer {
-        HWND caption{};
-        std::wstring caption_text;
-        std::unique_ptr<NativeEditBridge> edit;
-        std::shared_ptr<Button> clear_button;
-        HWND clear_window{};
-        std::weak_ptr<Control> clear_owner;
-        std::unique_ptr<NativeDocumentBridge> document;
-        std::unique_ptr<NativeRuntimeHost> runtime;
-        std::unique_ptr<NativeSwapChainHost> swap_chain;
-        std::unique_ptr<Drawing> overlay_drawing;
-        std::unique_ptr<ImagePeer> image;
-        std::unique_ptr<RowImages> row_images;
-        std::shared_ptr<ControlAccessibility> accessibility = std::make_shared<ControlAccessibility>();
-        std::shared_ptr<ControlAccessibility> caption_accessibility;
-        IRawElementProviderSimple* caption_provider{};
-        bool repeating{}, repeat_cycle{};
-        bool native_occluded{};
-        std::wstring typeahead;
-        ULONGLONG typeahead_time{};
-        HWND scroll_content{};
-        RECT scroll_placed_bounds{};
-        bool scroll_placed{};
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
-        bool dragging{};
-        float drag_y{}, drag_offset{};
-        std::optional<Point> tab_pointer;
-        std::optional<std::uint64_t> pressed_tab;
-        POINT tab_press{};
-        std::optional<std::size_t> hovered_choice;
-        std::optional<std::uint64_t> pressed_choice;
-
-        UnextractedPeer(Impl& owner, std::shared_ptr<Control> value)
-            : Peer(owner, HostFamily::unextracted, std::move(value)) {}
-        ~UnextractedPeer() override {
-            host.forget_peer(*this);
-            if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
-            runtime.reset(); swap_chain.reset(); overlay_drawing.reset();
-            retire_native();
-            if (caption && IsWindow(caption)) DestroyWindow(caption);
-            disconnect_accessibility();
-            if (caption_accessibility) disconnect_control(caption_accessibility, caption_provider);
-            if (caption_provider) caption_provider->Release();
-        }
-        void attach(HWND, int) override;
-        void sync(UINT, const Palette&) override { publish_accessibility(); }
-        void publish_accessibility() override { publish_control(accessibility, provider, *control, window); }
-        void disconnect_accessibility() override { disconnect_control(accessibility, provider); }
-        void detach_owner() override {
-            if (image) image->detach();
-            if (row_images) row_images->clear();
-            if (runtime) runtime->cancel_owner();
-            if (swap_chain) swap_chain->cancel_owner();
-        }
-        void cancel_input() override {
-            if (edit) edit->dismiss_suggestions();
-            dragging = false;
-            if (auto* range = dynamic_cast<RangeInput*>(control.get())) range->cancel_drag();
-            control->cancel();
-            pressed_choice.reset(); pressed_tab.reset(); hovered_choice.reset();
-            KillTimer(window, repeat_timer); repeating = repeat_cycle = false;
-        }
-        bool capture_active() const override {
-            const auto* range = dynamic_cast<const RangeInput*>(control.get());
-            return pressed_choice || pressed_tab || dragging || (range && range->dragging());
-        }
-        void paint(const HostPaintContext&) override;
-        std::optional<LRESULT> input(UINT, WPARAM, LPARAM, const HostInputContext&) override { return {}; }
-        bool image_sync_required() const override {
-            return image || dynamic_cast<const TabStrip*>(control.get());
-        }
-        bool image_work(RowImageWork&) override;
-        bool sync_images(RowImageWork work, UINT dpi, const std::shared_ptr<TaskWake>& wake,
-            std::vector<std::uint64_t>& retained, std::size_t&) override {
-            return row_images->sync_visuals(std::move(work.rows), dpi, wake, retained, 16);
-        }
-        std::size_t metric(PeerMetric metric) const override {
-            return metric == PeerMetric::retained_images && row_images ? row_images->count() : 0;
-        }
-        NativeEditBridge* edit_bridge() const override { return edit.get(); }
-        NativeDocumentBridge* document_bridge() const override { return document.get(); }
-        NativeRuntimeHost* runtime_host() const override { return runtime.get(); }
-        NativeSwapChainHost* swap_chain_host() const override { return swap_chain.get(); }
-        Drawing* overlay_surface() const override { return overlay_drawing.get(); }
-        ImagePeer* image_peer() const override { return image.get(); }
-        HWND caption_window() const override { return caption; }
-        HWND child_content_window() const override { return scroll_content; }
-    };
     static Impl& owner(Peer& peer) { return static_cast<Impl&>(peer.host); }
     static const Impl& owner(const Peer& peer) { return static_cast<const Impl&>(peer.host); }
-    static UnextractedPeer* unextracted_if(Peer& peer) {
-        return peer.family == HostFamily::unextracted ? static_cast<UnextractedPeer*>(&peer) : nullptr;
-    }
-    static const UnextractedPeer* unextracted_if(const Peer& peer) {
-        return peer.family == HostFamily::unextracted ? static_cast<const UnextractedPeer*>(&peer) : nullptr;
-    }
-    static UnextractedPeer& unextracted(Peer& peer) {
-        auto* value = unextracted_if(peer);
-        if (!value) throw std::logic_error("Control does not have unextracted host state");
-        return *value;
-    }
-    static const UnextractedPeer& unextracted(const Peer& peer) {
-        const auto* value = unextracted_if(peer);
-        if (!value) throw std::logic_error("Control does not have unextracted host state");
-        return *value;
-    }
     static std::shared_ptr<Button> clear_adornment(const Peer& peer) {
-        const auto* value = unextracted_if(peer);
-        return value ? value->clear_button : nullptr;
+        const auto* value = text_input_peer(peer);
+        return value ? value->clear_button() : nullptr;
     }
     static std::shared_ptr<Control> clear_owner(const Peer& peer) {
-        const auto* value = unextracted_if(peer);
-        return value ? value->clear_owner.lock() : nullptr;
+        return peer.family == HostFamily::text_clear ? static_cast<const TextClearHostPeer&>(peer).owner() : nullptr;
     }
     static bool is_clear_adornment(const Peer& peer) {
-        const auto* value = unextracted_if(peer);
-        return value && !value->clear_owner.expired();
+        return peer.family == HostFamily::text_clear;
+    }
+    static TextInputHostPeer* text_input_peer(const Peer& peer) {
+        const auto* field = peer.native_field();
+        return field ? field->text_input() : nullptr;
+    }
+    static NativeFieldHostPeer* native_document_peer(const Peer& peer) {
+        auto* field = peer.native_field();
+        return field && !field->text_input() ? field : nullptr;
     }
 
     HWND create_input_surface(Peer& peer, HWND native_parent, int id) override {
@@ -255,6 +163,50 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         if (it != peer_lookup.end() && it->second == &peer) peer_lookup.erase(it);
     }
     void peer_failure() noexcept override { fail(); }
+    Drawing& control_drawing() override { return drawing(); }
+    HWND owner_window() const override { return window; }
+    ControlHostPresentation control_presentation(const Peer& peer) const override {
+        return {dpi, options.composition, keyboard_focus_visible, caption_active,
+            progress_animating && animated_progress(peer), progress_phase, titlebar.get()};
+    }
+    bool native_activation_allowed(bool runtime) const override {
+        return !closing && (!runtime || popups.empty()) &&
+            std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
+                [](const auto* layout) { return layout->overlay_active(); });
+    }
+    std::weak_ptr<platform::CompositionPresenter> composition_presenter() const override { return presenter; }
+    Peer* presented_peer(const Control* control) const override { return find_peer(control); }
+    void activate_control(Peer& peer, bool invoked) override { activated(peer, invoked); }
+    bool caption_control(const Control& control) const override { return is_caption_button(control); }
+    void set_keyboard_focus_visible(bool value) override { keyboard_focus_visible = value; }
+    bool tab_gesture_allowed(const Peer& peer) const override {
+        const auto* tabs = dynamic_cast<const TabStrip*>(peer.control.get());
+        return !closing && tab_drag_handler && tabs && titlebar_strip(tabs).has_value();
+    }
+    void begin_tab_gesture(NavigationHostPeer& peer, POINT point) override { begin_tab_move(peer, point); }
+    HWND create_scroll_surface(Peer& peer) override {
+        const auto result = CreateWindowExW(WS_EX_TRANSPARENT, scroll_content_class, L"",
+            WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, peer.window, nullptr, GetModuleHandleW(nullptr), &peer);
+        win32_require(result != nullptr, "Create scroll content window");
+        win32_require(SetWindowSubclass(result, navigation_procedure, 1,
+            reinterpret_cast<DWORD_PTR>(&peer)) != 0, "Attach scroll content navigation");
+        return result;
+    }
+    void collect_popup_surface(const std::shared_ptr<Popup>& popup) override { collect(popup, true); }
+    void show_host_popup(const std::shared_ptr<Popup>& popup, Control& anchor, Control* initial) override {
+        show_popup(popup, anchor, initial);
+    }
+    void dismiss_host_popup(Popup& popup, PopupDismissReason reason) override {
+        InputScope input(*this);
+        dismiss_popup(popup, reason);
+    }
+    bool expand_menu_heading(Peer& peer, bool expand) override { return menu_bar_expand(peer, expand); }
+    void focus_owned_control(Control& control) override {
+        InputScope input(*this);
+        update();
+        if (auto* peer = find_peer(&control)) focus(*peer, false);
+    }
+    bool scroll_host_key(Peer& peer, WPARAM key) override { return scroll_key(peer, key); }
 
     WindowOptions options;
     std::wstring error;
@@ -507,7 +459,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         backdrop_presented = presented;
         root_drawing.discard();
         for (const auto& peer : peers)
-            if (peer->edit_bridge() || peer->document_bridge()) platform::opaque_native_paint(peer->window, presented);
+            if (peer->native()) platform::opaque_native_paint(peer->window, presented);
         InvalidateRect(window, nullptr, FALSE);
     }
     std::function<void(HWND)> native_created;
@@ -809,66 +761,22 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         } catch (...) { owner(*peer).fail(); return 0; }
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
-    static LRESULT CALLBACK native_clip_procedure(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
-        UINT_PTR id, DWORD_PTR data) noexcept {
-        auto& peer = unextracted(*reinterpret_cast<Peer*>(data));
-        InputScope scope(owner(peer));
-        if (message == WM_SETFOCUS && !owner(peer).enabled(peer)) {
-            try { owner(peer).traverse(false); } catch (...) { owner(peer).fail(); }
-            return 0;
+    LRESULT dispatch_native_field(NativeFieldHostPeer& peer, HWND hwnd, UINT message,
+        WPARAM wparam, LPARAM lparam) noexcept override {
+        InputScope scope(*this);
+        try {
+            if (message == WM_SETFOCUS && !enabled(peer)) { traverse(false); return 0; }
+            if (!enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
+                message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
+                message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
+            if (message == WM_NCHITTEST && drag_hit(lparam)) return HTCAPTION;
+            if (message == WM_NCLBUTTONDOWN && wparam == HTCAPTION && options.transparent)
+                return SendMessageW(window, message, wparam, lparam);
+            return peer.native_message(hwnd, message, wparam, lparam, 2, composing_native);
+        } catch (...) {
+            fail();
+            return message == control_action_message ? E_FAIL : 0;
         }
-        if (!owner(peer).enabled(peer) && (message == WM_KEYDOWN || message == WM_CHAR ||
-            message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN ||
-            message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU)) return 0;
-        if (message == WM_NCHITTEST && owner(peer).drag_hit(lparam)) return HTCAPTION;
-        if (message == WM_NCLBUTTONDOWN && wparam == HTCAPTION && owner(peer).options.transparent)
-            return SendMessageW(owner(peer).window, message, wparam, lparam);
-        const bool caption = hwnd == peer.caption_window();
-        // Keep STATIC for EDIT's accessible name, but paint its text in the retained frame.
-        if (caption && message == WM_ERASEBKGND) return 1;
-        if (caption && message == WM_PAINT) {
-            ValidateRect(hwnd, nullptr);
-            return 0;
-        }
-        if (caption && (message == WM_PRINTCLIENT || message == WM_PRINT)) return 0;
-        auto* provider = caption ? peer.caption_provider : peer.provider;
-        if ((message == WM_PRINTCLIENT || message == WM_PRINT) && unextracted(peer).native_occluded && !owner(peer).composing_native) {
-            const auto dc = reinterpret_cast<HDC>(wparam);
-            const auto region = CreateRectRgn(0, 0, 0, 0);
-            const auto saved = SaveDC(dc);
-            if (!region || !saved) {
-                if (region) DeleteObject(region);
-                if (saved) RestoreDC(dc, saved);
-                return 0;
-            }
-            if (GetWindowRgn(hwnd, region) != ERROR) {
-                POINT viewport{}, origin{}; GetViewportOrgEx(dc, &viewport); GetWindowOrgEx(dc, &origin);
-                OffsetRgn(region, viewport.x - origin.x, viewport.y - origin.y);
-                ExtSelectClipRgn(dc, region, RGN_AND);
-            }
-            const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
-            RestoreDC(dc, saved); DeleteObject(region);
-            return result;
-        }
-        // RichEdit supplies its own server-side Text provider. Replacing it with
-        // an override provider would hide its native Text/Text2 patterns.
-        if (message == WM_GETOBJECT && static_cast<LONG>(lparam) == UiaRootObjectId &&
-            peer.control->role() == ControlRole::document_text) return DefSubclassProc(hwnd, message, wparam, lparam);
-        if (message == WM_GETOBJECT && static_cast<LONG>(lparam) == UiaRootObjectId && provider)
-            return UiaReturnRawElementProvider(hwnd, wparam, lparam, provider);
-        if (message == control_action_message) {
-            if (wparam != peer.control->id()) return UIA_E_ELEMENTNOTAVAILABLE;
-            if (caption) return UIA_E_INVALIDOPERATION;
-            if (!owner(peer).enabled(peer)) return UIA_E_ELEMENTNOTENABLED;
-            try { return owner(peer).focus(peer, true) ? S_OK : UIA_E_INVALIDOPERATION; }
-            catch (...) { owner(peer).fail(); return E_FAIL; }
-        }
-        if (message == WM_NCDESTROY) {
-            RemoveWindowSubclass(hwnd, native_clip_procedure, id);
-            disconnect_control(caption ? peer.caption_accessibility : peer.accessibility, provider);
-            UiaReturnRawElementProvider(hwnd, 0, 0, nullptr);
-        }
-        return DefSubclassProc(hwnd, message, wparam, lparam);
     }
     std::optional<LRESULT> navigation_message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
         if (!navigation || !IsWindowEnabled(window)) return {};
@@ -941,7 +849,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             try { owner(peer).dismiss_adaptive_outside(peer); }
             catch (...) { owner(peer).fail(); return 0; }
         }
-        if (peer.document_bridge() && (message == WM_SETFOCUS || message == WM_KILLFOCUS)) {
+        if (native_document_peer(peer) && (message == WM_SETFOCUS || message == WM_KILLFOCUS)) {
             try {
                 peer.control->set_focused(message == WM_SETFOCUS);
                 if (message == WM_SETFOCUS) { owner(peer).last_focus = hwnd; owner(peer).reveal(peer); }
@@ -1010,8 +918,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             try { owner(peer).focus_departing(reinterpret_cast<HWND>(wparam)); }
             catch (...) { owner(peer).fail(); return 0; }
         }
-        if (message == WM_CONTEXTMENU && peer.edit_bridge() && peer.control->has_context_menu()) {
-            if (peer.edit_bridge()->composing()) return 0;
+        if (message == WM_CONTEXTMENU && text_input_peer(peer) && peer.control->has_context_menu()) {
+            if (text_input_peer(peer)->composing()) return 0;
             auto* host = &owner(peer);
             try { show_control_menu(*peer.control, hwnd, lparam, host->palette, host->dpi); }
             catch (...) { host->fail(); }
@@ -1021,14 +929,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (auto result = owner(peer).navigation_message(hwnd, message, wparam, lparam)) return *result;
         } catch (...) { owner(peer).fail(); return 0; }
         if (message == WM_NCDESTROY) RemoveWindowSubclass(hwnd, navigation_procedure, id);
-        if (peer.edit_bridge() && (message == WM_IME_STARTCOMPOSITION || message == WM_IME_ENDCOMPOSITION)) {
+        if (text_input_peer(peer) && (message == WM_IME_STARTCOMPOSITION || message == WM_IME_ENDCOMPOSITION)) {
             auto* host = &owner(peer);
             const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
             host->invalidate(Invalidation::layout);
             return result;
         }
-        if (peer.edit_bridge() && peer.parent && peer.parent->control->role() == ControlRole::numeric_input &&
-            peer.control->visual_style() == VisualStyle::winui && !peer.edit_bridge()->composing() &&
+        if (text_input_peer(peer) && peer.parent && peer.parent->control->role() == ControlRole::numeric_input &&
+            peer.control->visual_style() == VisualStyle::winui && !text_input_peer(peer)->composing() &&
             (message == WM_SETFOCUS || (message == WM_LBUTTONDOWN && GetFocus() != hwnd))) {
             const auto input = peer.control;
             const auto result = DefSubclassProc(hwnd, message, wparam, lparam);
@@ -1055,12 +963,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         if (options.composition) return;
         if (peer.control->role() != ControlRole::popup || peer.overlay_surface() ||
             std::none_of(peers.begin(), peers.end(), [](const auto& item) { return bool(item->swap_chain_host()); })) return;
-        auto surface = std::make_unique<Drawing>();
-        surface->initialize(options.visual_style);
-        const auto style = GetWindowLongPtrW(peer.window, GWL_EXSTYLE);
-        win32_require(SetWindowLongPtrW(peer.window, GWL_EXSTYLE, style & ~WS_EX_TRANSPARENT) != 0,
-            "Enable popup rendering surface");
-        unextracted(peer).overlay_drawing = std::move(surface);
+        composite_peer(peer)->prepare_overlay(options.visual_style);
     }
     void apply_typography(Element& element) {
         if (!presentation_font) return;
@@ -1098,65 +1001,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         claim_deferred_tree(reveal->content());
         return true;
     }
-    void attach_unextracted(UnextractedPeer& peer, HWND native_parent, int id) {
-        const auto role = peer.control->role();
-        if (role == ControlRole::document_text || role == ControlRole::password_input || role == ControlRole::date_time) {
-            peer.document = std::make_unique<NativeDocumentBridge>(peer.control);
-            peer.document->on_failure([this] { fail(); });
-            peer.document->attach(native_parent, id);
-            peer.window = peer.document->window();
-            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
-            peer.provider = create_native_clip_provider(peer.accessibility);
-            win32_require(SetWindowSubclass(peer.window, native_clip_procedure, 2,
-                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native document clipping provider");
-        } else if (role == ControlRole::text_input) {
-            auto& input = static_cast<TextInput&>(*peer.control);
-            // The preceding native STATIC supplies EDIT's accessible name.
-            peer.caption = CreateWindowExW(WS_EX_TRANSPARENT, L"STATIC", peer.control->name().c_str(),
-                WS_CHILD | (input.caption_visible() ? WS_VISIBLE : 0) | SS_LEFT | SS_NOPREFIX, 0, 0, 1, 1, native_parent,
-                nullptr, GetModuleHandleW(nullptr), nullptr);
-            win32_require(peer.caption != nullptr, "Create text input label");
-            peer.caption_text = input.name();
-            peer.edit = std::make_unique<NativeEditBridge>();
-            peer.edit->set_font_family(drawing().edit_font_family());
-            peer.edit->on_failure([this] { fail(); });
-            peer.edit->set_placeholder(input.placeholder());
-            peer.edit->set_insets({input.search_style() ? 40.0f : 12.0f, 10,
-                input.shortcut_hint().empty() ? 12.0f : 78.0f, 10});
-            peer.edit->attach(native_parent, id);
-            peer.window = peer.edit->window();
-            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
-            peer.provider = create_native_clip_provider(peer.accessibility);
-            win32_require(SetWindowSubclass(peer.window, native_clip_procedure, 2,
-                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native input focus and clipping provider");
-            peer.caption_accessibility = std::make_shared<ControlAccessibility>();
-            peer.caption_accessibility->snapshot.window = peer.caption;
-            peer.caption_accessibility->snapshot.id = peer.control->id();
-            peer.caption_provider = create_native_clip_provider(peer.caption_accessibility);
-            win32_require(SetWindowSubclass(peer.caption, native_clip_procedure, 2,
-                reinterpret_cast<DWORD_PTR>(static_cast<Peer*>(&peer))) != 0, "Attach native caption clipping provider");
-        } else {
-            peer.window = create_input_surface(peer, native_parent, id);
-            publish_control(peer.accessibility, nullptr, *peer.control, peer.window);
-            peer.provider = role == ControlRole::tab_strip || role == ControlRole::split_view || role >= ControlRole::popup ||
-                    dynamic_cast<MenuBar*>(peer.control.get()) || dynamic_cast<MenuBar::Heading*>(peer.control.get()) ?
-                create_workspace_provider(peer.accessibility) : create_control_provider(peer.accessibility);
-        }
-        if (auto runtime = std::dynamic_pointer_cast<RuntimeHost>(peer.control))
-            peer.runtime = std::make_unique<NativeRuntimeHost>(runtime, peer.window, [this] { fail(); }, [this] {
-                return !closing && popups.empty() && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
-                    [](const auto* layout) { return layout->overlay_active(); });
-            });
-        if (auto panel = std::dynamic_pointer_cast<SwapChainPanel>(peer.control))
-            peer.swap_chain = std::make_unique<NativeSwapChainHost>(panel, peer.window, [this] {
-                return !closing && std::none_of(adaptive_layouts.begin(), adaptive_layouts.end(),
-                    [](const auto* layout) { return layout->overlay_active(); });
-            }, presenter, window);
-        if (backdrop_presented && (peer.edit || peer.document)) platform::opaque_native_paint(peer.window, true);
-        if (options.composition && (peer.edit || peer.document)) platform::layered_child(peer.window);
-        prepare_popup_surface(peer);
-    }
-    void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr, AdaptiveLayout* adaptive = nullptr) {
+    void collect(const std::shared_ptr<Element>& element, bool surface = false, Peer* parent = nullptr,
+        AdaptiveLayout* adaptive = nullptr, TextInputHostPeer* clear_owner = nullptr) {
         claim(element);
         apply_typography(*element);
         if (auto stack = std::dynamic_pointer_cast<Stack>(element)) {
@@ -1195,7 +1041,27 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         }
         std::unique_ptr<Peer> peer;
         const auto role = control->role();
-        if (role == ControlRole::file_list) {
+        if (clear_owner) {
+            if (control != clear_owner->clear_button()) throw std::logic_error("Mismatched native clear adornment owner");
+            peer = std::make_unique<TextClearHostPeer>(*this, clear_owner->clear_button(),
+                std::static_pointer_cast<TextInput>(clear_owner->control));
+        } else if (role == ControlRole::text_input) {
+            auto input = std::dynamic_pointer_cast<TextInput>(control);
+            if (!input) throw std::invalid_argument("The text-input role requires TextInput");
+            peer = std::make_unique<TextInputHostPeer>(*this, *this, std::move(input));
+        } else if (role == ControlRole::document_text) {
+            auto document = std::dynamic_pointer_cast<DocumentText>(control);
+            if (!document) throw std::invalid_argument("The document-text role requires DocumentText");
+            peer = std::make_unique<DocumentTextHostPeer>(*this, *this, std::move(document));
+        } else if (role == ControlRole::password_input) {
+            auto password = std::dynamic_pointer_cast<PasswordInput>(control);
+            if (!password) throw std::invalid_argument("The password-input role requires PasswordInput");
+            peer = std::make_unique<PasswordHostPeer>(*this, *this, std::move(password));
+        } else if (role == ControlRole::date_time) {
+            auto date = std::dynamic_pointer_cast<DateTimePicker>(control);
+            if (!date) throw std::invalid_argument("The date/time role requires DateTimePicker");
+            peer = std::make_unique<DateTimeHostPeer>(*this, *this, std::move(date));
+        } else if (role == ControlRole::file_list) {
             auto list = std::dynamic_pointer_cast<FileList>(control);
             if (!list) throw std::invalid_argument("The file-list role requires a FileList control");
             peer = std::make_unique<FileListHostPeer>(*this, std::move(list));
@@ -1207,156 +1073,90 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             auto collection = std::dynamic_pointer_cast<VirtualCollection>(control);
             if (!collection) throw std::invalid_argument("The collection role requires a VirtualCollection control");
             peer = std::make_unique<CollectionHostPeer>(*this, std::move(collection));
-        } else peer = std::make_unique<UnextractedPeer>(*this, std::move(control));
+        } else if (dynamic_cast<Image*>(control.get()) || dynamic_cast<VectorCanvas*>(control.get()) ||
+            dynamic_cast<RuntimeHost*>(control.get()) || dynamic_cast<SwapChainPanel*>(control.get())) {
+            peer = std::make_unique<SceneHostPeer>(*this, std::move(control));
+        } else if (dynamic_cast<MillerColumns*>(control.get()) || dynamic_cast<TabStrip*>(control.get()) ||
+            dynamic_cast<TitleBar*>(control.get()) || dynamic_cast<NavigationView*>(control.get()) ||
+            dynamic_cast<Breadcrumb*>(control.get()) ||
+            dynamic_cast<MenuBar*>(control.get())) {
+            peer = std::make_unique<NavigationHostPeer>(*this, std::move(control));
+        } else if (role == ControlRole::popup || role == ControlRole::content_view ||
+            role == ControlRole::scroll_view || role == ControlRole::split_view || role == ControlRole::expander) {
+            peer = std::make_unique<CompositeHostPeer>(*this, std::move(control));
+        } else {
+            peer = std::make_unique<BasicHostPeer>(*this, std::move(control));
+        }
         peer->surface = surface;
         peer->adaptive = adaptive;
         peer->parent = parent;
         const HWND native_parent = parent ? (parent->child_content_window() ?
             parent->child_content_window() : parent->window) : window;
         peer->attach(native_parent, static_cast<int>(100 + peers.size()));
+        if (peer->native_field()) {
+            if (backdrop_presented) platform::opaque_native_paint(peer->window, true);
+            if (options.composition) platform::layered_child(peer->window);
+            prepare_popup_surface(*peer);
+        }
         win32_require(SetWindowSubclass(peer->window, navigation_procedure, 3,
             reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach browser navigation input");
         if (peer->caption_window())
             win32_require(SetWindowSubclass(peer->caption_window(), navigation_procedure, 3,
                 reinterpret_cast<DWORD_PTR>(peer.get())) != 0, "Attach caption navigation input");
         auto* added = peer.get();
-        if (role == ControlRole::image) {
-            unextracted(*peer).image = std::make_unique<ImagePeer>(static_cast<Image&>(*peer->control));
-            has_images = true;
-        }
-        if (role == ControlRole::label || role == ControlRole::button || role == ControlRole::toggle)
-            peer->control->set_text_measurer([this, added](std::wstring_view text, TextStyle style) {
-                Size measured{};
-                const auto& control = *added->control;
-                const auto* label = dynamic_cast<const Label*>(&control);
-                const auto button_text = control.role() == ControlRole::button && control.has_control_styling() ?
-                    static_cast<const Button&>(control).content_style_values(StylePart::label) : PartStyleValues{};
-                const auto* values = control.role() == ControlRole::button && control.has_control_styling() ? &button_text :
-                    control.has_control_styling() ?
-                    control.effective_control_style_values(label ? label->text_part() : StylePart::label) : nullptr;
-                if (values && label) {
-                    auto typography = *values;
-                    typography.wrapping = label->wrapping();
-                    typography.maximum_lines = static_cast<uint32_t>(std::min<std::size_t>(label->maximum_lines(), UINT32_MAX));
-                    unextracted(*added).text_layout = drawing().styled_layout(text, style, typography, measured);
-                } else unextracted(*added).text_layout = values ? drawing().styled_layout(text, style, *values, measured) :
-                    drawing().layout(text, style, measured);
-                return measured;
-            });
-        if (role == ControlRole::radio_group || role == ControlRole::choice_list)
-            peer->control->set_text_measurer([this](std::wstring_view text, TextStyle style) {
-                Size measured{};
-                drawing().layout(text, style, measured);
-                return measured;
-            });
-        if (role == ControlRole::expander)
-            peer->control->set_text_measurer([this, added](std::wstring_view text, TextStyle style) {
-                Size measured{};
-                const auto& control = *added->control;
-                const auto* values = control.has_control_styling() ?
-                    control.effective_control_style_values(StylePart::text) : nullptr;
-                if (values) drawing().styled_layout(text, style, *values, measured);
-                else drawing().layout(text, style, measured);
-                return measured;
-            });
-        if (auto label = std::dynamic_pointer_cast<Label>(peer->control))
-            label->set_wrapped_text_measurer([this, added](std::wstring_view text, TextStyle style, float width, std::size_t lines) {
-                Size measured{};
-                const auto& label = static_cast<const Label&>(*added->control);
-                const auto* values = label.has_control_styling() ? label.effective_control_style_values(label.text_part()) : nullptr;
-                if (values) {
-                    auto typography = *values;
-                    typography.wrapping = label.wrapping();
-                    typography.maximum_lines = static_cast<uint32_t>(std::min<std::size_t>(lines, UINT32_MAX));
-                    unextracted(*added).text_layout = drawing().styled_layout(text, style, typography, measured, width, lines);
-                } else unextracted(*added).text_layout = drawing().layout(text, style, measured, width, lines);
-                return measured;
-            });
+        if (peer->image_peer()) has_images = true;
         peers.push_back(std::move(peer));
         peer_lookup.emplace(added->control.get(), added);
-        if (role == ControlRole::scroll_view) {
-            unextracted(*added).scroll_content = CreateWindowExW(WS_EX_TRANSPARENT, scroll_content_class, L"",
-                WS_CHILD | WS_VISIBLE, 0, 0, 1, 1, added->window, nullptr, GetModuleHandleW(nullptr), added);
-            win32_require(added->child_content_window() != nullptr, "Create scroll content window");
-            win32_require(SetWindowSubclass(added->child_content_window(), navigation_procedure, 1,
-                reinterpret_cast<DWORD_PTR>(added)) != 0, "Attach scroll content navigation");
-        }
         if (!defer_reveal_children(added->control))
             for (const auto& child : added->control->owned_children())
                 collect(child, surface || (options.visual_style == VisualStyle::winui && role == ControlRole::expander), added, adaptive);
-        if (auto* columns = dynamic_cast<MillerColumns*>(added->control.get())) {
-            const std::weak_ptr<Impl> host = weak_from_this();
-            columns->on_focus_column([host](const std::shared_ptr<VirtualCollection>& list) {
-                if (const auto owner = host.lock()) {
-                    InputScope input(*owner);
-                    owner->update();
-                    if (auto* target = owner->find_peer(list.get())) owner->focus(*target, false);
-                }
-            });
-        }
         collect_clear_button(*added);
     }
-    bool can_clear(const Peer& value) const {
-        const auto* state = unextracted_if(value);
-        if (!state) return false;
-        const auto& peer = *state;
-        if (!peer.edit || options.visual_style != VisualStyle::winui || peer.edit->composing()) return false;
-        const auto& input = static_cast<const TextInput&>(*peer.control);
-        return !input.search_style() && !input.shortcut_visible(input.bounds().width) &&
-            (!peer.parent || (peer.parent->control->role() != ControlRole::numeric_input &&
-                peer.parent->control->role() != ControlRole::combo_box));
-    }
     void sync_clear_button(Peer& value) {
-        auto* state = unextracted_if(value);
-        if (!state) return;
-        auto& peer = *state;
-        if (!peer.clear_button) return;
-        const auto& input = static_cast<const TextInput&>(*peer.control);
-        const bool focused = GetFocus() == peer.window || (peer.clear_window && GetFocus() == peer.clear_window);
-        const bool show = can_clear(peer) && enabled(peer) && input.visible() && focused &&
-            !input.text().empty() && input.bounds().width >= 5 * VisualMetrics::body_size;
-        peer.clear_button->set_visible(show);
-        peer.clear_button->set_enabled(show);
-        const auto bounds = input.bounds();
-        const float header = input.caption_extent();
-        peer.clear_button->arrange({bounds.x + std::max(0.0f, bounds.width - 31), bounds.y + header + 1,
-            std::min(30.0f, bounds.width), std::max(0.0f, bounds.height - header - 2)});
+        if (auto* input = text_input_peer(value)) input->synchronize_clear();
     }
     void collect_clear_button(Peer& value) {
-        auto* state = unextracted_if(value);
-        if (!state) return;
-        auto& peer = *state;
-        if (!peer.edit) return;
-        if (!peer.clear_button && can_clear(peer) && GetFocus() == peer.window &&
-            !static_cast<const TextInput&>(*peer.control).text().empty()) {
-            peer.clear_button = std::make_shared<Button>(L"Clear " + peer.control->name());
-            peer.clear_button->set_icon(ButtonIcon::close);
-            peer.clear_button->set_appearance(ButtonAppearance::subtle);
-            peer.clear_button->set_tab_stop(false);
-            peer.clear_button->set_automation_id(L"xui-text-clear-" + (peer.control->automation_id().empty() ?
-                std::to_wstring(peer.control->id()) : peer.control->automation_id()));
-            peer.clear_button->set_invalidator([this](Invalidation kind) { invalidate(kind); });
-            std::weak_ptr<Control> owner = peer.control;
-            peer.clear_button->on_click([this, owner] {
-                const auto control = owner.lock();
-                auto* input_peer = control ? find_peer(control.get()) : nullptr;
-                if (!input_peer || !can_clear(*input_peer) || !enabled(*input_peer) || !visible(*input_peer)) return;
-                const auto edit = input_peer->window;
-                input_peer->edit_bridge()->focus(false);
-                if (closing || !window || !IsWindow(edit) || GetFocus() != edit) return;
-                SendMessageW(edit, EM_SETSEL, 0, -1);
-                SendMessageW(edit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
-            });
+        if (auto* input = text_input_peer(value)) input->collect_clear();
+    }
+    void collect_text_clear(TextInputHostPeer& input) override {
+        collect(input.clear_button(), input.surface, input.parent, input.adaptive, &input);
+        if (!input.clear_window()) input.set_clear_window(find_peer(input.clear_button().get())->window);
+    }
+    void activate_text_clear(std::uint64_t id) override {
+        InputScope scope(*this);
+        for (const auto& peer : peers)
+            if (peer->control->id() == id) {
+                if (auto* input = text_input_peer(*peer)) input->clear_text();
+                return;
+            }
+    }
+    void invalidate_native_field(Invalidation kind) override { invalidate(kind); }
+    const wchar_t* native_font_family() const override { return root_drawing.edit_font_family(); }
+    HFONT native_caption_font() const override { return font; }
+    std::shared_ptr<NativeFieldServices> acquire_native_lease() override {
+        return std::shared_ptr<NativeFieldServices>(shared_from_this(), this);
+    }
+    NativeFieldEmbedding native_embedding(const NativeFieldHostPeer& field) const override {
+        NativeFieldEmbedding result;
+        const Peer* owner = &field;
+        if (field.parent) {
+            const auto* number = dynamic_cast<const NumericInput*>(field.parent->control.get());
+            result.numeric = number != nullptr;
+            result.combo = field.parent->control->role() == ControlRole::combo_box;
+            result.composite = result.numeric || dynamic_cast<const ComboBox*>(field.parent->control.get());
+            result.invalid = number && !number->valid();
+            result.reserved_end = result.combo || (number && number->spin_placement() == NumberSpinPlacement::inline_buttons);
+            if (result.numeric || result.combo) owner = field.parent;
         }
-        if (!peer.clear_button) return;
-        sync_clear_button(peer);
-        // The native EDIT owns only its text line. The affordance is a sibling in the same clipped surface.
-        collect(peer.clear_button, peer.surface, peer.parent, peer.adaptive);
-        if (!peer.clear_window) {
-            auto* clear_peer = find_peer(peer.clear_button.get());
-            unextracted(*clear_peer).clear_owner = peer.control;
-            peer.clear_window = clear_peer->window;
-        }
+        if (result.numeric || result.combo) result.field_style = owner->control->effective_control_style_values(StylePart::field);
+        result.styled = owner->control->has_control_styling();
+        result.enabled = enabled(*owner);
+        result.focused = GetFocus() == owner->window || IsChild(owner->window, GetFocus());
+        result.hovered = owner->control->hovered();
+        for (const auto& child : owner->control->owned_children())
+            if (const auto* control = dynamic_cast<const Control*>(child.get())) result.hovered |= control->hovered();
+        result.surface = owner->surface;
+        return result;
     }
     Peer* find_peer(const Control* control) const {
         const auto found = peer_lookup.find(control);
@@ -1515,7 +1315,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             const auto owner = popup_owner(peer.get());
             const auto inline_begin = std::find_if(inline_surfaces.begin(), inline_surfaces.end(),
                 [&](const auto& surface) { return surface.peer == peer.get(); });
-            if (!unextracted(*peer).native_occluded) {
+            if (!peer->native_field()->native_occluded) {
                 const auto bounds = clipped_bounds(*peer);
                 if (bounds.width <= 0 || bounds.height <= 0) continue;
                 const auto overlaps = [&](Rect overlay) {
@@ -1588,7 +1388,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 }
                 clipped = clipped || occluded;
             }
-            unextracted(*peer).native_occluded = clipped;
+            peer->native_field()->native_occluded = clipped;
         }
     }
     void offer_tooltip(Peer& peer) {
@@ -1652,8 +1452,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (auto range = std::dynamic_pointer_cast<RangeInput>(peer->control)) notify([&] { range->cancel_drag(); });
             if (owner != closed.end() && owner->popup->is_open()) continue;
             peer->control->cancel();
-            if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
-            KillTimer(peer->window, repeat_timer); if (auto* state = unextracted_if(*peer)) state->repeating = false;
+            if (text_input_peer(*peer)) text_input_peer(*peer)->dismiss_suggestions();
+            if (auto* basic = basic_peer(*peer)) basic->stop_repeat();
             ShowWindow(peer->window, SW_HIDE);
             if (GetCapture() == peer->window) ReleaseCapture();
         }
@@ -1713,16 +1513,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (!target) layout->set_navigation_open(false);
         }
     }
-    void repeat_start(UnextractedPeer& peer, bool activate) {
-        auto* button = dynamic_cast<Button*>(peer.control.get());
-        if (!button || button->behavior() != ButtonBehavior::repeat || !enabled(peer) || !visible(peer)) return;
-        peer.repeat_cycle = true;
-        if (!peer.repeating) {
-            win32_require(SetTimer(peer.window, repeat_timer, button->repeat_delay(), nullptr) != 0, "Start button repeat");
-            peer.repeating = true;
-        }
-        if (activate) activated(peer, button->invoke());
-    }
     void show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial, std::shared_ptr<ContentDialog> dialog = {},
         std::shared_ptr<CommandSurface> commands = {}, std::optional<Rect> context_anchor = {}) {
         if (has_content_picking()) throw std::invalid_argument("Close pointer picking before opening a popup");
@@ -1775,20 +1565,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         }
     }
     void open_combo(Peer& peer) {
-        auto combo = std::dynamic_pointer_cast<ComboBox>(peer.control);
-        if (!combo || !enabled(peer)) return;
-        if (combo->popup()->is_open()) { dismiss_popup(*combo->popup(), PopupDismissReason::cancel); return; }
-        collect(combo->popup(), true);
-        combo->prepare_popup();
-        std::weak_ptr<ComboBox> weak = combo;
-        combo->choices()->on_accept([this, weak](std::uint64_t id) {
-            const auto value = weak.lock();
-            if (!value || !value->popup()->is_open()) return;
-            auto popup = value->popup();
-            dismiss_popup(*popup, PopupDismissReason::commit);
-            if (!closing && window) value->select(id);
-        });
-        show_popup(combo->popup(), *combo, combo->choices().get());
+        if (auto* basic = basic_peer(peer)) basic->open_combo();
     }
     static void content_ids(const std::shared_ptr<Element>& element, std::set<std::uint64_t>& ids, bool validate = false) {
         if (!element) {
@@ -1885,12 +1662,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         if (retiring_window(GetCapture())) ReleaseCapture();
         if (retiring_window(GetFocus())) SetFocus(nullptr);
         for (const auto& peer : peers) if (retired.contains(peer.get())) {
-            KillTimer(peer->window, repeat_timer);
-            if (auto* state = unextracted_if(*peer)) state->repeating = false;
+            if (auto* basic = basic_peer(*peer)) basic->stop_repeat();
             if (auto range = std::dynamic_pointer_cast<RangeInput>(peer->control)) range->cancel_drag();
             peer->control->cancel();
             peer->control->pointer_move(false);
-            if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            if (text_input_peer(*peer)) text_input_peer(*peer)->dismiss_suggestions();
             detach_peer(*peer);
         }
         // Remove peers from lookups before DestroyWindow sends synchronous notifications.
@@ -2027,16 +1803,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             DEFAULT_QUALITY, DEFAULT_PITCH, drawing().edit_font_family());
         win32_require(next_font != nullptr, "Create input caption font");
         for (const auto& peer : peers) {
-            peer->set_theme(dpi, palette);
-            if (peer->document_bridge()) {
-                peer->document_bridge()->update(dpi, palette);
-                publish_control(unextracted(*peer).accessibility, nullptr, *peer->control, peer->window);
-            } else if (peer->edit_bridge()) {
-                peer->edit_bridge()->set_font_family(drawing().edit_font_family());
-                peer->edit_bridge()->set_dpi(dpi);
-                SendMessageW(peer->caption_window(), WM_SETFONT, reinterpret_cast<WPARAM>(next_font), TRUE);
-                InvalidateRect(peer->window, nullptr, FALSE);
-            }
+            if (auto* field = peer->native_field()) field->theme_native(dpi, palette, next_font);
+            else peer->set_theme(dpi, palette);
         }
         if (font) DeleteObject(font);
         font = next_font;
@@ -2185,9 +1953,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             for (const auto& peer : peers) if (clear_adornment(*peer)) sync_clear_button(*peer);
             for (const auto& peer : peers) {
                 auto bounds = peer->control->bounds();
-                if (peer->edit_bridge() && peer->arranged &&
+                if (text_input_peer(*peer) && peer->arranged &&
                     (bounds.x != peer->absolute_bounds.x || bounds.y != peer->absolute_bounds.y))
-                    peer->edit_bridge()->dismiss_suggestions();
+                    text_input_peer(*peer)->dismiss_suggestions();
                 peer->absolute_bounds = bounds;
                 if (peer->child_content_window()) {
                     // One native translation moves the retained editors without recreating them
@@ -2199,14 +1967,14 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                         static_cast<LONG>(std::lround((content.y - bounds.y) * scale)),
                         static_cast<LONG>(std::lround(content.width * scale)),
                         static_cast<LONG>(std::lround(content.height * scale))};
-                    if (!unextracted(*peer).scroll_placed || !EqualRect(&target, &unextracted(*peer).scroll_placed_bounds)) {
+                    if (!composite_peer(*peer)->scroll_placed || !EqualRect(&target, &composite_peer(*peer)->scroll_placed_bounds)) {
                         auto& group = batch.for_parent(peer->window);
                         group = DeferWindowPos(group, peer->child_content_window(), nullptr,
                             target.left, target.top, target.right, target.bottom,
                             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOCOPYBITS);
                         win32_require(group != nullptr, "Arrange scroll content window");
-                        unextracted(*peer).scroll_placed_bounds = target;
-                        unextracted(*peer).scroll_placed = true;
+                        composite_peer(*peer)->scroll_placed_bounds = target;
+                        composite_peer(*peer)->scroll_placed = true;
                     }
                 }
                 if (peer->parent) {
@@ -2232,60 +2000,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                     bounds.width = std::max(0.0f, static_cast<float>(
                         std::lround((bounds.x + bounds.width) * scale) - std::lround(bounds.x * scale)) / scale);
                 }
-                if (peer->document_bridge()) {
-                    if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed())
-                        bounds.height = std::max(0.0f, bounds.height - password->reveal_extent());
-                    const auto* field_style = peer->control->effective_control_style_values(StylePart::root);
-                    if (field_style) {
-                        const auto padding = field_style->padding.value_or(Insets{4, 3, 4, 3});
-                        const auto border = field_style->border_thickness.value_or(Insets{});
-                        bounds.x += padding.left + border.left; bounds.y += padding.top + border.top;
-                        bounds.width = std::max(0.0f, bounds.width - padding.left - padding.right - border.left - border.right);
-                        bounds.height = std::max(0.0f, bounds.height - padding.top - padding.bottom - border.top - border.bottom);
-                    } else if (palette.style == VisualStyle::winui &&
-                        (dynamic_cast<DocumentText*>(peer->control.get()) || dynamic_cast<PasswordInput*>(peer->control.get()))) {
-                        bounds.x += 4; bounds.y += 3;
-                        bounds.width = std::max(0.0f, bounds.width - 8);
-                        bounds.height = std::max(0.0f, bounds.height - 6);
-                    }
-                    if (visible(*peer)) {
-                        const float scale = dpi / 96.0f;
-                        const RECT target{static_cast<LONG>(std::lround(bounds.x * scale)),
-                            static_cast<LONG>(std::lround(bounds.y * scale)),
-                            static_cast<LONG>(std::lround(bounds.width * scale)),
-                            static_cast<LONG>(std::lround(bounds.height * scale))};
-                        if (!peer->placed || !EqualRect(&target, &peer->placed_bounds)) {
-                            platform::place(peer->window, bounds, dpi); peer->placed_bounds = target; peer->placed = true;
-                        }
-                    }
-                } else if (peer->edit_bridge()) {
-                    const bool search = static_cast<TextInput&>(*peer->control).search_style();
-                    const auto& input = static_cast<TextInput&>(*peer->control);
-                    const bool winui = options.visual_style == VisualStyle::winui;
-                    const auto number = peer->parent ? dynamic_cast<const NumericInput*>(peer->parent->control.get()) : nullptr;
-                    const bool combo = peer->parent && peer->parent->control->role() == ControlRole::combo_box;
-                    const bool reserved_end = combo || (number && number->spin_placement() == NumberSpinPlacement::inline_buttons);
-                    const auto* field_style = input.effective_control_style_values(StylePart::root);
-                    auto insets = input.field_insets({search ? 40.0f : winui && !combo ? 11.0f : 12.0f, winui ? 6.0f : 10.0f,
-                        input.shortcut_visible(bounds.width) ? input.shortcut_size().width + 28.0f :
-                            clear_adornment(*peer) && clear_adornment(*peer)->visible() ? 37.0f :
-                            winui ? reserved_end ? 1.0f : 7.0f : 12.0f, winui ? 7.0f : 10.0f});
-                    if (field_style && field_style->padding) {
-                        if (search) insets.left += 28;
-                        if (input.shortcut_visible(bounds.width)) insets.right += input.shortcut_size().width + 16;
-                        else if (clear_adornment(*peer) && clear_adornment(*peer)->visible()) insets.right += 30;
-                    }
-                    peer->edit_bridge()->set_insets(insets);
-                    const bool caption_visible = input.caption_visible() && visible(*peer);
-                    if (((GetWindowLongPtrW(peer->caption_window(), GWL_STYLE) & WS_VISIBLE) != 0) != caption_visible)
-                        ShowWindow(peer->caption_window(), caption_visible ? SW_SHOWNA : SW_HIDE);
-                    if (input.caption_visible()) {
-                        const float caption_height = input.caption_height();
-                        platform::place(peer->caption_window(), {bounds.x, bounds.y, bounds.width, std::min(caption_height, bounds.height)}, dpi);
-                        bounds.y += input.caption_extent();
-                        bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
-                    }
-                    peer->edit_bridge()->arrange(bounds);
+                if (auto* field = peer->native_field()) {
+                    field->arrange_native(bounds, dpi, visible(*peer), palette);
                 } else if (has_images || animation_timer_running || !arrange_layout) {
                     const float scale = dpi / 96.0f;
                     RECT target{static_cast<LONG>(std::lround(bounds.x * scale)),
@@ -2344,7 +2060,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         for (auto* peer : update_peers) {
             const auto& control = *peer->control;
             if (!visible(*peer)) {
-                if (auto* state = unextracted_if(*peer)) state->text_layout.Reset();
+                if (auto* state = basic_peer(*peer)) state->reset_text_layout();
                 if (auto label = std::dynamic_pointer_cast<Label>(peer->control)) label->discard_wrapped_text();
             }
             if (peer->runtime_host()) {
@@ -2369,8 +2085,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                     peer->publish_accessibility();
                 continue;
             }
-            if ((!visible(*peer) || !IsWindowVisible(window)) && dynamic_cast<MapView*>(peer->control.get()))
-                static_cast<MapView&>(*peer->control).cancel_request();
             const bool tab_stop = control.focusable() && control.tab_stop() && !is_caption_button(control);
             const auto native_style = GetWindowLongPtrW(peer->window, GWL_STYLE);
             if (((native_style & WS_TABSTOP) != 0) != tab_stop)
@@ -2381,12 +2095,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 focus_targets.push_back(peer->window);
             if ((!enabled(*peer) || !visible(*peer)) &&
                 (GetFocus() == peer->window || focus_before_layout == peer->window)) disabled_focus = peer->window;
-            const auto range = dynamic_cast<const RangeInput*>(&control);
-            if (auto* split = dynamic_cast<SplitView*>(peer->control.get()); split && unextracted(*peer).dragging &&
-                (!split->divider_dragging() || split->divider().width <= 0)) {
-                unextracted(*peer).dragging = false;
-                split->set_style_dragging(false);
-            }
+            if (auto* composite = composite_peer(*peer)) composite->reconcile_input();
             if (!control.captured() && !peer->capture_active() && GetCapture() == peer->window) ReleaseCapture();
             if (!has_images || (IsWindowEnabled(peer->window) != FALSE) != enabled(*peer))
                 EnableWindow(peer->window, enabled(*peer));
@@ -2396,49 +2105,8 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 peer->control->pointer_move(false);
                 if (GetCapture() == peer->window) ReleaseCapture();
             }
-            if (auto* state = unextracted_if(*peer); state && state->repeating &&
-                (!enabled(*peer) || !visible(*peer) || !control.pressed() || !IsWindowVisible(window))) {
-                KillTimer(peer->window, repeat_timer); state->repeating = false;
-            }
-            if (peer->document_bridge()) {
-                peer->document_bridge()->update(dpi, palette);
-                publish_control(unextracted(*peer).accessibility, nullptr, control, peer->window);
-            } else if (peer->edit_bridge()) {
-                if ((IsWindowEnabled(peer->caption_window()) != FALSE) != enabled(*peer))
-                    EnableWindow(peer->caption_window(), enabled(*peer));
-                auto& input = static_cast<TextInput&>(*peer->control);
-                peer->edit_bridge()->sync_suggestions(input);
-                peer->edit_bridge()->set_suggestion_colors(platform::native_color(palette.field),
-                    platform::native_color(palette.text), platform::native_color(palette.secondary));
-                SendMessageW(peer->window, EM_SETLIMITTEXT, input.maximum_length(), 0);
-                peer->edit_bridge()->set_placeholder(input.placeholder());
-                const auto* placeholder = input.effective_control_style_values(StylePart::placeholder);
-                peer->edit_bridge()->set_placeholder_color(platform::native_color(placeholder && placeholder->foreground && !palette.high_contrast ?
-                    D2D1::ColorF(placeholder->foreground->resolve(palette.mode)) : enabled(*peer) ? palette.secondary : palette.disabled));
-                peer->edit_bridge()->set_colors(platform::native_color(input_ink(*peer)), platform::native_color(input_fill(*peer)));
-                const auto* text_style = input.effective_control_style_values(StylePart::text);
-                const PartStyleValues default_text;
-                const auto native_font = Drawing::font_descriptor(text_style ? *text_style : default_text,
-                    drawing().edit_font_family(), 14.0f);
-                peer->edit_bridge()->set_font(native_font.family_name(), native_font.size, static_cast<int>(native_font.weight),
-                    native_font.style == StyleFontStyle::italic);
-                const auto* header_values = input.effective_control_style_values(StylePart::header);
-                peer->edit_bridge()->set_caption_font(peer->caption_window(), header_values, font,
-                    drawing().edit_font_family(), palette.style == VisualStyle::winui ? VisualMetrics::body_size : VisualMetrics::caption_size);
-                peer->edit_bridge()->set_caption_color(peer->caption_window(), platform::native_color(header_values && header_values->foreground &&
-                    !palette.high_contrast ? D2D1::ColorF(header_values->foreground->resolve(palette.mode)) :
-                    enabled(*peer) ? palette.text : palette.disabled));
-                if (!peer->edit_bridge()->composing() && peer->edit_bridge()->text() != input.text())
-                    peer->edit_bridge()->set_model_text(input.text());
-                if (unextracted(*peer).caption_text != input.name()) {
-                    SetWindowTextW(peer->caption_window(), input.name().c_str());
-                    unextracted(*peer).caption_text = input.name();
-                }
-                if (peer->provider) publish_control(unextracted(*peer).accessibility, nullptr, control, peer->window);
-            } else {
-                if (peer->family == HostFamily::file_list && GetFocus() == peer->window) last_focus = peer->window;
-                peer->sync(dpi, palette);
-            }
+            if (peer->family == HostFamily::file_list && GetFocus() == peer->window) last_focus = peer->window;
+            peer->sync(dpi, palette);
         }
         if (disabled_focus) {
             bool repaired{};
@@ -2540,11 +2208,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         if ((msg.message != WM_KEYDOWN && msg.message != WM_SYSKEYDOWN) || (msg.hwnd != window && !IsChild(window, msg.hwnd))) return false;
         for (const auto& peer : peers)
             if (peer->runtime_host() && peer->control->role() == ControlRole::web_content && peer->runtime_host()->contains_native(msg.hwnd)) return false;
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->edit_bridge()) {
-            if (peer->edit_bridge()->composing()) return false;
-            if (peer->edit_bridge()->suggestion_key(msg.wParam)) return true;
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && text_input_peer(*peer)) {
+            if (text_input_peer(*peer)->composing()) return false;
+            if (text_input_peer(*peer)->pretranslate_key(msg.wParam)) return true;
         }
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->document_bridge() && peer->document_bridge()->composing()) return false;
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && native_document_peer(*peer) && native_document_peer(*peer)->composing()) return false;
         if (translate_menu_bar(msg)) return true;
         Control* target{};
         for (const auto& peer : peers) if (peer->window == msg.hwnd) target = peer->control.get();
@@ -2562,7 +2230,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 (GetKeyState(VK_SHIFT) & 0x8000) != 0, target, alt, text_input})) return true;
             // Redirect before TranslateMessage so dead keys, Unicode and IME stay in the native editor.
             if (text_input && GetFocus() != msg.hwnd) {
-                for (const auto& peer : peers) if (peer->window == GetFocus() && peer->edit_bridge() && enabled(*peer)) {
+                for (const auto& peer : peers) if (peer->window == GetFocus() && text_input_peer(*peer) && enabled(*peer)) {
                     msg.hwnd = peer->window;
                     return false;
                 }
@@ -2607,7 +2275,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             // Application shortcuts cannot activate controls behind a modal dialog.
             return false;
         }
-        for (const auto& peer : peers) if (peer->window == msg.hwnd && peer->edit_bridge() && peer->parent) {
+        for (const auto& peer : peers) if (peer->window == msg.hwnd && text_input_peer(*peer) && peer->parent) {
             if (auto* numeric = dynamic_cast<NumericInput*>(peer->parent->control.get());
                 numeric && (msg.wParam == VK_UP || msg.wParam == VK_DOWN)) {
                 numeric->step(msg.wParam == VK_UP ? 1 : -1); return true;
@@ -2930,7 +2598,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
     }
     void update_paint_bounds() {
         for (const auto& peer : peers) {
-            if (peer->edit_bridge()) continue;
+            if (text_input_peer(*peer)) continue;
             RECT pixels{};
             win32_require(GetWindowRect(peer->window, &pixels) != 0, "Read control paint bounds");
             MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&pixels), 2);
@@ -3029,9 +2697,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                                 const auto& item = radios->items()[i];
                                 if (radios->selected() != item.id || !item.enabled) continue;
                                 auto bounds = radios->item_bounds(i);
-                                const bool hovered = unextracted(*peer).hovered_choice == i;
+                                const bool hovered = basic_peer(*peer)->hovered_choice == i;
                                 const auto style = radios->item_style_values(StylePart::item, i,
-                                    hovered, hovered && unextracted(*peer).pressed_choice == item.id);
+                                    hovered, hovered && basic_peer(*peer)->pressed_choice == item.id);
                                 bounds.x += peer->paint_bounds.x;
                                 bounds.y += peer->paint_bounds.y;
                                 const bool horizontal = radios->horizontal_presentation();
@@ -3041,7 +2709,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                             }
                         }
                         else if (const auto* toggle = dynamic_cast<const Toggle*>(peer->control.get()))
-                            drawing().winui_toggle_focus(*toggle, peer->paint_bounds, palette, unextracted(*peer).text_layout.Get());
+                            drawing().winui_toggle_focus(*toggle, peer->paint_bounds, palette, basic_peer(*peer)->text_layout.Get());
                         else if (const auto* expander = dynamic_cast<const Expander*>(peer->control.get())) {
                             auto bounds = expander->header_bounds();
                             bounds.x += peer->paint_bounds.x - expander->bounds().x;
@@ -3054,49 +2722,9 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                             drawing().winui_focus_ring(layout_style::content(*range, peer->paint_bounds), palette, 4, 7,
                                 Drawing::SurfaceCorners::all, 0);
                     }
-                    else if (peer->document_bridge()) {
-                        const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
-                        if (root_style) {
-                            const auto bounds = peer->control->bounds();
-                            drawing().styled_surface(bounds, palette, *root_style, palette.field, palette.border, 4, {1, 1, 1, 1});
-                            if (peer->control->focused()) drawing().styled_field_focus(bounds, palette, *root_style);
-                        } else if (palette.style == VisualStyle::winui &&
-                            (dynamic_cast<DocumentText*>(peer->control.get()) || dynamic_cast<PasswordInput*>(peer->control.get()))) {
-                            const auto bounds = peer->control->bounds();
-                            drawing().field_frame({bounds.x + 1, bounds.y + 1, std::max(0.0f, bounds.width - 2),
-                                std::max(0.0f, bounds.height - 2)}, palette, peer->control->focused(), enabled(*peer));
-                        }
-                        if (auto* password = dynamic_cast<PasswordInput*>(peer->control.get()); password && password->revealed()) {
-                            const auto bounds = password->bounds();
-                            const float inset = palette.style == VisualStyle::winui ? 4.0f : 0.0f;
-                            const Rect preview{bounds.x + inset, bounds.y + std::max(0.0f, bounds.height - password->reveal_extent()),
-                                std::max(0.0f, bounds.width - 2 * inset), std::min(password->reveal_extent() - inset, bounds.height)};
-                            drawing().push_clip(preview);
-                            drawing().fill(preview, root_style && root_style->background && !palette.high_contrast ?
-                                D2D1::ColorF(root_style->background->resolve(palette.mode)) :
-                                palette.style == VisualStyle::winui ? palette.field : palette.surface);
-                            const auto* text_style = password->effective_control_style_values(StylePart::text);
-                            const auto ink = text_style && text_style->foreground && !palette.high_contrast ?
-                                D2D1::ColorF(text_style->foreground->resolve(palette.mode)) : enabled(*peer) ? palette.text : palette.disabled;
-                            password->with_password([&](std::wstring_view value) {
-                                const Rect text{preview.x + 8, preview.y, std::max(0.0f, preview.width - 16), preview.height};
-                                if (text_style) {
-                                    auto native_text = *text_style;
-                                    if (!native_text.font_family) {
-                                        static const auto family = make_style_font_family("Segoe UI");
-                                        native_text.font_family = family;
-                                    }
-                                    native_text.font_size = native_text.font_size.value_or(14.0f);
-                                    native_text.font_weight = native_text.font_weight.value_or(FW_NORMAL);
-                                    native_text.font_style = native_text.font_style.value_or(StyleFontStyle::normal);
-                                    drawing().private_text(value, text, ink, native_text);
-                                }
-                                else drawing().text(value, text, ink);
-                            });
-                            drawing().pop_clip();
-                        }
+                    else if (peer->native_field()) {
+                        peer->paint({drawing(), palette, enabled(*peer), keyboard_focus_visible && peer->control->focused()});
                     }
-                    else if (peer->edit_bridge()) paint_edit(*peer);
                     else {
                         const auto bounds = peer->paint_bounds;
                         auto clip = bounds;
@@ -3386,1061 +3014,16 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         changed = sync_images() || changed;
         if (changed) invalidate(Invalidation::paint);
     }
-    D2D1_COLOR_F input_ink(const Peer& peer) const {
-        if (!palette.high_contrast) {
-            const auto* text_values = peer.control->effective_control_style_values(StylePart::text);
-            if (text_values && text_values->foreground) return D2D1::ColorF(text_values->foreground->resolve(palette.mode));
-            if (peer.parent && (peer.parent->control->role() == ControlRole::numeric_input ||
-                peer.parent->control->role() == ControlRole::combo_box)) {
-                const auto* owner_field = peer.parent->control->effective_control_style_values(StylePart::field);
-                if (owner_field && owner_field->foreground) return D2D1::ColorF(owner_field->foreground->resolve(palette.mode));
-            }
-        }
-        return enabled(peer) ? palette.text : palette.disabled;
-    }
-    D2D1_COLOR_F input_fill(const Peer& peer) const {
-        if (peer.edit_bridge()) {
-            const auto* editor_style = peer.control->effective_control_style_values(StylePart::root);
-            if (editor_style && editor_style->background && !palette.high_contrast)
-                return D2D1::ColorF(editor_style->background->resolve(palette.mode));
-        }
-        const auto* owner = &peer;
-        if (peer.edit_bridge() && peer.parent && (peer.parent->control->role() == ControlRole::numeric_input ||
-            peer.parent->control->role() == ControlRole::combo_box)) owner = peer.parent;
-        if (owner->control->role() == ControlRole::numeric_input || owner->control->role() == ControlRole::combo_box) {
-            const auto* owner_field = owner->control->effective_control_style_values(StylePart::field);
-            if (owner_field && owner_field->background && !palette.high_contrast)
-                return D2D1::ColorF(owner_field->background->resolve(palette.mode));
-        }
-        bool hovered = owner->control->hovered();
-        for (const auto& child : owner->control->owned_children())
-            if (const auto* control = dynamic_cast<const Control*>(child.get())) hovered |= control->hovered();
-        const auto focused = GetFocus() == owner->window || IsChild(owner->window, GetFocus()) ||
-            (unextracted(*owner).clear_window && GetFocus() == unextracted(*owner).clear_window);
-        return palette.input_fill(enabled(*owner), focused, hovered, owner->surface);
-    }
-    void paint_edit(Peer& peer) {
-        auto bounds = peer.control->bounds();
-        const auto& input = static_cast<TextInput&>(*peer.control);
-        if (input.caption_visible()) {
-            const auto* header = input.effective_control_style_values(StylePart::header);
-            auto typography = header ? *header : PartStyleValues{};
-            typography.horizontal_alignment = StyleAlignment::start;
-            typography.vertical_alignment = StyleAlignment::start;
-            typography.wrapping = true;
-            const auto ink = header && header->foreground && !palette.high_contrast ?
-                D2D1::ColorF(header->foreground->resolve(palette.mode)) : enabled(peer) ? palette.text : palette.disabled;
-            drawing().styled_text(input.name(), {bounds.x, bounds.y, bounds.width, std::min(input.caption_height(), bounds.height)},
-                ink, typography, palette.style == VisualStyle::winui ? TextStyle::body : TextStyle::caption);
-            bounds.y += input.caption_extent();
-            bounds.height = std::max(0.0f, bounds.height - input.caption_extent());
-        }
-        drawing().push_clip(bounds);
-        const auto number = peer.parent ? dynamic_cast<NumericInput*>(peer.parent->control.get()) : nullptr;
-        const bool invalid = number && !number->valid();
-        const bool focused = GetFocus() == peer.window || (unextracted(peer).clear_window && GetFocus() == unextracted(peer).clear_window);
-        const bool composite = peer.parent && (number || dynamic_cast<ComboBox*>(peer.parent->control.get())) &&
-            (palette.style == VisualStyle::winui || peer.parent->control->has_control_styling());
-        const auto* style = input.effective_control_style_values(StylePart::root);
-        if (!composite || style) {
-            const Rect frame = palette.style == VisualStyle::winui ? Rect{bounds.x + 0.5f, bounds.y + 0.5f,
-                std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)} : bounds;
-            if (style) {
-                drawing().styled_surface(frame, palette, *style, input_fill(peer), palette.border, 4, {1, 1, 1, 1});
-                if (focused) drawing().styled_field_focus(frame, palette, *style);
-            } else drawing().field_frame(frame, palette, focused, enabled(peer), invalid, input_fill(peer));
-        }
-        const auto ink = [&](StylePart part, D2D1_COLOR_F fallback) {
-            const auto* values = input.effective_control_style_values(part);
-            return values && values->foreground && !palette.high_contrast ?
-                D2D1::ColorF(values->foreground->resolve(palette.mode)) : enabled(peer) ? fallback : palette.disabled;
-        };
-        const auto padding = style && style->padding ? *style->padding : Insets{12, 0, 12, 0};
-        const auto border = style && style->border_thickness ? *style->border_thickness : Insets{};
-        if (input.search_style()) drawing().search_icon({bounds.x + padding.left + border.left,
-            bounds.y + (bounds.height - 18) / 2, 18, 18}, ink(StylePart::icon, palette.secondary));
-        const auto& hint = input.shortcut_hint();
-        if (input.shortcut_visible(bounds.width)) {
-            const auto size = input.shortcut_size();
-            const Rect badge{bounds.x + std::max(0.0f, bounds.width - size.width - padding.right - border.right),
-                bounds.y + (bounds.height - size.height) / 2, size.width, size.height};
-            const auto* shortcut = input.effective_control_style_values(StylePart::shortcut);
-            if (shortcut) drawing().styled_surface(badge, palette, *shortcut, input_fill(peer), palette.border, 4, {1, 1, 1, 1});
-            else drawing().rounded(badge, palette.border, 4, true);
-            const Rect text{badge.x + 6, badge.y, std::max(0.0f, badge.width - 8), badge.height};
-            if (shortcut) drawing().styled_text(hint, text, ink(StylePart::shortcut, palette.secondary), *shortcut, TextStyle::caption);
-            else drawing().text(hint, text, palette.secondary, true);
-        }
-        drawing().pop_clip();
-    }
-    D2D1_COLOR_F status_fill(StatusSeverity severity) const {
-        if (palette.high_contrast || palette.style == VisualStyle::classic) return palette.surface;
-        const auto colors = winui_status_colors(palette.mode);
-        switch (severity) {
-        case StatusSeverity::success: return D2D1::ColorF(colors.success_fill);
-        case StatusSeverity::warning: return D2D1::ColorF(colors.warning_fill);
-        case StatusSeverity::error: return D2D1::ColorF(colors.error_fill);
-        default: return D2D1::ColorF(colors.information_fill);
-        }
-    }
-    void paint_host_text(const Control& control, StylePart part, std::wstring_view text, Rect area,
-        D2D1_COLOR_F fallback) {
-        const auto* values = control.effective_control_style_values(part);
-        const auto ink = values && values->foreground && !palette.high_contrast ?
-            D2D1::ColorF(values->foreground->resolve(palette.mode)) : fallback;
-        if (values) drawing().styled_text(text, area, ink, *values, TextStyle::caption);
-        else drawing().text(text, area, ink, true);
-    }
     void paint_control(Peer& peer, bool include_focus = true) {
         const bool fluent = palette.style == VisualStyle::winui;
         peer.paint({drawing(), palette, enabled(peer),
             include_focus && peer.control->focused() && (!fluent || keyboard_focus_visible)});
     }
-    void paint_unextracted(UnextractedPeer& peer, bool include_focus = true) {
-        auto& canvas = drawing();
-        auto& control = *peer.control;
-        const auto bounds = peer.paint_bounds;
-        const auto foundation_text = enabled(peer) ? palette.text : palette.disabled;
-        const bool fluent = palette.style == VisualStyle::winui;
-        const bool focus_visible = include_focus && control.focused() && (!fluent || keyboard_focus_visible);
-        if (control.role() == ControlRole::swap_chain_panel) {
-            // Composed producers can be translucent; leave the content beneath them visible.
-            if (!(options.composition && peer.swap_chain && peer.swap_chain->active()))
-                canvas.fill({0, 0, bounds.width, bounds.height}, palette.field);
-            return;
-        }
-        if (auto* runtime = dynamic_cast<RuntimeHost*>(&control)) {
-            const auto area = runtime->visual_bounds();
-            const auto* root_values = runtime->effective_control_style_values(StylePart::root);
-            if (root_values) canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, *root_values,
-                palette.field, palette.border, fluent ? 4.0f : 0.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
-            else canvas.fill(area, palette.field);
-            if (!peer.runtime || !peer.runtime->active()) {
-                const bool rounded_clip = root_values && !palette.high_contrast && canvas.push_rounded_clip(
-                    {0, 0, bounds.width, bounds.height}, root_values->corner_radius.value_or(fluent ? 4.0f : 0.0f));
-                canvas.push_clip(area);
-                const auto* caption = runtime->effective_control_style_values(StylePart::caption);
-                const bool has_caption = caption && !caption->empty();
-                if (has_caption) paint_host_text(control, StylePart::caption, runtime->name(),
-                    {area.x + 12, area.y + 8, std::max(0.0f, area.width - 24), 24}, palette.text);
-                paint_host_text(control, runtime->state() == HostState::error ? StylePart::error : StylePart::placeholder,
-                    runtime->state() == HostState::error ? std::wstring_view(runtime->error()) :
-                    L"Explicit load required. Native runtime is not active.",
-                    {area.x + 12, area.y + (has_caption ? 36.0f : 12.0f), std::max(0.0f, area.width - 24), 48},
-                    runtime->state() == HostState::error ? palette.error : palette.secondary);
-                canvas.pop_clip();
-                if (rounded_clip) canvas.pop_rounded_clip();
-            }
-            if (!root_values && fluent && (!peer.runtime || !peer.runtime->active()))
-                canvas.rounded(area, palette.border, 4, true);
-            if (focus_visible) canvas.focus_ring(area, palette);
-            return;
-        }
-        if (auto* vector = dynamic_cast<VectorCanvas*>(&control)) {
-            const auto area = vector->canvas_bounds();
-            const auto* root_values = vector->effective_control_style_values(StylePart::root);
-            if (root_values) canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, *root_values,
-                palette.field, palette.border, fluent ? 4.0f : 0.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
-            else canvas.fill(area, palette.field);
-            const bool rounded_clip = root_values && !palette.high_contrast && canvas.push_rounded_clip(
-                {0, 0, bounds.width, bounds.height}, root_values->corner_radius.value_or(fluent ? 4.0f : 0.0f));
-            canvas.push_clip(area);
-            const auto* selection = vector->effective_control_style_values(StylePart::selection);
-            const auto highlight = selection && selection->foreground && !palette.high_contrast ?
-                D2D1::ColorF(selection->foreground->resolve(palette.mode)) : palette.accent;
-            canvas.origin(bounds.x + area.x, bounds.y + area.y);
-            canvas.scene(vector->scene(), vector->selected(), highlight);
-            canvas.origin(bounds.x, bounds.y);
-            if (auto* map = dynamic_cast<MapView*>(vector)) {
-                const auto center = map->center();
-                paint_host_text(control, StylePart::coordinate, L"Offline coordinate map | " + std::to_wstring(center.latitude).substr(0, 7) + L", " +
-                    std::to_wstring(center.longitude).substr(0, 8) + L" | zoom " + std::to_wstring(map->zoom()).substr(0, 4),
-                    {area.x + 8, area.y + 4, std::max(0.0f, area.width - 16), 24}, palette.text);
-                if (!map->error().empty()) paint_host_text(control, StylePart::error, map->error(),
-                    {area.x + 8, area.y + 30, std::max(0.0f, area.width - 16), 32}, palette.error);
-            } else if ((!vector->scene() || vector->scene()->shapes().empty()) && vector->has_control_styling()) {
-                paint_host_text(control, StylePart::empty, L"No shapes",
-                    {area.x + 8, area.y + 4, std::max(0.0f, area.width - 16), 32}, palette.secondary);
-            }
-            canvas.pop_clip();
-            if (rounded_clip) canvas.pop_rounded_clip();
-            if (!root_values && fluent) canvas.rounded(area, palette.border, 4, true);
-            if ((fluent && control.focused()) || focus_visible) canvas.focus_ring(area, palette);
-            return;
-        }
-        if (control.role() == ControlRole::popup) return;
-        if (auto* number = dynamic_cast<NumericInput*>(&control)) {
-            if (number->has_control_styling()) {
-                const PartStyleValues empty;
-                const auto* root_values = number->effective_control_style_values(StylePart::root);
-                const auto* field_values = number->effective_control_style_values(StylePart::field);
-                const auto* header = number->effective_control_style_values(StylePart::header);
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_values ? *root_values : empty,
-                    D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-                auto frame = number->field_bounds();
-                frame.x -= control.bounds().x; frame.y -= control.bounds().y;
-                canvas.styled_surface(frame, palette, field_values ? *field_values : empty, input_fill(peer),
-                    !number->valid() ? palette.error : palette.border, fluent ? 4.0f : 6.0f, {1, 1, 1, 1});
-                if (header) {
-                    auto rect = number->header_bounds();
-                    rect.x -= control.bounds().x; rect.y -= control.bounds().y;
-                    const auto ink = !palette.high_contrast && header->foreground ?
-                        D2D1::ColorF(header->foreground->resolve(palette.mode)) : foundation_text;
-                    canvas.styled_text(control.name(), rect, ink, *header, TextStyle::caption);
-                }
-                if (IsChild(peer.window, GetFocus())) canvas.styled_field_focus(frame, palette, field_values ? *field_values : empty);
-                return;
-            }
-            if (fluent) canvas.field_frame({0.5f, 0.5f, std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)},
-                palette, IsChild(peer.window, GetFocus()) != FALSE, enabled(peer), !number->valid(), input_fill(peer));
-            return;
-        }
-        if (auto* status = dynamic_cast<InlineStatus*>(&control)) {
-            const PartStyleValues* host_message = nullptr;
-            if (const auto* host = peer.parent ? dynamic_cast<const RuntimeHost*>(peer.parent->control.get()) : nullptr;
-                host && host->has_control_styling())
-                host_message = host->effective_control_style_values(
-                    host->state() == HostState::error ? StylePart::error : StylePart::status);
-            if (host_message && host_message->empty()) host_message = nullptr;
-            auto ink = status->severity() == StatusSeverity::error ? palette.error :
-                status->severity() == StatusSeverity::warning ? palette.folder : palette.accent;
-            if (fluent && !palette.high_contrast) {
-                const auto colors = winui_status_colors(palette.mode);
-                if (status->severity() == StatusSeverity::success) ink = D2D1::ColorF(colors.success);
-                else if (status->severity() == StatusSeverity::warning) ink = D2D1::ColorF(colors.warning);
-            }
-            if (!enabled(peer)) ink = palette.disabled;
-            if (status->has_control_styling()) {
-                const PartStyleValues empty;
-                const auto part = [&](StylePart value) -> const PartStyleValues& {
-                    const auto* values = status->effective_control_style_values(value);
-                    return values ? *values : empty;
-                };
-                const auto ink_for = [&](const PartStyleValues& values, D2D1_COLOR_F fallback) {
-                    return !palette.high_contrast && values.foreground ?
-                        D2D1::ColorF(values.foreground->resolve(palette.mode)) : fallback;
-                };
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, part(StylePart::root),
-                    status_fill(status->severity()), palette.border, fluent ? 4.0f : 6.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
-                const auto content = status->content_bounds();
-                const auto& stripe = part(StylePart::stripe);
-                const float stripe_width = stripe.size.value_or(fluent ? 0.0f : 4.0f);
-                canvas.styled_surface({content.x, content.y, stripe_width, content.height}, palette, stripe, ink, ink, 2, {});
-                const auto& icon = part(StylePart::icon);
-                const float icon_size = icon.size.value_or(24);
-                const Rect icon_rect{content.x + stripe_width + 8, content.y + 6, icon_size,
-                    std::max(0.0f, std::min(38.0f, content.height - 12))};
-                const Symbol symbols[]{Symbol::information, Symbol::success, Symbol::warning, Symbol::error};
-                canvas.symbol(symbols[static_cast<int>(status->severity())], icon_rect, ink_for(icon, ink), icon_size);
-                float end = content.x + content.width - 8;
-                for (const auto& child : status->owned_children()) if (static_cast<Control&>(*child).visible())
-                    end = std::min(end, child->bounds().x - control.bounds().x);
-                const float left = icon_rect.x + icon_size + 6;
-                const auto message = host_message ? merge_part_values(*host_message, part(StylePart::message)) :
-                    part(StylePart::message);
-                canvas.styled_text(control.name(), {left, content.y + 6, std::max(0.0f, end - left - 4),
-                    std::max(0.0f, content.height - 12)}, ink_for(message, foundation_text), message);
-                return;
-            }
-            const Rect frame{1, 1, std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)};
-            canvas.rounded(frame, status_fill(status->severity()), fluent ? 4.0f : 6.0f);
-            if (fluent) canvas.rounded(frame, palette.border, 4, true);
-            else canvas.rounded({2, 2, 4, std::max(0.0f, bounds.height - 4)}, ink, 2);
-            const wchar_t* icons[]{L"\u2139", L"\u2713", L"!", L"\u00d7"};
-            if (fluent) {
-                const Symbol symbols[]{Symbol::information, Symbol::success, Symbol::warning, Symbol::error};
-                canvas.symbol(symbols[static_cast<int>(status->severity())], {12, 6, 24, 38}, ink);
-            } else canvas.text(icons[static_cast<int>(status->severity())], {12, 6, 24, 38}, ink);
-            float end = bounds.width - 8;
-            for (const auto& child : status->owned_children()) if (static_cast<Control&>(*child).visible())
-                end = std::min(end, child->bounds().x - control.bounds().x);
-            const Rect message_bounds{42, 6, std::max(0.0f, end - 46), std::max(0.0f, bounds.height - 12)};
-            if (host_message) {
-                const auto message_ink = !palette.high_contrast && host_message->foreground ?
-                    D2D1::ColorF(host_message->foreground->resolve(palette.mode)) : foundation_text;
-                canvas.styled_text(control.name(), message_bounds, message_ink, *host_message);
-            } else canvas.text(control.name(), message_bounds, foundation_text);
-            return;
-        }
-        if (auto* color = dynamic_cast<ColorPicker*>(&control)) {
-            const auto value = color->value();
-            const D2D1_COLOR_F rgba{value.red / 255.0f, value.green / 255.0f, value.blue / 255.0f, value.alpha / 255.0f};
-            const auto content = color->content_bounds();
-            const Rect preview{content.x + 2, content.y + 2, std::max(0.0f, content.width - 4), 42};
-            const PartStyleValues empty;
-            const auto part = [&](StylePart value) -> const PartStyleValues& {
-                const auto* values = color->has_control_styling() ? color->effective_control_style_values(value) : nullptr;
-                return values ? *values : empty;
-            };
-            const auto& checkerboard_light = part(StylePart::checkerboard_light);
-            const auto& checkerboard_dark = part(StylePart::checkerboard_dark);
-            const auto light = !palette.high_contrast && checkerboard_light.background ?
-                D2D1::ColorF(checkerboard_light.background->resolve(palette.mode)) : palette.field;
-            const auto dark = !palette.high_contrast && checkerboard_dark.background ?
-                D2D1::ColorF(checkerboard_dark.background->resolve(palette.mode)) : palette.border;
-            if (color->has_control_styling()) canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette,
-                part(StylePart::root), D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-            canvas.fill(preview, light);
-            for (int y = 0; y < 3; ++y) for (int x = 0; x < static_cast<int>(content.width / 14) + 1; ++x)
-                if ((x + y) % 2) canvas.fill({preview.x + x * 14, preview.y + y * 14,
-                    std::min(14.0f, std::max(0.0f, preview.width - x * 14)), 14}, dark);
-            canvas.fill(preview, rgba);
-            if (color->has_control_styling()) canvas.styled_surface(preview, palette, part(StylePart::preview),
-                D2D1::ColorF(0, 0.0f), fluent ? palette.border : palette.text, fluent ? 4.0f : 0.0f, {1, 1, 1, 1});
-            else if (fluent) canvas.rounded(preview, palette.border, 4, true);
-            else canvas.outline(preview, palette.text);
-            const wchar_t* channels[]{L"Red", L"Green", L"Blue", L"Alpha"};
-            for (int i = 0; i < 4; ++i) {
-                const auto label = color->has_control_styling() ?
-                    color->channel_label_style_values(static_cast<std::size_t>(i)) : PartStyleValues{};
-                const auto padding = label.padding.value_or(Insets{});
-                const auto label_ink = !palette.high_contrast && label.foreground ?
-                    D2D1::ColorF(label.foreground->resolve(palette.mode)) : foundation_text;
-                const Rect rect{content.x + 8 + padding.left, content.y + 52.0f + i * 42 + padding.top,
-                    std::max(0.0f, 52 - padding.left - padding.right), std::max(0.0f, 38 - padding.top - padding.bottom)};
-                if (color->has_control_styling()) canvas.styled_text(channels[i], rect, label_ink, label);
-                else canvas.text(channels[i], rect, foundation_text);
-            }
-            return;
-        }
-        if (peer.parent) if (auto* picker = dynamic_cast<ColorPicker*>(peer.parent->control.get())) {
-            const auto children = picker->owned_children();
-            for (std::size_t i = 4; i < children.size() && i - 4 < picker->swatches().size(); ++i) if (children[i].get() == &control) {
-                const auto value = picker->swatches()[i - 4];
-                const D2D1_COLOR_F rgb{value.red / 255.0f, value.green / 255.0f, value.blue / 255.0f,
-                    picker->has_control_styling() ? value.alpha / 255.0f : 1};
-                if (picker->has_control_styling() && value.alpha < 255) {
-                    const auto* checkerboard_light = picker->effective_control_style_values(StylePart::checkerboard_light);
-                    const auto* checkerboard_dark = picker->effective_control_style_values(StylePart::checkerboard_dark);
-                    const auto light = !palette.high_contrast && checkerboard_light && checkerboard_light->background ?
-                        D2D1::ColorF(checkerboard_light->background->resolve(palette.mode)) : palette.field;
-                    const auto dark = !palette.high_contrast && checkerboard_dark && checkerboard_dark->background ?
-                        D2D1::ColorF(checkerboard_dark->background->resolve(palette.mode)) : palette.border;
-                    canvas.fill({2, 2, std::max(0.0f, bounds.width - 4), std::max(0.0f, bounds.height - 4)}, light);
-                    for (int y = 0; y * 8 < bounds.height - 4; ++y) for (int x = 0; x * 8 < bounds.width - 4; ++x)
-                        if ((x + y) % 2) canvas.fill({2.0f + x * 8, 2.0f + y * 8,
-                            std::min(8.0f, std::max(0.0f, bounds.width - 4 - x * 8)),
-                            std::min(8.0f, std::max(0.0f, bounds.height - 4 - y * 8))}, dark);
-                }
-                canvas.rounded({2, 2, std::max(0.0f, bounds.width - 4), bounds.height - 4}, rgb, 4);
-                const Rect frame{1, 1, std::max(0.0f, bounds.width - 2), bounds.height - 2};
-                if (picker->has_control_styling()) {
-                    const auto state = (picker->value() == value ? style_states::selected : 0) |
-                        (control.focused() ? style_states::focused : 0) |
-                        (control.hovered() ? style_states::hovered : 0) |
-                        (control.pressed() ? style_states::pressed : 0) |
-                        (!enabled(peer) ? style_states::disabled : 0);
-                    auto swatch = picker->resolve_control_style_part(StylePart::swatch, state);
-                    const auto& button = static_cast<const Button&>(control);
-                    if (button.has_control_styling()) {
-                        const auto child = button.surface_style_values();
-                        if (child.border_brush) swatch.border_brush = child.border_brush;
-                        if (child.border_thickness) swatch.border_thickness = child.border_thickness;
-                        if (child.corner_radius) swatch.corner_radius = child.corner_radius;
-                    }
-                    canvas.styled_surface(frame, palette, swatch, D2D1::ColorF(0, 0.0f),
-                        picker->value() == value ? palette.accent : palette.border, 4, {1, 1, 1, 1});
-                    if (control.focused()) canvas.focus_ring(frame, palette);
-                } else if (fluent) {
-                    canvas.rounded(frame, palette.border, 4, true);
-                    if (control.focused()) canvas.focus_ring(frame, palette);
-                } else canvas.outline(frame, control.focused() ? palette.accent : palette.text);
-                return;
-            }
-        }
-
-        if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
-            if (choices->has_control_styling() || choices->horizontal_presentation()) {
-                const PartStyleValues empty;
-                const auto* root_values = choices->effective_control_style_values(StylePart::root);
-                const bool radio = control.role() == ControlRole::radio_group;
-                const bool selector = fluent && !palette.high_contrast && choices->horizontal_presentation();
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_values ? *root_values : empty,
-                    (fluent && radio) || selector ? D2D1::ColorF(0, 0.0f) : palette.surface,
-                    palette.border, fluent ? 4.0f : 0.0f, {});
-                const auto ink_for = [&](const PartStyleValues& values, D2D1_COLOR_F fallback) {
-                    return !palette.high_contrast && values.foreground ?
-                        D2D1::ColorF(values.foreground->resolve(palette.mode)) : fallback;
-                };
-                for (std::size_t i = 0; i < choices->items().size(); ++i) {
-                    const auto b = choices->item_bounds(i);
-                    if (b.height <= 0) continue;
-                    const auto& item = choices->items()[i];
-                    const bool selected = choices->selected() == item.id;
-                    const bool hovered = enabled(peer) && item.enabled && peer.hovered_choice == i;
-                    const bool pressed = hovered && peer.pressed_choice == item.id;
-                    const auto row = choices->item_style_values(StylePart::item, i, hovered, pressed);
-                    auto label = choices->item_style_values(StylePart::label, i, hovered, pressed);
-                    if (choices->horizontal_presentation() && !label.horizontal_alignment)
-                        label.horizontal_alignment = StyleAlignment::center;
-                    auto ink = !enabled(peer) || !item.enabled ? palette.disabled :
-                        selected && !radio ? palette.selection_text : palette.text;
-                    canvas.styled_surface(b, palette, row, selected && !radio && !selector ? palette.selection :
-                        hovered && !radio && !selector ? palette.hover : D2D1::ColorF(0, 0.0f), palette.border, 4, {});
-                    if (radio) {
-                        const auto indicator = choices->item_style_values(StylePart::indicator, i, hovered, pressed);
-                        const auto mark = choices->item_style_values(StylePart::mark, i, hovered, pressed);
-                        const auto circle = choices->indicator_bounds(i, hovered, pressed);
-                        const float diameter = circle.width;
-                        if (fluent && indicator.empty() && mark.empty())
-                            ink = canvas.radio_indicator({circle.x + 0.5f, circle.y, circle.width, circle.height},
-                                palette, selected, enabled(peer) && item.enabled, hovered, pressed);
-                        else {
-                            canvas.styled_surface(circle, palette, indicator, selected ? palette.accent : palette.field,
-                                ink, diameter / 2, {1, 1, 1, 1});
-                            if (selected) {
-                                const float dot = std::min(diameter, mark.size.value_or(diameter / 2));
-                                canvas.rounded({circle.x + (diameter - dot) / 2, circle.y + (diameter - dot) / 2, dot, dot},
-                                    ink_for(mark, palette.high_contrast ? palette.selection_text : palette.background), dot / 2);
-                            }
-                        }
-                    } else if (selected) {
-                        const auto marker = choices->item_style_values(StylePart::selected_marker, i, hovered, pressed);
-                        const float width = std::min(b.width, marker.size.value_or(3));
-                        const float extent = fluent && !palette.high_contrast ? std::min(16.0f, b.width) : b.width / 2;
-                        const auto marker_bounds = choices->horizontal_presentation() ?
-                            Rect{b.x + (b.width - extent) / 2, b.y + std::max(0.0f, b.height - width), extent, std::min(width, b.height)} :
-                            Rect{b.x, b.y + b.height / 4, width, b.height / 2};
-                        canvas.styled_surface(marker_bounds, palette, marker,
-                            palette.accent, palette.border, width / 2, {});
-                    }
-                    canvas.styled_text(item.text, choices->label_bounds(i, hovered, pressed), ink_for(label, ink), label);
-                    if (selected && focus_visible) canvas.focus_ring(b, palette);
-                }
-                return;
-            }
-            if (!fluent)
-                canvas.fill({0, 0, bounds.width, bounds.height}, palette.surface);
-            else if (control.role() != ControlRole::radio_group &&
-                (!peer.parent || peer.parent->control->role() != ControlRole::popup))
-                canvas.rounded({0, 0, bounds.width, bounds.height}, palette.surface, 4);
-            for (std::size_t i = 0; i < choices->items().size(); ++i) {
-                const auto b = choices->item_bounds(i);
-                if (b.height <= 0) continue;
-                const auto& item = choices->items()[i];
-                const bool selected = choices->selected() == item.id;
-                const bool radio = control.role() == ControlRole::radio_group;
-                const bool hovered = enabled(peer) && item.enabled && peer.hovered_choice == i;
-                const bool pressed = hovered && peer.pressed_choice == item.id;
-                const Rect face = fluent && !radio ? b : Rect{1, b.y + 1,
-                    std::max(0.0f, b.width - 2), std::max(0.0f, b.height - 2)};
-                if (selected && !radio) {
-                    canvas.rounded(fluent ? face : b, palette.selection, fluent ? 4.0f : 3.0f);
-                    if (fluent) {
-                        const float pill = pressed ? 10.0f : 16.0f;
-                        canvas.rounded({b.x, b.y + (b.height - pill) / 2, 3, pill}, palette.accent, 1.5f);
-                    }
-                }
-                else if (fluent && hovered && !radio) canvas.rounded(face, palette.hover, 4);
-                auto ink = !enabled(peer) || !item.enabled ? palette.disabled :
-                    selected && !radio ? palette.selection_text : palette.text;
-                if (radio) {
-                    if (fluent) ink = canvas.radio_indicator({0.5f, b.y + (b.height - 19) / 2, 19, 19}, palette, selected,
-                        enabled(peer) && item.enabled, hovered, pressed);
-                    else {
-                        canvas.rounded({10, b.y + 9, 16, 16}, ink, 8, true);
-                        if (selected) canvas.rounded({14, b.y + 13, 8, 8}, ink, 4);
-                    }
-                }
-                const float text_left = radio ? (fluent ? 28.0f : 36.0f) : fluent ? b.x + 11 : 12.0f;
-                canvas.text(item.text, {text_left, b.y + (fluent && !radio ? 5 : 0),
-                    std::max(0.0f, b.x + b.width - text_left - (fluent && !radio ? 11 : 12)),
-                    std::max(0.0f, b.height - (fluent && !radio ? 12 : 0))}, ink);
-                if (selected && focus_visible) {
-                    if (fluent) canvas.focus_ring(face, palette);
-                    else canvas.outline(face, palette.accent);
-                }
-            }
-            return;
-        }
-        if (auto* combo = dynamic_cast<ComboBox*>(&control)) {
-            const bool template_focus = fluent && !palette.high_contrast && !combo->editor();
-            if (combo->has_control_styling()) {
-                const PartStyleValues empty;
-                const auto part = [&](StylePart value) -> const PartStyleValues& {
-                    const auto* values = combo->effective_control_style_values(value);
-                    return values ? *values : empty;
-                };
-                const auto ink_for = [&](const PartStyleValues& values) {
-                    return !palette.high_contrast && values.foreground ?
-                        D2D1::ColorF(values.foreground->resolve(palette.mode)) : foundation_text;
-                };
-                const auto local = [&](Rect rect) {
-                    rect.x -= control.bounds().x; rect.y -= control.bounds().y; return rect;
-                };
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, part(StylePart::root),
-                    D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-                const auto frame = local(combo->field_bounds());
-                canvas.styled_surface(frame, palette, part(StylePart::field), input_fill(peer), palette.border,
-                    fluent ? 4.0f : 6.0f, {1, 1, 1, 1});
-                const auto& header = part(StylePart::header);
-                if (const auto rect = local(combo->header_bounds()); rect.height > 0)
-                    canvas.styled_text(control.name(), rect, ink_for(header), header, TextStyle::caption);
-                if (!combo->editor()) {
-                    auto text = local(combo->editor_bounds());
-                    const float pad = std::min(12.0f, text.width / 2);
-                    text.x += pad; text.width -= 2 * pad;
-                    const auto& values = part(StylePart::text);
-                    canvas.styled_text(combo->selected_text(), text, ink_for(values), values);
-                }
-                const auto arrow = local(combo->drop_down_bounds());
-                if (fluent) canvas.chevron(arrow, ink_for(part(StylePart::arrow)), true);
-                else canvas.text(L"\u25be", arrow, ink_for(part(StylePart::arrow)));
-                if (!template_focus && (focus_visible || IsChild(peer.window, GetFocus())))
-                    canvas.styled_field_focus(frame, palette, part(StylePart::field));
-                return;
-            }
-            const float edge = fluent ? 0.5f : 1.0f;
-            const Rect face{edge, edge, std::max(0.0f, bounds.width - 2 * edge), std::max(0.0f, bounds.height - 2 * edge)};
-            if (fluent) {
-                if (combo->editor()) canvas.field_frame(face, palette, IsChild(peer.window, GetFocus()) != FALSE,
-                    enabled(peer), false, input_fill(peer));
-                else canvas.button_face(face, palette, ButtonAppearance::standard, enabled(peer),
-                    control.hovered(), combo->popup()->is_open(), false);
-                if (focus_visible && !template_focus) canvas.focus_ring(face, palette);
-            } else {
-                canvas.rounded(face, palette.field);
-                canvas.rounded(face, control.focused() ? palette.accent : palette.border, 6, true);
-            }
-            if (!combo->editor()) canvas.text(combo->selected_text(),
-                {12, fluent ? 5.0f : 0.0f, std::max(0.0f, bounds.width - 50),
-                    std::max(0.0f, bounds.height - (fluent ? 12 : 0))}, foundation_text);
-            auto arrow = combo->drop_down_bounds();
-            arrow.x -= control.bounds().x;
-            arrow.y -= control.bounds().y;
-            if (!fluent) arrow = {std::max(0.0f, bounds.width - 28), 0, 24, bounds.height};
-            if (fluent) canvas.chevron(arrow, foundation_text, true);
-            else canvas.text(L"\u25be", arrow, foundation_text);
-            return;
-        }
-        if (auto* expander = dynamic_cast<Expander*>(&control)) {
-            const auto local = [&](Rect value) { value.x -= control.bounds().x; value.y -= control.bounds().y; return value; };
-            const bool regular_winui = fluent && !palette.high_contrast;
-            const auto brushes = winui_card_brushes(palette.mode);
-            const auto header_fill = regular_winui ? argb_color(brushes.fill) :
-                control.pressed() && fluent ? palette.selection : control.hovered() ? palette.hover : palette.surface;
-            const auto paint_disclosure = [&](D2D1_COLOR_F ink) {
-                const auto area = local(expander->disclosure_bounds());
-                if (regular_winui) {
-                    const auto fill = winui_button_brushes(palette.mode, ButtonAppearance::subtle,
-                        enabled(peer), control.hovered(), control.pressed(), false).fill;
-                    if (fill >> 24) canvas.rounded(area, argb_color(fill), 4);
-                }
-                if (fluent)
-                    canvas.symbol(expander->expanded() ? Symbol::chevron_up : Symbol::chevron_down, area, ink, 12);
-                else canvas.chevron(area, ink, expander->expanded());
-            };
-            if (fluent || expander->has_control_styling()) {
-                const PartStyleValues empty;
-                const auto* header = expander->effective_control_style_values(StylePart::header);
-                const auto* text = expander->effective_control_style_values(StylePart::text);
-                const auto* disclosure = expander->effective_control_style_values(StylePart::disclosure);
-                const auto face = local(expander->header_bounds());
-                canvas.styled_surface(face, palette, header ? *header : empty,
-                    header_fill,
-                    regular_winui ? argb_color(brushes.stroke) : palette.border,
-                    fluent ? 4.0f : 6.0f, fluent ? Insets{1, 1, 1, 1} : Insets{},
-                    fluent && expander->body_presented() ? Drawing::SurfaceCorners::top : Drawing::SurfaceCorners::all);
-                const auto ink = [&](const PartStyleValues* values) {
-                    return !palette.high_contrast && values && values->foreground ?
-                        D2D1::ColorF(values->foreground->resolve(palette.mode)) : foundation_text;
-                };
-                canvas.styled_text(control.name(), local(expander->header_text_bounds()), ink(text), text ? *text : empty);
-                paint_disclosure(ink(disclosure));
-                if (focus_visible) {
-                    if (fluent) {
-                        const float radius = !palette.high_contrast && header ? header->corner_radius.value_or(4.0f) : 4.0f;
-                        canvas.winui_focus_ring(face, palette, radius, 3,
-                            expander->body_presented() ? Drawing::SurfaceCorners::top : Drawing::SurfaceCorners::all);
-                    }
-                    else canvas.rounded(face, palette.accent, 6, true);
-                }
-                return;
-            }
-            const auto height = expander->effective_header_height();
-            const float edge = 1.0f;
-            const Rect header{edge, edge, std::max(0.0f, bounds.width - 2 * edge),
-                std::max(0.0f, std::min(bounds.height, height) - 2 * edge)};
-            const auto fill = header_fill;
-            canvas.rounded(header, fill, 6);
-            canvas.text(expander->expanded() ? L"\u25be" : L"\u25b8", {10, 0, 24, height}, foundation_text);
-            canvas.text(control.name(), {36, 0, std::max(0.0f, bounds.width - 48), height}, foundation_text);
-            if (focus_visible) canvas.rounded(header, palette.accent, 6, true);
-            return;
-        }
-        if (auto* range = dynamic_cast<RangeInput*>(&control)) {
-            const auto visual = range->slider_geometry();
-            const auto track = visual.track, thumb = visual.thumb;
-            const bool native_brushes = fluent && !palette.high_contrast;
-            const auto brushes = winui_slider_brushes(palette.mode, enabled(peer), control.hovered(), control.pressed() || peer.dragging);
-            const auto track_ink = native_brushes ? argb_color(brushes.track) :
-                fluent && enabled(peer) ? palette.secondary : palette.border;
-            const auto value_ink = native_brushes ? argb_color(brushes.value) : enabled(peer) ? palette.accent : palette.disabled;
-            const auto paint_default_thumb = [&] {
-                const float radius = thumb.width / 2;
-                if (fluent) {
-                    const auto fill = native_brushes ? argb_color(brushes.thumb) : palette.surface;
-                    canvas.styled_surface(thumb, palette, {}, fill, palette.border, 10, {1, 1, 1, 1});
-                    const float dot = !enabled(peer) || control.pressed() || peer.dragging ? 4.0f : control.hovered() ? 7.0f : 6.0f;
-                    canvas.rounded({thumb.x + radius - dot, thumb.y + radius - dot, 2 * dot, 2 * dot},
-                        value_ink, dot);
-                } else canvas.rounded(thumb, enabled(peer) ? palette.accent : palette.disabled, radius);
-            };
-            if (range->has_control_styling()) {
-                const PartStyleValues empty;
-                const auto part = [&](StylePart value) -> const PartStyleValues& {
-                    const auto* values = range->effective_control_style_values(value);
-                    return values ? *values : empty;
-                };
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, part(StylePart::root),
-                    D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-                canvas.styled_surface(track, palette, part(StylePart::track), track_ink, palette.border, 2, {});
-                const auto& fill = part(StylePart::fill);
-                const auto fill_ink = !palette.high_contrast && fill.foreground ?
-                    D2D1::ColorF(fill.foreground->resolve(palette.mode)) : value_ink;
-                canvas.styled_surface(visual.filled, palette, fill, fill_ink, palette.border, 2, {});
-                const auto& thumb_style = part(StylePart::thumb);
-                if (fluent && thumb_style.empty()) paint_default_thumb();
-                else canvas.styled_surface(thumb, palette, thumb_style, value_ink, palette.border, thumb.width / 2, {1, 1, 1, 1});
-                if (!fluent && control.focused()) canvas.focus_ring({1, 1, std::max(0.0f, bounds.width - 2),
-                    std::max(0.0f, bounds.height - 2)}, palette);
-                return;
-            }
-            canvas.rounded(track, track_ink, 2);
-            if (fluent && visual.filled.width > 0 && visual.filled.height > 0)
-                canvas.rounded(visual.filled, value_ink, 2);
-            paint_default_thumb();
-            if (!fluent && control.focused()) {
-                const Rect face{1, 1, std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)};
-                canvas.outline(face, palette.accent);
-            }
-            return;
-        }
-        if (auto* progress = dynamic_cast<Progress*>(&control)) {
-            const PartStyleValues empty;
-            const auto part = [&](StylePart value) -> const PartStyleValues& {
-                const auto* values = progress->has_control_styling() ? progress->effective_control_style_values(value) : nullptr;
-                return values ? *values : empty;
-            };
-            const auto& root_style = part(StylePart::root);
-            const auto& track_style = part(StylePart::track);
-            const auto& fill_style = part(StylePart::fill);
-            const auto& caption_style = part(StylePart::caption);
-            const auto thickness = track_style.thickness.value_or(style_metrics(palette.style).progress_thickness);
-            const auto content = progress->content_bounds();
-            const Rect track{content.x + 2, content.y + std::max(2.0f, content.height - std::max(10.0f, thickness + 2)),
-                std::max(0.0f, content.width - 4), std::min(thickness, content.height)};
-            auto ink = !enabled(peer) ? palette.disabled : progress->state() == ProgressState::error ? palette.error :
-                progress->state() == ProgressState::paused ? palette.secondary : palette.accent;
-            if (fluent && enabled(peer) && !palette.high_contrast && progress->state() == ProgressState::paused)
-                ink = D2D1::ColorF(winui_status_colors(palette.mode).warning);
-            if (progress->has_control_styling())
-                canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, root_style,
-                    D2D1::ColorF(0, 0.0f), palette.border, 0, {});
-            if (progress->ring_presentation()) {
-                const Rect ring{content.x + 2, content.y + 2,
-                    std::max(0.0f, content.width - 4), std::max(0.0f, content.height - 4)};
-                const auto track_ink = !palette.high_contrast && track_style.background ?
-                    D2D1::ColorF(track_style.background->resolve(palette.mode)) : palette.border;
-                if (!palette.high_contrast && fill_style.background)
-                    ink = D2D1::ColorF(fill_style.background->resolve(palette.mode));
-                canvas.arc(ring, 0, 1, track_ink, thickness);
-                if (progress->state() == ProgressState::indeterminate)
-                    canvas.arc(ring, animated_progress(peer) && progress_animating ? progress_phase : 0, 0.25f,
-                        ink, fill_style.thickness.value_or(thickness));
-                else if (progress->state() != ProgressState::unknown) {
-                    const auto fraction = static_cast<float>(progress->presented_fraction());
-                    canvas.arc(ring, 0, fraction, ink, fill_style.thickness.value_or(thickness));
-                }
-                return;
-            }
-            if (progress->has_control_styling())
-                canvas.styled_surface(track, palette, track_style, palette.border, palette.border, thickness / 2, {});
-            else canvas.rounded(track, palette.border, thickness / 2);
-            const auto segment = [&](Rect rect) {
-                if (progress->has_control_styling())
-                    canvas.styled_surface(rect, palette, fill_style, ink, palette.border, thickness / 2, {});
-                else canvas.rounded(rect, ink, thickness / 2);
-            };
-            std::wstring text = progress->value_text();
-            if (progress->state() == ProgressState::indeterminate || progress->state() == ProgressState::unknown) {
-                text = progress->state() == ProgressState::unknown ? L"Unknown" : L"In progress";
-                if (progress->state() == ProgressState::indeterminate) {
-                    if (progress_animating && animated_progress(peer)) {
-                        const float offset = progress_phase * 1.4f - 0.4f;
-                        const float left = std::max(0.0f, offset);
-                        const float right = std::min(1.0f, offset + 0.4f);
-                        if (right > left)
-                            segment({track.x + track.width * left, track.y, track.width * (right - left), track.height});
-                    } else if (fluent)
-                        segment({track.x + track.width * 0.3f, track.y, track.width * 0.4f, track.height});
-                    else for (int i = 0; i < 5; ++i) segment({track.x + track.width * (i + 1) / 6 - 3, track.y, 6, thickness});
-                }
-            } else {
-                const auto fraction = progress->presented_fraction();
-                if (fraction > 0)
-                    segment({track.x, track.y, track.width * static_cast<float>(fraction), track.height});
-                if (text.empty()) text = std::to_wstring(static_cast<int>(fraction * 100)) + L"%";
-                if (progress->state() == ProgressState::paused) text += L" (paused)";
-                if (progress->state() == ProgressState::error) text += L" (error)";
-            }
-            const Rect caption{content.x + 4, content.y, std::max(0.0f, content.width - 8),
-                std::max(0.0f, track.y - content.y - 2)};
-            if (progress->has_control_styling()) {
-                const auto caption_ink = !palette.high_contrast && caption_style.foreground ?
-                    D2D1::ColorF(caption_style.foreground->resolve(palette.mode)) : foundation_text;
-                canvas.styled_text(text, caption, caption_ink, caption_style, TextStyle::caption);
-            } else canvas.text(text, caption, foundation_text, true);
-            return;
-        }
-
-        if (auto* chart = dynamic_cast<HistoryChart*>(&control)) {
-            const auto plot = chart->plot_bounds();
-            const auto chart_root_values = chart->part_style(StylePart::root), title = chart->part_style(StylePart::title),
-                caption = chart->part_style(StylePart::caption), grid_line = chart->part_style(StylePart::grid_line), series = chart->part_style(StylePart::plot);
-            if (chart->has_control_styling()) canvas.styled_surface({1, 1, bounds.width - 2, bounds.height - 2}, palette, chart_root_values,
-                palette.surface, palette.border, VisualMetrics::radius, fluent ? Insets{1, 1, 1, 1} : Insets{});
-            else if (fluent) canvas.surface_frame({1, 1, bounds.width - 2, bounds.height - 2}, palette);
-            else canvas.rounded({1, 1, bounds.width - 2, bounds.height - 2}, palette.surface);
-            if (title.empty()) canvas.text(chart->name(), chart->title_bounds(), foundation_text, true);
-            else canvas.styled_text(chart->name(), chart->title_bounds(), Drawing::style_foreground(title, palette, foundation_text), title, TextStyle::caption);
-            if (chart->has_control_styling()) canvas.push_clip(plot);
-            for (int i = 0; i <= 4; ++i) {
-                const float y = plot.y + plot.height * i / 4;
-                if (grid_line.thickness.value_or(1) > 0) canvas.line(plot.x, y, plot.x + plot.width, y,
-                    Drawing::style_foreground(grid_line, palette, palette.border), grid_line.thickness.value_or(1));
-            }
-            for (std::size_t i = 1; i < chart->size(); ++i) {
-                const auto before = chart->at(i - 1), after = chart->at(i);
-                if (!before || !after) continue;
-                const float x = plot.x + plot.width * static_cast<float>(HistoryChart::capacity - chart->size() + i) / (HistoryChart::capacity - 1);
-                if (series.thickness.value_or(2) > 0) canvas.line(x - plot.width / (HistoryChart::capacity - 1), plot.y + plot.height * static_cast<float>(1 - *before / chart->maximum()),
-                    x, plot.y + plot.height * static_cast<float>(1 - *after / chart->maximum()),
-                    Drawing::style_foreground(series, palette, palette.accent), series.thickness.value_or(2));
-            }
-            if (chart->has_control_styling()) canvas.pop_clip();
-            if (caption.empty()) canvas.text(L"60 samples   \u00b7   oldest \u2192 newest", chart->caption_bounds(), palette.secondary, true);
-            else canvas.styled_text(L"60 samples   \u00b7   oldest \u2192 newest", chart->caption_bounds(),
-                Drawing::style_foreground(caption, palette, palette.secondary), caption, TextStyle::caption);
-            return;
-        }
-        if (auto* columns = dynamic_cast<MillerColumns*>(&control)) {
-            for (std::size_t i = 0; i < columns->columns().size(); ++i) {
-                auto separator = columns->separator_bounds(i);
-                if (separator.width > 0 && separator.height > 0) {
-                    const float scale = dpi / 96.0f;
-                    const float right = std::round((separator.x + separator.width) * scale) / scale;
-                    separator.x = std::round(separator.x * scale) / scale;
-                    separator.width = std::max(0.0f, right - separator.x);
-                    canvas.fill(separator, palette.border);
-                }
-            }
-            const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
-            if (track.width > 0) {
-                canvas.fill(track, palette.surface);
-                canvas.line(track.x, track.y, track.x + track.width, track.y, palette.border);
-                if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging || control.hovered(), enabled(peer));
-                else canvas.rounded(thumb, palette.secondary, 3);
-            }
-            return;
-        }
-        if (auto* bar = dynamic_cast<TitleBar*>(&control)) {
-            std::vector<Peer*> strips;
-            for (const auto& strip : {bar->tabs(), bar->secondary_tabs()})
-                if (auto* target = find_peer(strip.get()); target && visible(*target) && !strip->tabs().empty())
-                    strips.push_back(target);
-            std::sort(strips.begin(), strips.end(), [](const auto* a, const auto* b) {
-                return a->paint_bounds.x < b->paint_bounds.x;
-            });
-            float left{};
-            auto border = palette.border;
-            for (const auto* strip : strips) {
-                const auto color = static_cast<const TabStrip&>(*strip->control).colors().border;
-                border = color && !palette.high_contrast ? D2D1::ColorF(*color) : palette.border;
-                const float right = std::clamp(strip->paint_bounds.x - bounds.x, left, bounds.width);
-                if (right > left) canvas.fill({left, std::max(0.0f, bounds.height - 1), right - left, 1}, border);
-                left = std::clamp(strip->paint_bounds.x + strip->paint_bounds.width - bounds.x, right, bounds.width);
-            }
-            if (!strips.empty() && left < bounds.width)
-                canvas.fill({left, std::max(0.0f, bounds.height - 1), bounds.width - left, 1}, border);
-            return;
-        }
-        if (control.role() == ControlRole::content_view) return;
-        if (control.role() == ControlRole::split_view) {
-            const auto& split = static_cast<SplitView&>(control);
-            auto d = split.divider();
-            if (!d.width) return;
-            d.x -= bounds.x; d.y -= bounds.y;
-            const auto* divider_style = split.effective_control_style_values(StylePart::divider);
-            const auto* grip_style = split.effective_control_style_values(StylePart::grip);
-            const PartStyleValues empty;
-            canvas.styled_surface(d, palette, divider_style ? *divider_style : empty, palette.background, palette.border, 0, {});
-            const bool horizontal = split.axis() == Axis::horizontal;
-            const auto width = std::min(horizontal ? 4.0f : 44.0f, d.width);
-            const auto height = std::min(horizontal ? 44.0f : 4.0f, d.height);
-            canvas.styled_surface({d.x + (d.width - width) / 2, d.y + (d.height - height) / 2, width, height},
-                palette, grip_style ? *grip_style : empty,
-                control.focused() || peer.dragging ? palette.accent : fluent ? palette.secondary : palette.border,
-                palette.border, 2, {});
-            if (fluent && control.focused()) canvas.focus_ring(d, palette, 2);
-            return;
-        }
-        if (control.role() == ControlRole::tab_strip) {
-            const auto& strip = static_cast<TabStrip&>(control);
-            canvas.tab_strip(strip, bounds, palette, enabled(peer), peer.surface,
-                control.focused() && keyboard_focus_visible, peer.tab_pointer, peer.row_images.get());
-            return;
-        }
-        if (peer.image) {
-            const auto& image = static_cast<const Image&>(control);
-            const auto* root_values = image.effective_control_style_values(StylePart::root);
-            const auto area = image.content_bounds();
-            if (root_values) canvas.styled_surface({0, 0, bounds.width, bounds.height}, palette, *root_values,
-                palette.surface, palette.border, fluent ? 4.0f : 0.0f, fluent ? Insets{1, 1, 1, 1} : Insets{});
-            else canvas.fill({0, 0, bounds.width, bounds.height}, palette.surface);
-            const bool rounded_clip = root_values && !palette.high_contrast && canvas.push_rounded_clip(
-                {0, 0, bounds.width, bounds.height}, root_values->corner_radius.value_or(fluent ? 4.0f : 0.0f));
-            if (root_values) canvas.push_clip(area);
-            peer.image->paint(canvas, area);
-            if (image.status() != ImageStatus::ready)
-                paint_host_text(control, image.status() == ImageStatus::error ? StylePart::error : StylePart::placeholder,
-                    image.status() == ImageStatus::error ? image.error() :
-                    image.status() == ImageStatus::loading ? L"Loading image..." : L"No image",
-                    root_values ? Rect{area.x + 6, area.y, std::max(0.0f, area.width - 12), area.height} :
-                        Rect{8, 0, std::max(0.0f, bounds.width - 16), bounds.height},
-                    image.status() == ImageStatus::error ? palette.error : palette.secondary);
-            if (root_values) canvas.pop_clip();
-            if (rounded_clip) canvas.pop_rounded_clip();
-            if (!root_values && fluent) canvas.rounded({1, 1, std::max(0.0f, bounds.width - 2), std::max(0.0f, bounds.height - 2)}, palette.border, 4, true);
-            if (focus_visible) canvas.focus_ring({0, 0, bounds.width, bounds.height}, palette);
-            return;
-        }
-        if (control.role() == ControlRole::scroll_view) {
-            const auto& scroll = static_cast<ScrollView&>(control);
-            if (scroll.passthrough()) return;
-            auto thumb = scroll.thumb();
-            thumb.x -= bounds.x;
-            thumb.y -= bounds.y;
-            const auto* track_style = scroll.effective_control_style_values(StylePart::scrollbar_track);
-            const auto* thumb_style = scroll.effective_control_style_values(StylePart::scrollbar_thumb);
-            if (!scroll.overlay_scrollbar() || track_style) {
-                auto track = scroll.scrollbar_track(); track.x -= bounds.x; track.y -= bounds.y;
-                const PartStyleValues empty;
-                canvas.styled_surface(track, palette, track_style ? *track_style : empty, palette.background, palette.border, 0, {});
-            }
-            if (thumb.height) {
-                if (thumb_style) canvas.styled_surface(thumb, palette, *thumb_style,
-                    !enabled(peer) ? palette.border : peer.dragging || control.hovered() ? palette.accent : palette.secondary,
-                    palette.border, 4, {});
-                else if (fluent) canvas.scrollbar_thumb(thumb, palette, peer.dragging || control.hovered(), enabled(peer));
-                else canvas.rounded(thumb, control.enabled() ?
-                    (peer.dragging || control.hovered() ? palette.accent : palette.secondary) : palette.border, 4);
-            }
-            if (focus_visible) {
-                const Rect face{0.5f, 0.5f, std::max(0.0f, bounds.width - 1), std::max(0.0f, bounds.height - 1)};
-                if (fluent) canvas.focus_ring(face, palette);
-                else canvas.outline(face, palette.accent);
-            }
-            return;
-        }
-        if (is_caption_button(control)) {
-            const auto& button = static_cast<const Button&>(control);
-            const auto state = (caption_active ? style_states::active : style_states::inactive) |
-                (titlebar->maximized() ? style_states::maximized : 0) |
-                (control.hovered() ? style_states::hovered : 0) | (control.pressed() ? style_states::pressed : 0) |
-                (control.focused() ? style_states::focused : 0) | (!enabled(peer) ? style_states::disabled : 0);
-            auto values = titlebar->has_control_styling() ? titlebar->resolve_control_style_part(
-                button.icon() == ButtonIcon::close ? StylePart::caption_close : StylePart::caption_button, state) : PartStyleValues{};
-            values = merge_part_values(std::move(values), button.surface_style_values());
-            const auto icon_values = button.content_style_values(StylePart::icon);
-            canvas.caption_button({0, 0, bounds.width, bounds.height}, button.icon(),
-                palette, caption_active, enabled(peer), control.hovered(), control.pressed(), control.focused(),
-                values.empty() ? nullptr : &values, icon_values.empty() ? nullptr : &icon_values);
-            return;
-        }
-        const auto* wrapping_label = dynamic_cast<const Label*>(&control);
-        if (!wrapping_label || !wrapping_label->wrapping()) control.measured_text();
-        if (!peer.text_layout && (control.role() == ControlRole::label ||
-            control.role() == ControlRole::button || control.role() == ControlRole::toggle)) {
-            Size measured{};
-            peer.text_layout = canvas.layout(control.name(), control.text_style(), measured);
-        }
-        const auto* status_parent = peer.parent ? dynamic_cast<InlineStatus*>(peer.parent->control.get()) : nullptr;
-        if (status_parent)
-            canvas.fill({0, 0, bounds.width, bounds.height}, status_fill(status_parent->severity()));
-        const float inset_size = fluent ? 0.5f : 2.0f;
-        const Rect box{inset_size, inset_size, std::max(0.0f, bounds.width - 2 * inset_size), std::max(0.0f, bounds.height - 2 * inset_size)};
-        const auto text = enabled(peer) ? palette.text : palette.disabled;
-        const auto role = control.role();
-        if (role == ControlRole::button) {
-            if (const auto owner = peer.clear_owner.lock(); owner && (owner->has_control_styling() || control.has_control_styling())) {
-                const auto& input = static_cast<const TextInput&>(*owner);
-                const auto state = (control.focused() ? style_states::focused : 0) |
-                    (control.hovered() ? style_states::hovered : 0) | (control.pressed() ? style_states::pressed : 0) |
-                    (!enabled(peer) ? style_states::disabled : 0) | (input.text().empty() ? style_states::empty : 0);
-                const auto defaults = input.resolve_control_style_part(StylePart::clear_action, state);
-                if (!defaults.empty() || control.has_control_styling()) {
-                    canvas.styled_button(static_cast<const Button&>(control), {0, 0, bounds.width, bounds.height},
-                        palette, enabled(peer), focus_visible, {}, 0, {}, &defaults,
-                        fluent ? std::optional{Symbol::clear} : std::nullopt);
-                    return;
-                }
-            }
-        }
-        if (role == ControlRole::button && peer.parent) {
-            const auto* breadcrumb = dynamic_cast<const Breadcrumb*>(peer.parent->control.get());
-            if (breadcrumb && (breadcrumb->has_control_styling() || control.has_control_styling())) {
-                const auto& button = static_cast<const Button&>(control);
-                bool separator = &button == breadcrumb->overflow_button().get();
-                std::wstring_view label;
-                const auto children = breadcrumb->owned_children();
-                for (std::size_t i = 0; i < breadcrumb->segments().size(); ++i) if (children[i + 1].get() == &button) {
-                    label = breadcrumb->segments()[i].label;
-                    separator = i + 1 != breadcrumb->segments().size();
-                    break;
-                }
-                const auto content = button.content_bounds({0, 0, bounds.width, bounds.height});
-                const auto arrow = &button == breadcrumb->overflow_button().get() ?
-                    button.content_style_values(StylePart::arrow) : PartStyleValues{};
-                const auto arrow_padding = arrow.padding.value_or(Insets{});
-                const auto separator_width = separator ?
-                    std::min(arrow.size.value_or(20.0f) + arrow_padding.left + arrow_padding.right, content.width / 2) : 0.0f;
-                canvas.styled_button(button, {0, 0, bounds.width, bounds.height}, palette, enabled(peer), focus_visible,
-                    label, separator_width);
-                if (separator) {
-                    const auto* values = breadcrumb->effective_control_style_values(StylePart::separator);
-                    auto ink = values && values->foreground && !palette.high_contrast ?
-                        D2D1::ColorF(values->foreground->resolve(palette.mode)) : text;
-                    if (arrow.foreground && !palette.high_contrast) ink = D2D1::ColorF(arrow.foreground->resolve(palette.mode));
-                    const Rect glyph{content.x + content.width - separator_width + arrow_padding.left,
-                        content.y + arrow_padding.top,
-                        std::max(0.0f, separator_width - arrow_padding.left - arrow_padding.right),
-                        std::max(0.0f, content.height - arrow_padding.top - arrow_padding.bottom)};
-                    canvas.symbol(Symbol::breadcrumb_separator,
-                        glyph, ink, std::min({arrow.size ? *arrow.size * 0.6f : 12.0f, glyph.width, glyph.height}));
-                }
-                return;
-            }
-        }
-        if (auto* badge = dynamic_cast<InfoBadge*>(&control)) {
-            canvas.info_badge(*badge, {0, 0, bounds.width, bounds.height}, palette, enabled(peer));
-            return;
-        }
-        if (auto* link = dynamic_cast<HyperlinkButton*>(&control)) {
-            canvas.hyperlink(*link, {0, 0, bounds.width, bounds.height}, palette, enabled(peer), focus_visible);
-            return;
-        }
-        if (role == ControlRole::button && (control.has_control_styling() || static_cast<const Button&>(control).vertical_text())) {
-            std::optional<bool> step_increment;
-            if (peer.parent && peer.parent->control->role() == ControlRole::numeric_input) {
-                const auto& numeric = static_cast<const NumericInput&>(*peer.parent->control);
-                step_increment = numeric.increase_button().get() == &control;
-            }
-            canvas.styled_button(static_cast<const Button&>(control), {0, 0, bounds.width, bounds.height},
-                palette, enabled(peer), focus_visible, {}, 0, step_increment);
-            return;
-        }
-        if (role == ControlRole::toggle && (control.has_control_styling() ||
-            static_cast<const Toggle&>(control).switch_presentation() || dynamic_cast<CheckBox*>(&control))) {
-            canvas.styled_toggle(static_cast<const Toggle&>(control), {0, 0, bounds.width, bounds.height},
-                palette, enabled(peer), peer.text_layout.Get(), focus_visible);
-            return;
-        }
-        if (role == ControlRole::label) {
-            auto& label = static_cast<Label&>(control);
-            if (label.has_control_styling()) {
-                canvas.styled_label(label, {0, 0, bounds.width, bounds.height}, palette, enabled(peer));
-                return;
-            }
-            const auto color = !enabled(peer) ? palette.disabled : label.tone() == TextTone::accent ? palette.accent :
-                label.tone() == TextTone::secondary ? palette.secondary :
-                label.tone() == TextTone::error ? palette.error : text;
-            const Rect area{0, 0, bounds.width, label.wrapping() ?
-                std::min(bounds.height, label.wrapped_text(bounds.width).height) : bounds.height};
-            canvas.text_layout(peer.text_layout.Get(), area, color);
-        } else {
-            const auto* button = dynamic_cast<const Button*>(&control);
-            const bool checked_action = button && button->checked() &&
-                (button->behavior() == ButtonBehavior::toggle || dynamic_cast<const MenuBar::Heading*>(button));
-            const bool winui = palette.style == VisualStyle::winui;
-            auto ink = control.pressed() || checked_action ? palette.selection_text : text;
-            if (button && winui)
-                ink = canvas.button_face(box, palette, button->appearance(), enabled(peer),
-                    control.hovered(), control.pressed(), checked_action);
-            else if (!winui && (role == ControlRole::button || control.hovered() || control.pressed()))
-                canvas.rounded(box, control.pressed() ? palette.selection :
-                    checked_action ? palette.selection : control.hovered() ? palette.hover : palette.surface);
-            if (role == ControlRole::button && !winui)
-                canvas.rounded(box, palette.border, 6, true);
-            float inset = 14;
-            if (role == ControlRole::toggle) {
-                const bool checked = static_cast<const Toggle&>(control).checked();
-                Rect mark = winui ? Rect{0.5f, bounds.height / 2 - 9.5f, 19, 19} :
-                    Rect{12, bounds.height / 2 - 9, 18, 18};
-                if (winui) ink = canvas.check_indicator(mark, palette, checked, enabled(peer), false,
-                    control.hovered(), control.pressed());
-                else {
-                    const auto check_fill = palette.high_contrast ? palette.selection : palette.accent;
-                    canvas.rounded(mark, checked ? (enabled(peer) ? check_fill : palette.disabled) : palette.field, 3);
-                    canvas.rounded(mark, enabled(peer) ? palette.accent : palette.disabled, 3, true);
-                    if (checked) {
-                        const auto check_ink = palette.high_contrast && enabled(peer) ? palette.selection_text : palette.background;
-                        canvas.line(mark.x + 4, mark.y + 9, mark.x + 8, mark.y + 13, check_ink, 2);
-                        canvas.line(mark.x + 8, mark.y + 13, mark.x + 14, mark.y + 5, check_ink, 2);
-                    }
-                }
-                inset = winui ? 28.0f : 42.0f;
-            }
-            if (role == ControlRole::button)
-                inset = std::max(winui ? 12.0f : 14.0f, (bounds.width - control.measured_text().width) / 2);
-            const auto icon = role == ControlRole::button ? static_cast<const Button&>(control).icon() : ButtonIcon::none;
-            const auto* breadcrumb = winui && peer.parent ? dynamic_cast<const Breadcrumb*>(peer.parent->control.get()) : nullptr;
-            if (button && breadcrumb) {
-                const auto children = breadcrumb->owned_children();
-                if (button == breadcrumb->overflow_button().get()) {
-                    canvas.symbol(Symbol::more, {0, 0, bounds.width / 2, bounds.height}, ink);
-                    canvas.symbol(Symbol::breadcrumb_separator, {bounds.width / 2, 0, bounds.width / 2, bounds.height}, ink, 12);
-                } else for (std::size_t i = 0; i < breadcrumb->segments().size(); ++i) if (children[i + 1].get() == button) {
-                    const bool separator = i + 1 != breadcrumb->segments().size();
-                    canvas.text(breadcrumb->segments()[i].label, {12, 0,
-                        std::max(0.0f, bounds.width - (separator ? 36 : 24)), bounds.height}, ink);
-                    if (separator) canvas.symbol(Symbol::breadcrumb_separator,
-                        {bounds.width - 24, 0, 24, bounds.height}, ink, 12);
-                    break;
-                }
-            } else if (button && peer.parent && peer.parent->control->role() == ControlRole::numeric_input) {
-                const auto children = peer.parent->control->owned_children();
-                if (winui) {
-                    canvas.symbol(children[1].get() == button ? Symbol::chevron_down : Symbol::chevron_up,
-                        {0, 0, bounds.width, bounds.height}, ink, 12);
-                } else canvas.text(children[1].get() == button ? L"\u2212" : L"+", {12, 0, 24, bounds.height}, ink);
-            } else if (button && button->behavior() == ButtonBehavior::dropdown) {
-                const Rect arrow{std::max(0.0f, bounds.width - 26), 0, 24, bounds.height};
-                if (winui) canvas.chevron(arrow, ink, true);
-                else canvas.text(L"\u25be", arrow, ink);
-                if (bounds.width > (winui ? 44.0f : 64.0f))
-                    canvas.text(control.name(), {12, winui ? 6.0f : 0.0f, std::max(0.0f, bounds.width - 44),
-                        std::max(0.0f, bounds.height - (winui ? 13 : 0))}, ink);
-            } else if (winui && !peer.clear_owner.expired())
-                canvas.symbol(Symbol::clear, {0, 0, bounds.width, bounds.height}, ink, 12);
-            else if (icon != ButtonIcon::none)
-                canvas.button_icon({(bounds.width - 16) / 2, (bounds.height - 16) / 2, 16, 16}, ink, icon);
-            else canvas.text_layout(peer.text_layout.Get(),
-                {inset, winui && button ? 6.0f : 0.0f,
-                    std::max(0.0f, bounds.width - inset - (winui && role == ControlRole::toggle ? 0.0f : 12.0f)),
-                    std::max(0.0f, bounds.height - (winui && button ? 13 : 0))}, ink);
-            if (focus_visible) {
-                if (winui) canvas.focus_ring(box, palette);
-                else canvas.rounded(box,
-                    palette.high_contrast && control.pressed() ? palette.selection_text : palette.accent, 6, true);
-            }
-        }
-    }
     void activated(Peer& peer, bool invoked) {
         if (invoked && peer.control->role() == ControlRole::combo_box) open_combo(peer);
         update();
         if (invoked && window && peer.control->role() == ControlRole::button && !dynamic_cast<MenuBar::Heading*>(peer.control.get()))
-            raise_control_invoked(peer.provider);
+            peer.publish_invoked();
     }
     bool focus(Peer& peer, bool activate_window) {
         if (!ready || closing || !peer.control->focusable() || !enabled(peer)) return false;
@@ -4460,7 +3043,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         SetFocus(peer.window);
         if (window && !closing && peer.runtime_host() && peer.runtime_host()->active())
             if (auto* web = dynamic_cast<WebContent*>(peer.control.get())) web->focus_content();
-        return GetFocus() == peer.window || (peer.document_bridge() && IsChild(peer.window, GetFocus())) ||
+        return GetFocus() == peer.window || (native_document_peer(peer) && IsChild(peer.window, GetFocus())) ||
             (peer.runtime_host() && peer.runtime_host()->contains_native(GetFocus()));
     }
     Peer* edit_at(HWND source, LPARAM position) const {
@@ -4469,7 +3052,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         const float x = point.x * 96.0f / dpi, y = point.y * 96.0f / dpi;
         for (auto it = peers.rbegin(); it != peers.rend(); ++it) {
             auto& peer = **it;
-            if (!peer.edit_bridge() || (GetParent(peer.window) != source && peer.window != source) ||
+            if (!text_input_peer(peer) || (GetParent(peer.window) != source && peer.window != source) ||
                 !visible(peer) || !enabled(peer) || !in_top_popup(peer)) continue;
             const auto rect = peer.control->bounds();
             if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height)
@@ -4505,10 +3088,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (GetCapture() == peer->window) ReleaseCapture();
         }
     }
-    double range_fraction(const RangeInput& range, LPARAM point) const {
-        return range.slider_geometry().pointer_fraction(
-            {GET_X_LPARAM(point) * 96.0f / dpi, GET_Y_LPARAM(point) * 96.0f / dpi}, range.orientation());
-    }
     bool miller_wheel(Peer& peer, double delta) {
         for (auto* ancestor = &peer; ancestor; ancestor = ancestor->parent)
             if (auto* columns = dynamic_cast<MillerColumns*>(ancestor->control.get())) {
@@ -4518,8 +3097,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         return false;
     }
     LRESULT control_message(Peer& peer, HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-        if (auto* state = unextracted_if(peer))
-            return unextracted_control_message(*state, hwnd, message, wparam, lparam);
         auto& control = *peer.control;
         switch (message) {
         case WM_COMMAND:
@@ -4540,6 +3117,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         case WM_ERASEBKGND: return 1;
         case WM_PAINT:
             ValidateRect(hwnd, nullptr);
+            if (peer.overlay_surface() && !painting) invalidate(Invalidation::paint);
             return 0;
         case WM_GETOBJECT:
             if (static_cast<LONG>(lparam) == UiaRootObjectId && peer.provider)
@@ -4591,6 +3169,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             }
             break;
         case WM_KEYUP:
+            if (const auto result = peer.input(message, wparam, lparam, {dpi, palette})) return *result;
             if (wparam == VK_SPACE || wparam == VK_RETURN) {
                 activated(peer, control.key_up(wparam == VK_SPACE ? ActivationKey::space : ActivationKey::enter));
                 return 0;
@@ -4604,8 +3183,11 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (lparam == 6) { reveal(peer); return S_OK; }
             if (!enabled(peer) || !visible(peer)) return UIA_E_ELEMENTNOTENABLED;
             if (lparam == 1) return focus(peer, true) ? S_OK : UIA_E_INVALIDOPERATION;
+            if (const auto result = peer.input(message, wparam, lparam, {dpi, palette})) return *result;
             return UIA_E_INVALIDOPERATION;
-        case foundation_action_message: return UIA_E_INVALIDOPERATION;
+        case foundation_action_message:
+            if (const auto result = peer.input(message, wparam, lparam, {dpi, palette})) return *result;
+            return UIA_E_INVALIDOPERATION;
         case WM_NCDESTROY:
             peer.input(message, wparam, lparam, {dpi, palette});
             control.cancel();
@@ -4617,6 +3199,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             return DefWindowProcW(hwnd, message, wparam, lparam);
         }
         if (const auto result = peer.input(message, wparam, lparam, {dpi, palette})) return *result;
+        if (message == WM_MOUSEWHEEL && scroll_wheel(peer, wparam)) return 0;
         if (message == WM_KEYDOWN) {
             if (wparam == VK_ESCAPE) {
                 control.cancel();
@@ -4629,619 +3212,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 activated(peer, accepted && wparam == VK_RETURN);
                 return 0;
             }
-        }
-        return DefWindowProcW(hwnd, message, wparam, lparam);
-    }
-    LRESULT unextracted_control_message(UnextractedPeer& peer, HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-        auto& control = *peer.control;
-        const auto gesture = [] {
-            const bool ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0;
-            return shift ? (ctrl ? SelectionGesture::add_range : SelectionGesture::extend) :
-                ctrl ? SelectionGesture::focus_only : SelectionGesture::replace;
-        };
-        const auto inside = [&] {
-            RECT rect{};
-            GetClientRect(hwnd, &rect);
-            if (auto expander = dynamic_cast<const Expander*>(&control);
-                expander && options.visual_style == VisualStyle::winui &&
-                GET_Y_LPARAM(lparam) * 96.0f / dpi >= expander->effective_header_height()) return false;
-            return PtInRect(&rect, {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}) != 0;
-        };
-        const auto choice_hit = [&](const RadioGroup& choices) {
-            auto hit = choices.hit_test(Point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi});
-            if (hit && (options.visual_style == VisualStyle::winui || choices.has_control_styling())) {
-                const auto body = choices.item_bounds(*hit);
-                const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
-                if (!inside() || x < body.x || x >= body.x + body.width) hit.reset();
-            }
-            return hit;
-        };
-        switch (message) {
-        case runtime_event_message:
-            if (peer.runtime) peer.runtime->event();
-            return 0;
-        case WM_TIMER:
-            if (wparam == repeat_timer) {
-                auto* button = dynamic_cast<Button*>(&control);
-                if (!button || !peer.repeating || !enabled(peer) || !visible(peer) || !control.pressed() || !IsWindowVisible(window)) {
-                    KillTimer(hwnd, repeat_timer); peer.repeating = false; return 0;
-                }
-                SetTimer(hwnd, repeat_timer, button->repeat_interval(), nullptr);
-                activated(peer, button->invoke()); return 0;
-            }
-            break;
-        case WM_SETCURSOR:
-            if (dynamic_cast<HyperlinkButton*>(&control) && enabled(peer) && LOWORD(lparam) == HTCLIENT) {
-                SetCursor(LoadCursorW(nullptr, IDC_HAND)); return TRUE;
-            }
-
-            if (auto* split = dynamic_cast<SplitView*>(&control); split && enabled(peer) && split->expanded() &&
-                reinterpret_cast<HWND>(wparam) == hwnd && LOWORD(lparam) == HTCLIENT) {
-                POINT point{}; GetCursorPos(&point); ScreenToClient(hwnd, &point);
-                const float x = point.x * 96.0f / dpi + split->bounds().x;
-                const float y = point.y * 96.0f / dpi + split->bounds().y;
-                const auto divider = split->divider();
-                if (peer.dragging || (x >= divider.x && x < divider.x + divider.width &&
-                    y >= divider.y && y < divider.y + divider.height)) {
-                    SetCursor(LoadCursorW(nullptr, split->axis() == Axis::horizontal ? IDC_SIZEWE : IDC_SIZENS)); return TRUE;
-                }
-            }
-            break;
-        case WM_COMMAND:
-        case WM_NOTIFY:
-        case WM_CTLCOLORSTATIC:
-        case WM_CTLCOLOREDIT:
-        case WM_NEXTDLGCTL:
-            return SendMessageW(window, message, wparam, lparam);
-        case WM_MOUSEWHEEL:
-            hide_tooltip();
-            if ((GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT) &&
-                miller_wheel(peer, -GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
-            if (auto* map = dynamic_cast<MapView*>(&control)) {
-                if (!enabled(peer)) return 0;
-                POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
-                map->zoom_at(GET_WHEEL_DELTA_WPARAM(wparam) / 120.0,
-                    {point.x * 96.0f / dpi, point.y * 96.0f / dpi}); return 0;
-            }
-
-            if (scroll_wheel(peer, wparam)) return 0;
-            break;
-        case WM_MOUSEHWHEEL:
-            hide_tooltip();
-            if (miller_wheel(peer, GET_WHEEL_DELTA_WPARAM(wparam) * 0.8)) return 0;
-
-            break;
-        case WM_CONTEXTMENU:
-            if (auto* tabs = dynamic_cast<TabStrip*>(&control)) {
-                if (!enabled(peer) || !visible(peer)) return 0;
-                std::optional<Point> position;
-                if (lparam != -1) {
-                    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(hwnd, &point);
-                    position = Point{point.x * 96.0f / dpi, point.y * 96.0f / dpi};
-                }
-                if (!tabs->prepare_context_menu(position)) return 0;
-            }
-
-            show_control_menu(control, hwnd, lparam, palette, dpi); return 0;
-        case WM_ERASEBKGND: return 1;
-        case WM_PAINT:
-            ValidateRect(hwnd, nullptr);
-            if (peer.overlay_drawing && !painting) invalidate(Invalidation::paint);
-            return 0;
-        case WM_GETOBJECT:
-            if (static_cast<LONG>(lparam) == UiaRootObjectId && peer.provider)
-                return UiaReturnRawElementProvider(hwnd, wparam, lparam, peer.provider);
-            break;
-        case WM_SETFOCUS:
-            menu_bar_focused(peer, reinterpret_cast<HWND>(wparam));
-            last_focus = hwnd;
-            reveal(peer);
-            control.set_focused(true);
-            return 0;
-        case WM_KILLFOCUS:
-
-            peer.dragging = false;
-            if (auto* range = dynamic_cast<RangeInput*>(&control)) range->cancel_drag();
-            control.set_focused(false);
-            KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
-            if (GetCapture() == hwnd) ReleaseCapture();
-            return 0;
-        case WM_MOUSEMOVE:
-            if (peer.pressed_tab) {
-                POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-                win32_require(ClientToScreen(hwnd, &point) != 0, "Locate dragged tab");
-                if (!(wparam & MK_LBUTTON) || !enabled(peer) || !visible(peer) || !tab_drag_handler) {
-                    peer.pressed_tab.reset();
-                    if (GetCapture() == hwnd) ReleaseCapture();
-                    return 0;
-                }
-                if (std::abs(point.x - peer.tab_press.x) >= GetSystemMetricsForDpi(SM_CXDRAG, dpi) ||
-                    std::abs(point.y - peer.tab_press.y) >= GetSystemMetricsForDpi(SM_CYDRAG, dpi))
-                    begin_tab_move(peer, point);
-                return 0;
-            }
-            if (menu_bar_hover(peer, inside())) return 0;
-
-            if (auto* columns = dynamic_cast<MillerColumns*>(&control); columns && peer.dragging) {
-                const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
-                const float distance = track.width - thumb.width;
-                if (distance > 0 && enabled(peer) && visible(peer)) {
-                    const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
-                    columns->set_horizontal_offset(std::clamp(peer.drag_offset +
-                        (x - peer.drag_y) * columns->maximum_horizontal() / distance, 0.0, columns->maximum_horizontal()));
-                }
-                return 0;
-            }
-            if (dynamic_cast<TabStrip*>(&control)) {
-                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
-                if (!peer.tab_pointer || peer.tab_pointer->x != point.x || peer.tab_pointer->y != point.y) {
-                    peer.tab_pointer = point;
-                    invalidate(Invalidation::paint);
-                }
-            }
-            if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
-                const auto hit = inside() ? choice_hit(*choices) : std::nullopt;
-                if (peer.hovered_choice != hit) { peer.hovered_choice = hit; invalidate(Invalidation::paint); }
-            }
-
-            if (auto* map = dynamic_cast<MapView*>(&control); map && peer.dragging) {
-                const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                map->pan(x - peer.drag_offset, y - peer.drag_y); peer.drag_offset = x; peer.drag_y = y; return 0;
-            }
-
-            if (auto* range = dynamic_cast<RangeInput*>(&control); range && range->dragging()) {
-                range->drag(range_fraction(*range, lparam)); return 0;
-            }
-
-            if (peer.dragging) {
-                if (auto split = dynamic_cast<SplitView*>(&control)) {
-                    if (split->divider().width <= 0 || !split->divider_dragging()) {
-                        peer.dragging = false;
-                        split->set_style_dragging(false);
-                        if (GetCapture() == hwnd) ReleaseCapture();
-                        return 0;
-                    }
-                    const auto area = split->pane_area();
-                    const bool horizontal = split->axis() == Axis::horizontal;
-                    const float extent = (horizontal ? area.width : area.height) - split->effective_divider_width();
-                    const auto position = horizontal ? GET_X_LPARAM(lparam) : GET_Y_LPARAM(lparam);
-                    const auto origin = horizontal ? area.x - split->bounds().x : area.y - split->bounds().y;
-                    if (extent > 0) split->set_ratio((position * 96.0f / dpi - peer.drag_offset - origin) / extent);
-                    update();
-                    return 0;
-                }
-                auto& scroll = static_cast<ScrollView&>(control);
-                const float track = scroll.scrollbar_thumb_track().height - scroll.thumb().height;
-                if (track > 0) scroll.set_offset(peer.drag_offset +
-                    (GET_Y_LPARAM(lparam) * 96.0f / dpi - peer.drag_y) * scroll.maximum_offset() / track);
-                update();
-                return 0;
-            }
-
-            control.pointer_move(inside());
-            if (control.captured() && control.hovered() && peer.repeat_cycle && !peer.repeating) repeat_start(peer, false);
-            if (!peer.tracking) {
-                TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
-                peer.tracking = TrackMouseEvent(&track) != 0;
-            }
-            return 0;
-        case WM_MOUSELEAVE:
-
-            if (peer.hovered_choice) { peer.hovered_choice.reset(); invalidate(Invalidation::paint); }
-            peer.tracking = false;  peer.tab_pointer.reset(); control.pointer_move(false); return 0;
-        case WM_LBUTTONDOWN:
-
-            if (!enabled(peer) || !visible(peer)) return 0;
-            if (peer.suppress_popup_click) { SetFocus(hwnd); return 0; }
-            hide_tooltip();
-            if (focus_edit_at(hwnd, lparam)) return 0;
-            if (peer.parent)
-                if (auto* columns = dynamic_cast<MillerColumns*>(peer.parent->control.get());
-                    columns && columns->focus_pointer(control,
-                        {GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) return 0;
-            if (auto* columns = dynamic_cast<MillerColumns*>(&control)) {
-                const Point point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
-                const auto track = columns->horizontal_track(), thumb = columns->horizontal_thumb();
-                if (track.width > 0 && point.x >= 0 && point.x < track.width && point.y >= track.y &&
-                    point.y < track.y + track.height) {
-                    if (point.x >= thumb.x && point.x < thumb.x + thumb.width) {
-                        peer.dragging = true; peer.drag_y = point.x;
-                        peer.drag_offset = static_cast<float>(columns->horizontal_offset());
-                        SetCapture(hwnd);
-                        invalidate(Invalidation::paint);
-                    } else columns->scroll_horizontal((point.x < thumb.x ? -1 : 1) * columns->bounds().width * 0.9);
-                }
-                return 0;
-            }
-            if (auto* vector = dynamic_cast<VectorCanvas*>(&control)) {
-                SetFocus(hwnd);
-                const Point p{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi};
-                const auto area = vector->canvas_bounds();
-                if (p.x < area.x || p.y < area.y || p.x >= area.x + area.width || p.y >= area.y + area.height) return 0;
-                if (auto id = vector->hit_test(p)) { vector->select(*id); return 0; }
-                if (dynamic_cast<MapView*>(vector)) { peer.dragging = true; peer.drag_offset = p.x; peer.drag_y = p.y; SetCapture(hwnd); }
-                return 0;
-            }
-
-            if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
-                SetFocus(hwnd);
-                const auto index = choice_hit(*choices);
-                if (index && choices->items()[*index].enabled) {
-                    if (palette.style == VisualStyle::winui) {
-                        peer.hovered_choice = index;
-                        peer.pressed_choice = choices->items()[*index].id;
-                        SetCapture(hwnd);
-                        invalidate(Invalidation::paint);
-                        return 0;
-                    }
-                    choices->select(choices->items()[*index].id);
-                    if (window && control.role() == ControlRole::choice_list && visible(peer)) choices->accept();
-                }
-                return 0;
-            }
-            if (auto* range = dynamic_cast<RangeInput*>(&control)) {
-                SetFocus(hwnd); SetCapture(hwnd);
-                range->begin_drag(range_fraction(*range, lparam)); return 0;
-            }
-            if (auto* expander = dynamic_cast<Expander*>(&control);
-                expander && GET_Y_LPARAM(lparam) * 96.0f / dpi >= expander->effective_header_height()) return 0;
-
-            if (auto tabs = dynamic_cast<TabStrip*>(&control); tabs && enabled(peer)) {
-                keyboard_focus_visible = false;
-                invalidate(Invalidation::paint);
-                if (auto index = tabs->hit_test(Point{GET_X_LPARAM(lparam) * 96.0f / dpi, GET_Y_LPARAM(lparam) * 96.0f / dpi})) {
-                    const auto close = tabs->close_bounds(*index);
-                    const auto id = tabs->tabs()[*index].id;
-                    const float x = GET_X_LPARAM(lparam) * 96.0f / dpi, y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                    if (close.width > 0 && x >= close.x && x < close.x + close.width &&
-                        y >= close.y && y < close.y + close.height)
-                        tabs->request_close(id);
-                    else {
-                        tabs->activate_tab(id);
-                        if (!closing && tab_drag_handler && titlebar_strip(tabs) &&
-                            tabs->selected() == id && visible(peer) && enabled(peer)) {
-                            peer.pressed_tab = id;
-                            peer.tab_press = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-                            win32_require(ClientToScreen(hwnd, &peer.tab_press) != 0, "Locate tab press");
-                            SetCapture(hwnd);
-                        }
-                    }
-                }
-                return 0;
-            }
-            if (auto split = dynamic_cast<SplitView*>(&control); split && enabled(peer) && split->expanded()) {
-                const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
-                const float y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                const auto d = split->divider();
-                if (x >= d.x - split->bounds().x && x < d.x - split->bounds().x + d.width &&
-                    y >= d.y - split->bounds().y && y < d.y - split->bounds().y + d.height) {
-                    if (GetForegroundWindow() == window) SetFocus(hwnd);
-                    peer.dragging = true;
-                    split->set_style_dragging(true);
-                    peer.drag_offset = split->axis() == Axis::horizontal ?
-                        x - (d.x - split->bounds().x) : y - (d.y - split->bounds().y);
-                    SetCapture(hwnd);
-                }
-                return 0;
-            }
-            if (control.role() == ControlRole::scroll_view && control.enabled()) {
-                auto& scroll = static_cast<ScrollView&>(control);
-                SetFocus(hwnd);
-                const float y = GET_Y_LPARAM(lparam) * 96.0f / dpi;
-                const float x = GET_X_LPARAM(lparam) * 96.0f / dpi;
-                const auto thumb = scroll.thumb();
-                const auto track = scroll.scrollbar_track();
-                if (x >= track.x - scroll.bounds().x && x < track.x + track.width - scroll.bounds().x &&
-                    y >= track.y - scroll.bounds().y && y < track.y + track.height - scroll.bounds().y && thumb.height) {
-                    if (y >= thumb.y - scroll.bounds().y && y < thumb.y - scroll.bounds().y + thumb.height) {
-                        peer.dragging = true;
-                        scroll.set_style_dragging(true);
-                        peer.drag_y = y;
-                        peer.drag_offset = scroll.offset();
-                        SetCapture(hwnd);
-                    } else scroll.scroll_by(y < thumb.y - scroll.bounds().y ? -scroll.viewport().height : scroll.viewport().height);
-                    update();
-                }
-                return 0;
-            }
-            control.pointer_move(inside());
-            if (control.pointer_down()) {
-                if (peer.clear_owner.expired()) SetFocus(hwnd);
-                SetCapture(hwnd);
-                repeat_start(peer, true);
-            }
-            return 0;
-        case WM_LBUTTONUP:
-            if (peer.pressed_tab) {
-                peer.pressed_tab.reset();
-                if (GetCapture() == hwnd) ReleaseCapture();
-                return 0;
-            }
-
-            if (std::exchange(peer.suppress_popup_click, false)) return 0;
-            if (auto* choices = dynamic_cast<RadioGroup*>(&control); choices && peer.pressed_choice) {
-                const auto pressed = std::exchange(peer.pressed_choice, std::nullopt);
-                const auto hit = inside() ? choice_hit(*choices) : std::nullopt;
-                if (GetCapture() == hwnd) ReleaseCapture();
-                invalidate(Invalidation::paint);
-                if (enabled(peer) && hit && pressed == choices->items()[*hit].id && choices->items()[*hit].enabled) {
-                    choices->select(choices->items()[*hit].id);
-                    if (window && control.role() == ControlRole::choice_list && visible(peer)) choices->accept();
-                }
-                return 0;
-            }
-
-            if (auto* range = dynamic_cast<RangeInput*>(&control); range && range->dragging()) {
-                range->commit_drag();
-                if (GetCapture() == hwnd) ReleaseCapture();
-                return 0;
-            }
-            if (peer.repeat_cycle) {
-                KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false; control.cancel();
-                if (GetCapture() == hwnd) ReleaseCapture();
-                return 0;
-            }
-
-            peer.dragging = false;
-            if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
-            if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
-            if (is_caption_button(control)) control.pointer_move(inside());
-            activated(peer, control.pointer_up(inside()));
-            if (GetCapture() == hwnd) ReleaseCapture();
-            return 0;
-        case WM_LBUTTONDBLCLK:
-
-            return control_message(peer, hwnd, WM_LBUTTONDOWN, wparam, lparam);
-        case WM_CANCELMODE:
-            if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
-            if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
-
-            peer.pressed_choice.reset();
-
-            KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
-
-            peer.dragging = false;
-            if (auto* range = dynamic_cast<RangeInput*>(&control)) range->cancel_drag();
-            control.cancel();
-            if (GetCapture() == hwnd) ReleaseCapture();
-            return 0;
-        case WM_CAPTURECHANGED:
-            peer.pressed_tab.reset();
-            if (auto* split = dynamic_cast<SplitView*>(&control)) split->set_style_dragging(false);
-            if (auto* scroll = dynamic_cast<ScrollView*>(&control)) scroll->set_style_dragging(false);
-
-            peer.pressed_choice.reset();
-
-            KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false;
-            if (auto* range = dynamic_cast<RangeInput*>(&control)) range->cancel_drag();
-             peer.dragging = false; control.cancel(); invalidate(Invalidation::paint); return 0;
-        case WM_KEYDOWN:
-            if (!enabled(peer) || !visible(peer)) return 0;
-            if (menu_bar_key(peer, wparam, lparam)) return 0;
-            hide_tooltip();
-            if (auto* map = dynamic_cast<MapView*>(&control)) {
-                if (wparam == VK_LEFT || wparam == VK_RIGHT) { map->pan(wparam == VK_LEFT ? 32 : -32, 0); return 0; }
-                if (wparam == VK_UP || wparam == VK_DOWN) { map->pan(0, wparam == VK_UP ? 32 : -32); return 0; }
-                if (wparam == VK_ADD || wparam == VK_OEM_PLUS || wparam == VK_SUBTRACT || wparam == VK_OEM_MINUS) {
-                    const auto b = map->canvas_bounds();
-                    map->zoom_at(wparam == VK_ADD || wparam == VK_OEM_PLUS ? 1 : -1, {b.x + b.width / 2, b.y + b.height / 2}); return 0;
-                }
-                if (wparam == VK_HOME) { map->set_view({}, 1); return 0; }
-            }
-            if (peer.parent && (wparam == VK_LEFT || wparam == VK_RIGHT))
-                if (auto* breadcrumb = dynamic_cast<Breadcrumb*>(peer.parent->control.get())) {
-                    if (auto* next = breadcrumb->adjacent(control, wparam == VK_LEFT ? -1 : 1))
-                        if (auto* target = find_peer(next)) focus(*target, false);
-                    return 0;
-                }
-            if (wparam == VK_ESCAPE && !popups.empty()) {
-                auto popup = popups.back().popup; dismiss_popup(*popup, PopupDismissReason::cancel); return 0;
-            }
-            if (wparam == VK_ESCAPE && peer.adaptive && peer.adaptive->overlay_active()) {
-                peer.adaptive->set_navigation_open(false); return 0;
-            }
-
-            if (auto* range = dynamic_cast<RangeInput*>(&control)) {
-                if (wparam == VK_ESCAPE) { range->cancel_drag(); if (GetCapture() == hwnd) ReleaseCapture(); return 0; }
-                std::optional<RangeKey> range_key;
-                if (wparam == VK_HOME) range_key = RangeKey::minimum;
-                if (wparam == VK_END) range_key = RangeKey::maximum;
-                if (wparam == VK_PRIOR) range_key = RangeKey::page_increase;
-                if (wparam == VK_NEXT) range_key = RangeKey::page_decrease;
-                if (wparam == VK_LEFT || wparam == VK_DOWN) range_key = range->reversed() ? RangeKey::increase : RangeKey::decrease;
-                if (wparam == VK_RIGHT || wparam == VK_UP) range_key = range->reversed() ? RangeKey::decrease : RangeKey::increase;
-                if (range_key) { range->move(*range_key); return 0; }
-            }
-            if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
-                if (wparam == VK_UP || wparam == VK_LEFT || wparam == VK_DOWN || wparam == VK_RIGHT) {
-                    choices->step(wparam == VK_UP || wparam == VK_LEFT ? -1 : 1); return 0;
-                }
-                if (wparam == VK_HOME || wparam == VK_END) {
-                    const auto& items = choices->items();
-                    for (std::size_t i = 0; i < items.size(); ++i) {
-                        const auto& item = items[wparam == VK_HOME ? i : items.size() - i - 1];
-                        if (item.enabled) { choices->select(item.id); break; }
-                    }
-                    return 0;
-                }
-                if ((wparam == VK_RETURN || wparam == VK_SPACE) && !(lparam & (1LL << 30))) { choices->accept(); return 0; }
-            }
-            if (auto* number = dynamic_cast<NumericInput*>(&control); number && (wparam == VK_UP || wparam == VK_DOWN)) {
-                number->step(wparam == VK_UP ? 1 : -1); return 0;
-            }
-            if (dynamic_cast<ComboBox*>(&control) && (wparam == VK_F4 || wparam == VK_DOWN || wparam == VK_UP)) {
-                open_combo(peer); return 0;
-            }
-            if (auto* expander = dynamic_cast<Expander*>(&control); expander && (wparam == VK_LEFT || wparam == VK_RIGHT)) {
-                if (expander->expanded() != (wparam == VK_RIGHT)) control.invoke();
-                return 0;
-            }
-
-            if (auto tabs = dynamic_cast<TabStrip*>(&control); tabs && enabled(peer)) {
-                keyboard_focus_visible = true;
-                invalidate(Invalidation::paint);
-                if (wparam == VK_LEFT || wparam == VK_RIGHT) { tabs->step(wparam == VK_LEFT ? -1 : 1); return 0; }
-                if ((wparam == VK_RETURN || wparam == VK_SPACE) && !(lparam & (1LL << 30)) && tabs->selected()) {
-                    tabs->activate_tab(*tabs->selected()); return 0;
-                }
-                if (wparam == VK_DELETE && !(lparam & (1LL << 30)) && tabs->selected()) {
-                    tabs->request_close(*tabs->selected()); return 0;
-                }
-            }
-            if (auto split = dynamic_cast<SplitView*>(&control); split && enabled(peer) && split->divider().width > 0) {
-                const auto previous = split->axis() == Axis::horizontal ? VK_LEFT : VK_UP;
-                const auto next = split->axis() == Axis::horizontal ? VK_RIGHT : VK_DOWN;
-                if (wparam == previous || wparam == next) {
-                    split->set_ratio(split->ratio() + (wparam == previous ? -0.025f : 0.025f)); return 0;
-                }
-                if (wparam == VK_HOME) { split->set_ratio(0.5f); return 0; }
-            }
-            if (control.role() == ControlRole::scroll_view && scroll_key(peer, wparam)) return 0;
-            if (wparam == VK_ESCAPE) { control.cancel(); if (GetCapture() == hwnd) ReleaseCapture(); return 0; }
-            if (wparam == VK_SPACE || wparam == VK_RETURN) {
-                const auto accepted = control.key_down(wparam == VK_SPACE ? ActivationKey::space : ActivationKey::enter,
-                    (lparam & (1LL << 30)) != 0);
-                if (accepted && wparam == VK_SPACE) repeat_start(peer, true);
-                activated(peer, accepted && wparam == VK_RETURN);
-                return 0;
-            }
-            break;
-        case WM_KEYUP:
-            if (wparam == VK_SPACE && peer.repeat_cycle) {
-                KillTimer(hwnd, repeat_timer); peer.repeating = peer.repeat_cycle = false; control.cancel(); return 0;
-            }
-            if (wparam == VK_SPACE || wparam == VK_RETURN) {
-                activated(peer, control.key_up(wparam == VK_SPACE ? ActivationKey::space : ActivationKey::enter));
-                return 0;
-            }
-            break;
-        case WM_CHAR:
-            if (wparam >= 32 && wparam != 127) {
-                RadioGroup* choices = dynamic_cast<RadioGroup*>(&control);
-                auto* combo = dynamic_cast<ComboBox*>(&control);
-                if (combo) choices = combo->choices().get();
-                if (choices && enabled(peer)) {
-                    const auto now = GetTickCount64();
-                    if (now - peer.typeahead_time > 1000 || peer.typeahead.size() >= 128) peer.typeahead.clear();
-                    peer.typeahead_time = now; peer.typeahead += static_cast<wchar_t>(wparam);
-                    if (!choices->type_ahead(peer.typeahead)) {
-                        peer.typeahead.assign(1, static_cast<wchar_t>(wparam)); choices->type_ahead(peer.typeahead);
-                    }
-                    if (combo && choices->selected()) combo->select(*choices->selected());
-                    return 0;
-                }
-            }
-            if (wparam == VK_SPACE || wparam == VK_RETURN) return 0;
-            break;
-        case control_action_message:
-            if (wparam != control.id()) return UIA_E_ELEMENTNOTAVAILABLE;
-            if (lparam == 6) { reveal(peer); return S_OK; }
-            if (!enabled(peer) || !visible(peer)) return UIA_E_ELEMENTNOTENABLED;
-            if (lparam == 1) {
-                return focus(peer, true) ? S_OK : UIA_E_INVALIDOPERATION;
-            }
-            if (auto tabs = dynamic_cast<TabStrip*>(&control)) {
-                if (lparam >= 100) {
-                    const auto id = static_cast<std::uint64_t>(lparam - 100);
-                    if (!tabs->select(id)) return UIA_E_ELEMENTNOTAVAILABLE;
-                    update();
-                    return S_OK;
-                }
-                return UIA_E_INVALIDOPERATION;
-            }
-            if (auto* choices = dynamic_cast<RadioGroup*>(&control)) {
-                if (lparam < 100) return UIA_E_INVALIDOPERATION;
-                const auto id = static_cast<std::uint64_t>(lparam - 100);
-                const auto& items = choices->items();
-                const auto it = std::find_if(items.begin(), items.end(), [id](const auto& item) { return item.id == id; });
-                if (it == items.end()) return UIA_E_ELEMENTNOTAVAILABLE;
-                if (!it->enabled) return UIA_E_ELEMENTNOTENABLED;
-                choices->select(id); update(); return S_OK;
-            }
-            if (auto* combo = dynamic_cast<ComboBox*>(&control); combo && lparam >= 100) {
-                const auto id = static_cast<std::uint64_t>(lparam - 100);
-                const auto& items = combo->items();
-                const auto it = std::find_if(items.begin(), items.end(), [id](const auto& item) { return item.id == id; });
-                if (it == items.end()) return UIA_E_ELEMENTNOTAVAILABLE;
-                if (!it->enabled) return UIA_E_ELEMENTNOTENABLED;
-                combo->select(id); update(); return S_OK;
-            }
-            if (auto split = dynamic_cast<SplitView*>(&control)) {
-                if (!split->primary_visible()) return UIA_E_ELEMENTNOTAVAILABLE;
-                if (lparam < 1000 || lparam > 11000) return E_INVALIDARG;
-                split->set_ratio(static_cast<float>(lparam - 1000) / 10000);
-                update();
-                return S_OK;
-            }
-            if (auto* columns = dynamic_cast<MillerColumns*>(&control)) {
-                if (lparam >= 1000 && lparam <= 11000)
-                    columns->set_horizontal_offset(columns->maximum_horizontal() * (lparam - 1000) / 10000.0);
-                else if (lparam >= 2 && lparam <= 5)
-                    columns->scroll_horizontal((lparam % 2 ? 1 : -1) * (lparam < 4 ? 96 : columns->bounds().width * 0.9));
-                else return E_INVALIDARG;
-                update();
-                return S_OK;
-            }
-            if (control.role() == ControlRole::scroll_view) {
-                auto& scroll = static_cast<ScrollView&>(control);
-                if (lparam >= 1000 && lparam <= 11000) scroll.set_offset(scroll.maximum_offset() * (lparam - 1000) / 10000.0f);
-                else if (lparam >= 2 && lparam <= 5) scroll_key(peer, lparam == 2 ? VK_UP :
-                    lparam == 3 ? VK_DOWN : lparam == 4 ? VK_PRIOR : VK_NEXT);
-                else return UIA_E_INVALIDOPERATION;
-                update();
-                return S_OK;
-            }
-            if (!control.invoke()) return UIA_E_INVALIDOPERATION;
-            activated(peer, true);
-            return S_OK;
-        case foundation_action_message: {
-            if (wparam != control.id()) return UIA_E_ELEMENTNOTAVAILABLE;
-            FoundationAction action;
-            {
-                std::lock_guard lock(peer.accessibility->mutex);
-                const auto it = peer.accessibility->foundation_actions.find(static_cast<std::uint64_t>(lparam));
-                if (it == peer.accessibility->foundation_actions.end()) return UIA_E_ELEMENTNOTAVAILABLE;
-                action = std::move(it->second); peer.accessibility->foundation_actions.erase(it);
-            }
-            if (!enabled(peer) || !visible(peer)) return UIA_E_ELEMENTNOTENABLED;
-            if (auto* popup = dynamic_cast<Popup*>(&control); popup && popup->dialog_surface() && action.kind == FoundationAction::collapse) {
-                dismiss_popup(*popup, PopupDismissReason::cancel); return S_OK;
-            }
-            if (action.kind == FoundationAction::expand || action.kind == FoundationAction::collapse) {
-                const bool expand = action.kind == FoundationAction::expand;
-                if (auto* expander = dynamic_cast<Expander*>(&control)) {
-                    if (expander->expanded() != expand) expander->invoke();
-                } else if (auto* combo = dynamic_cast<ComboBox*>(&control)) {
-                    if (combo->popup()->is_open() != expand) open_combo(peer);
-                } else if (dynamic_cast<MenuBar::Heading*>(&control)) {
-                    if (!menu_bar_expand(peer, expand)) return UIA_E_INVALIDOPERATION;
-                } else return UIA_E_INVALIDOPERATION;
-            } else if (auto* number = dynamic_cast<NumericInput*>(&control)) {
-                if (action.kind == FoundationAction::text) {
-                    if (!number->commit_text(action.string)) { update(); return E_INVALIDARG; }
-                } else {
-                    if (!std::isfinite(action.number) || action.number < number->range().minimum || action.number > number->range().maximum) return E_INVALIDARG;
-                    number->change_value(action.number);
-                }
-            } else if (auto* range = dynamic_cast<RangeInput*>(&control); range && action.kind == FoundationAction::value) {
-                if (!std::isfinite(action.number) || action.number < range->range().minimum || action.number > range->range().maximum) return E_INVALIDARG;
-                range->change_value(action.number);
-            } else return UIA_E_INVALIDOPERATION;
-            update(); return S_OK;
-        }
-
-        case grid_action_message: return UIA_E_INVALIDOPERATION;
-        case WM_NCDESTROY:
-
-            peer.runtime.reset();
-            peer.swap_chain.reset();
-            control.cancel();
-            control.set_focused(false);
-            disconnect_control(peer.accessibility, peer.provider);
-            UiaReturnRawElementProvider(hwnd, 0, 0, nullptr);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-            peer.window = nullptr;
-            break;
         }
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
@@ -5400,7 +3370,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
                 cancel_input();
                 if (!popups.empty()) { auto popup = popups.front().popup; dismiss_popup(*popup, PopupDismissReason::hidden, false); }
             }
-            for (const auto& peer : peers) if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            for (const auto& peer : peers) if (text_input_peer(*peer)) text_input_peer(*peer)->dismiss_suggestions();
             for (auto& task : samples) task->suspend(wparam == SIZE_MINIMIZED);
             if (wparam == SIZE_MINIMIZED) for (const auto& peer : peers) {
                 if (peer->runtime_host()) peer->runtime_host()->suspend();
@@ -5438,7 +3408,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         case WM_MOVE:
             hide_tooltip();
             if (!popups.empty()) invalidate(Invalidation::layout);
-            for (const auto& peer : peers) if (peer->edit_bridge()) peer->edit_bridge()->dismiss_suggestions();
+            for (const auto& peer : peers) if (text_input_peer(*peer)) text_input_peer(*peer)->dismiss_suggestions();
             for (const auto& peer : peers) peer->native_moved();
             return 0;
         case update_message: if (pending) update(); return 0;
@@ -5472,25 +3442,15 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             auto native_ink = IsWindowEnabled(reinterpret_cast<HWND>(lparam)) ? palette.text : palette.disabled;
             bool styled_field{};
             for (const auto& peer : peers) {
+                const auto* native = peer->native_field();
+                if (!native) continue;
                 const bool caption = peer->caption_window() == reinterpret_cast<HWND>(lparam);
-                if (!caption && (!peer->native() || peer->window != reinterpret_cast<HWND>(lparam))) continue;
-                on_surface = peer->surface;
-                const auto* text_style = peer->control->effective_control_style_values(caption ? StylePart::header : StylePart::text);
-                if (!caption && peer->edit_bridge()) native_ink = input_ink(*peer);
-                else if (text_style && text_style->foreground && !palette.high_contrast)
-                    native_ink = D2D1::ColorF(text_style->foreground->resolve(palette.mode));
-                if (!caption) {
-                    if (peer->edit_bridge()) editable_fill = input_fill(*peer);
-                    else {
-                        const auto* root_style = peer->control->effective_control_style_values(StylePart::root);
-                        if (root_style && root_style->background && !palette.high_contrast)
-                            editable_fill = D2D1::ColorF(root_style->background->resolve(palette.mode));
-                    }
-                    styled_field = peer->control->has_control_styling();
-                    if (peer->edit_bridge() && peer->parent &&
-                        (peer->parent->control->role() == ControlRole::numeric_input || peer->parent->control->role() == ControlRole::combo_box))
-                        styled_field = styled_field || peer->parent->control->has_control_styling();
-                }
+                if (!caption && peer->window != reinterpret_cast<HWND>(lparam)) continue;
+                const auto colors = native->native_colors(caption, palette);
+                on_surface = colors.surface;
+                native_ink = colors.ink;
+                editable_fill = colors.fill;
+                styled_field = colors.styled;
                 break;
             }
             SetTextColor(dc, platform::native_color(native_ink));
@@ -5508,22 +3468,19 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         case WM_NOTIFY: {
             const auto* notification = reinterpret_cast<const NMHDR*>(lparam);
             if (notification) for (const auto& peer : peers)
-                if (peer->document_bridge() && peer->window == notification->hwndFrom) return enabled(*peer) ? peer->document_bridge()->notify(*notification) : 0;
+                if (auto* field = peer->native_field(); field && peer->window == notification->hwndFrom)
+                    return enabled(*peer) ? field->native_notify(*notification) : 0;
             break;
         }
         case WM_COMMAND:
-            for (const auto& peer : peers) if (peer->document_bridge() && peer->window == reinterpret_cast<HWND>(lparam)) {
-                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer)) peer->document_bridge()->changed();
-                return 0;
-            }
-            for (const auto& peer : peers) if (peer->edit_bridge() && peer->window == reinterpret_cast<HWND>(lparam)) {
-                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer) && !peer->edit_bridge()->composing()) {
-                    static_cast<TextInput&>(*peer->control).commit_text(peer->edit_bridge()->text());
-                    peer->edit_bridge()->text_changed();
+            for (const auto& peer : peers) if (auto* field = peer->native_field();
+                field && peer->window == reinterpret_cast<HWND>(lparam)) {
+                if (HIWORD(wparam) == EN_CHANGE && enabled(*peer)) field->native_change();
+                if (field->text_input()) {
+                    if (HIWORD(wparam) == EN_SETFOCUS || HIWORD(wparam) == EN_KILLFOCUS)
+                        peer->control->set_focused(HIWORD(wparam) == EN_SETFOCUS);
+                    if (HIWORD(wparam) == EN_SETFOCUS) { last_focus = peer->window; reveal(*peer); }
                 }
-                if (HIWORD(wparam) == EN_SETFOCUS || HIWORD(wparam) == EN_KILLFOCUS)
-                    peer->control->set_focused(HIWORD(wparam) == EN_SETFOCUS);
-                if (HIWORD(wparam) == EN_SETFOCUS) { last_focus = peer->window; reveal(*peer); }
                 return 0;
             }
             break;
@@ -5601,7 +3558,7 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
             if (wparam == 12) return static_cast<LRESULT>(Drawing::created_text_layouts());
             if (wparam == 13) {
                 size_t count{};
-                for (const auto& peer : peers) if (const auto* state = unextracted_if(*peer); state && state->text_layout) ++count;
+                for (const auto& peer : peers) if (const auto* state = basic_peer(*peer); state && state->text_layout) ++count;
                 return static_cast<LRESULT>(count);
             }
             if (wparam == 0) {
@@ -5655,28 +3612,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, PeerHostServic
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
 };
-
-void Window::Impl::UnextractedPeer::attach(HWND parent, int id) { owner(*this).attach_unextracted(*this, parent, id); }
-void Window::Impl::UnextractedPeer::paint(const HostPaintContext& context) {
-    owner(*this).paint_unextracted(*this, context.focus_visible);
-}
-bool Window::Impl::UnextractedPeer::image_work(RowImageWork& work) {
-    const auto* tabs = dynamic_cast<TabStrip*>(control.get());
-    if (!tabs) return false;
-    if (!row_images) row_images = std::make_unique<RowImages>();
-    auto rect = work.clip;
-    rect.x -= tabs->bounds().x; rect.y -= tabs->bounds().y;
-    if (work.shown) for (std::size_t i = 0; i < tabs->tabs().size(); ++i) {
-        const auto b = tabs->tab_bounds(i);
-        if (b.width <= 0 || b.height <= 0 || b.x + b.width <= rect.x || b.x >= rect.x + rect.width ||
-            b.y + b.height <= rect.y || b.y >= rect.y + rect.height) continue;
-        const auto& tab = tabs->tabs()[i];
-        work.rows.push_back({{tab.id, 0}, {tab.icon, tab.image_path}});
-        if (work.rows.size() == RowImages::maximum_rows) break;
-    }
-    work.clip = rect; work.tabs = true;
-    return true;
-}
 
 Window::Window(WindowOptions options) : impl_(std::make_shared<Impl>(std::move(options))) { impl_->public_window = this; }
 Window::~Window() { impl_->public_window = nullptr; impl_->teardown(); }
@@ -6054,7 +3989,7 @@ bool Window::focus(Control& control, bool select_all) {
     // InputScope retains the peer itself across those synchronous updates.
     auto* peer = impl->find_peer(&control);
     if (!peer || !impl->focus(*peer, false)) return false;
-    if (peer->edit_bridge() && select_all) SendMessageW(peer->window, EM_SETSEL, 0, -1);
+    if (Impl::text_input_peer(*peer) && select_all) SendMessageW(peer->window, EM_SETSEL, 0, -1);
     return true;
 }
 void Window::show_popup(std::shared_ptr<Popup> popup, Control& anchor, Control* initial) {

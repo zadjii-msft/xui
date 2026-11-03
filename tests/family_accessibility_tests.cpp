@@ -53,7 +53,8 @@ public:
 };
 void role_capabilities() {
     for (const auto role : {ControlRole::file_list, ControlRole::data_grid, ControlRole::items_view,
-        ControlRole::tree_view, ControlRole::command_menu}) {
+        ControlRole::tree_view, ControlRole::command_menu, ControlRole::text_input,
+        ControlRole::document_text, ControlRole::password_input, ControlRole::date_time}) {
         Window window;
         auto host = std::make_shared<ContentHost>();
         window.set_content(host);

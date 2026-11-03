@@ -8,6 +8,11 @@ callback redesign, metadata generation or stage-7 foundational list move is incl
 
 ## Base and ownership
 
+Stage 3a was independently accepted at
+`b655d0aa2564b58c4420917a6c8781a048ee7b04` and squash-merged as
+`9e6673cffbb2f4fb320da652937729f1b7a03099` in #60. That merged revision is
+the immediate baseline for 3b; it does not resolve the historical limitations below.
+
 The immediate pre-3a baseline is verified merged stage 2,
 `a3f112c9293d41998276f3e97e03e6f1f4b1ffd2` (#59 accepted
 `38f377f4cea2e4632421c4871616dd54501045b4`), not original `99016573`.

@@ -46,7 +46,8 @@ try {
             'xui_performance_tests', 'xui_collections_tests', 'xui_document_editing_tests',
             'xui_abi_tests', 'xui_abi_c_test', 'xui_abi_features_headless_tests', 'xui_control_style_catalog_parity',
             'xui_row_image_performance_tests', 'xui_syntax_highlighting_tests',
-            'xui_family_accessibility_tests', 'xui_family_accessibility_retirement_tests')) {
+            'xui_family_accessibility_tests', 'xui_family_accessibility_retirement_tests',
+            'xui_native_field_accessibility_tests', 'xui_control_host_tests')) {
             if ($required -notin $names) { throw "Required CTest is missing: $required" }
         }
         foreach ($test in $tests) {
@@ -55,7 +56,7 @@ try {
                 throw "Unexpected test registration with desktop tests OFF: $($test.name)"
             }
         }
-        foreach ($label in @{ headless = 49; core = 37; abi = 4; syntax = 2; schema = 1; allocation = 1; model = 2; lifetime = 2 }.GetEnumerator()) {
+        foreach ($label in @{ headless = 51; core = 37; abi = 4; syntax = 2; schema = 1; allocation = 1; model = 2; lifetime = 4 }.GetEnumerator()) {
             $selected = @($tests | Where-Object {
                 $label.Key -in @($_.properties | Where-Object name -eq 'LABELS' | ForEach-Object { $_.value })
             })

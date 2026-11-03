@@ -1,4 +1,5 @@
 #include "native_document.hpp"
+#include "native_field_support.hpp"
 #include "platform.hpp"
 #include "drawing.hpp"
 #include "window_host.hpp"
@@ -13,23 +14,6 @@
 
 namespace xui {
 namespace {
-SYSTEMTIME native_date(DateTimeValue value) {
-    SYSTEMTIME result{}; result.wYear = static_cast<WORD>(value.year); result.wMonth = static_cast<WORD>(value.month);
-    result.wDay = static_cast<WORD>(value.day); result.wHour = static_cast<WORD>(value.hour);
-    result.wMinute = static_cast<WORD>(value.minute); result.wSecond = static_cast<WORD>(value.second); return result;
-}
-DateTimeValue date_value(const SYSTEMTIME& value) {
-    return {value.wYear, value.wMonth, value.wDay, value.wHour, value.wMinute, value.wSecond};
-}
-bool complete_utf16(std::wstring_view text) {
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        const auto value = static_cast<unsigned>(text[i]);
-        if (value >= 0xd800 && value <= 0xdbff) {
-            if (++i == text.size() || text[i] < 0xdc00 || text[i] > 0xdfff) return false;
-        } else if (value >= 0xdc00 && value <= 0xdfff) return false;
-    }
-    return true;
-}
 struct DocumentPresentation {
     HWND window;
     Microsoft::WRL::ComPtr<ITextDocument> document;
@@ -142,38 +126,29 @@ private:
     ULONG refs_{1};
 };
 }
-NativeDocumentBridge::NativeDocumentBridge(std::shared_ptr<Control> model) : model_(std::move(model)) {}
+NativeDocumentBridge::NativeDocumentBridge(std::shared_ptr<DocumentText> model) : model_(std::move(model)) {
+    if (!model_) throw std::invalid_argument("A native document requires DocumentText");
+}
 NativeDocumentBridge::~NativeDocumentBridge() {
-    if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
-        document->bind_commands({});
-        document->bind_range_replacement({});
-    }
+    model_->bind_commands({});
+    model_->bind_range_replacement({});
     if (window_ && IsWindow(window_)) DestroyWindow(window_);
     if (font_) DeleteObject(font_);
     if (line_number_font_) DeleteObject(line_number_font_);
 }
 void NativeDocumentBridge::attach(HWND parent, int id) {
-    DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP;
-    const wchar_t* cls{};
-    if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
-        // The OS owns this module for the process lifetime. No per-document module reference.
-        static HMODULE rich = LoadLibraryExW(L"Msftedit.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        win32_require(rich != nullptr, "Load Windows RichEdit");
-        cls = MSFTEDIT_CLASS; style |= ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL;
-    } else if (std::dynamic_pointer_cast<PasswordInput>(model_)) {
-        cls = L"EDIT"; style |= ES_PASSWORD | ES_AUTOHSCROLL;
-    } else if (auto date = std::dynamic_pointer_cast<DateTimePicker>(model_)) {
-        INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_DATE_CLASSES};
-        win32_require(InitCommonControlsEx(&controls) != FALSE, "Initialize date controls");
-        cls = date->presentation() == DateTimePresentation::calendar ? MONTHCAL_CLASSW : DATETIMEPICK_CLASSW;
-        if (date->presentation() != DateTimePresentation::calendar)
-            style |= date->presentation() == DateTimePresentation::time ? DTS_TIMEFORMAT : DTS_SHORTDATEFORMAT;
-    } else throw std::invalid_argument("Unsupported native document control");
-    window_ = CreateWindowExW(0, cls, L"", style, 0, 0, 1, 1, parent,
+    if (window_) throw std::logic_error("Native document already attached");
+    // The OS owns this module for the process lifetime. No per-document module reference.
+    static HMODULE rich = LoadLibraryExW(L"Msftedit.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    win32_require(rich != nullptr, "Load Windows RichEdit");
+    const DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP |
+        ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL;
+    window_ = CreateWindowExW(0, MSFTEDIT_CLASS, L"", style, 0, 0, 1, 1, parent,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
     win32_require(window_ != nullptr, "Create native document control");
     win32_require(SetWindowSubclass(window_, subclass, 1, reinterpret_cast<DWORD_PTR>(this)) != FALSE, "Attach document adapter");
-    if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
+    {
+        const auto& document = model_;
         win32_require(SendMessageW(window_, EM_SETTEXTMODE, TM_RICHTEXT, 0) == 0, "Set native document presentation mode");
         SendMessageW(window_, EM_SETUNDOLIMIT, 16, 0);
         SendMessageW(window_, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SELCHANGE | ENM_LINK);
@@ -189,20 +164,15 @@ void NativeDocumentBridge::attach(HWND parent, int id) {
     }
 }
 std::wstring NativeDocumentBridge::text() const {
-    if (std::dynamic_pointer_cast<DocumentText>(model_)) {
-        GETTEXTLENGTHEX length_request{GTL_PRECISE | GTL_NUMCHARS, 1200};
-        const auto length = SendMessageW(window_, EM_GETTEXTLENGTHEX, reinterpret_cast<WPARAM>(&length_request), 0);
-        if (length < 0 || static_cast<std::size_t>(length) > DocumentText::document_limit) throw std::length_error("Native document exceeds its limit");
-        std::wstring value(static_cast<std::size_t>(length) + 1, L'\0');
-        GETTEXTEX request{static_cast<DWORD>(value.size() * sizeof(wchar_t)), GT_DEFAULT, 1200, nullptr, nullptr};
-        value.resize(static_cast<std::size_t>(SendMessageW(window_, EM_GETTEXTEX, reinterpret_cast<WPARAM>(&request), reinterpret_cast<LPARAM>(value.data()))));
-        return value;
-    }
-    const auto length = GetWindowTextLengthW(window_);
+    GETTEXTLENGTHEX length_request{GTL_PRECISE | GTL_NUMCHARS, 1200};
+    const auto length = SendMessageW(window_, EM_GETTEXTLENGTHEX, reinterpret_cast<WPARAM>(&length_request), 0);
     if (length < 0 || static_cast<std::size_t>(length) > DocumentText::document_limit)
         throw std::length_error("Native document exceeds its limit");
     std::wstring value(static_cast<std::size_t>(length) + 1, L'\0');
-    value.resize(GetWindowTextW(window_, value.data(), length + 1)); return value;
+    GETTEXTEX request{static_cast<DWORD>(value.size() * sizeof(wchar_t)), GT_DEFAULT, 1200, nullptr, nullptr};
+    value.resize(static_cast<std::size_t>(SendMessageW(window_, EM_GETTEXTEX,
+        reinterpret_cast<WPARAM>(&request), reinterpret_cast<LPARAM>(value.data()))));
+    return value;
 }
 void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
     if (!window_) return;
@@ -210,18 +180,14 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
     const auto* text_style = model_->effective_control_style_values(StylePart::text);
     const auto* root_style = model_->effective_control_style_values(StylePart::root);
     if (dpi_ != dpi && !composing_) {
-        if (font_ && std::dynamic_pointer_cast<DocumentText>(model_)) {
+        if (font_) {
             CHARFORMAT2W format{sizeof(format)};
             format.dwMask = CFM_SIZE;
             format.yHeight = MulDiv(210, static_cast<int>(dpi), static_cast<int>(GetDpiForWindow(window_)));
-            document_defaults(window_, format, !std::static_pointer_cast<DocumentText>(model_)->rich());
+            document_defaults(window_, format, !model_->rich());
             document_font_set_ = false;
         } else {
-        auto font = CreateFontW(-MulDiv(14, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-        win32_require(font != nullptr, "Create native document font");
-        SendMessageW(window_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        if (font_) DeleteObject(font_); font_ = font;
+            update_native_field_font(window_, font_, dpi_, dpi);
         }
         dpi_ = dpi;
     }
@@ -235,7 +201,8 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
     const bool recolor = !colors_set_ || text_color_ != text_color || background_ != background;
     text_color_ = text_color; background_ = background; colors_set_ = true;
     struct Setting { bool& value; Setting(bool& v) : value(v) { value = true; } ~Setting() { value = false; } } setting(setting_);
-    if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
+    {
+        const auto& document = model_;
         const bool dark_scrollbar = palette.mode == ThemeMode::dark && !palette.high_contrast;
         if (!composing_ && (!scrollbar_theme_set_ || dark_scrollbar_ != dark_scrollbar)) {
             hr_require(SetWindowTheme(window_, dark_scrollbar ? L"DarkMode_Explorer" : nullptr, nullptr),
@@ -346,25 +313,6 @@ void NativeDocumentBridge::update(UINT dpi, const Palette& palette) {
             }
             if (!composing_) update_line_numbers(document->text());
         }
-    } else if (auto password = std::dynamic_pointer_cast<PasswordInput>(model_)) {
-        if (recolor) win32_require(InvalidateRect(window_, nullptr, FALSE) != 0, "Refresh native password colors");
-        if (!composing_) styled_font_.update(window_, text_style, dpi, font_, L"Segoe UI", 14.0f);
-        if (maximum_ != password->maximum_length()) {
-            maximum_ = password->maximum_length(); SendMessageW(window_, EM_SETLIMITTEXT, maximum_, 0);
-        }
-        if (!composing_ && revision_ != password->revision()) {
-            revision_ = password->revision();
-            password->with_password([&](std::wstring_view value) { SetWindowTextW(window_, value.data()); });
-        }
-        // The editor always stays masked. Explicit reveal is a separate retained
-        // preview, so native Value/Text providers never gain access to plaintext.
-    } else if (auto date = std::dynamic_pointer_cast<DateTimePicker>(model_)) {
-        styled_font_.update(window_, text_style, dpi, font_, L"Segoe UI", 14.0f);
-        if (revision_ == date->revision()) return;
-        revision_ = date->revision(); SYSTEMTIME range[]{native_date(date->minimum()), native_date(date->maximum())};
-        auto value = native_date(date->value()); const bool calendar = date->presentation() == DateTimePresentation::calendar;
-        SendMessageW(window_, calendar ? MCM_SETRANGE : DTM_SETRANGE, GDTR_MIN | GDTR_MAX, reinterpret_cast<LPARAM>(range));
-        SendMessageW(window_, calendar ? MCM_SETCURSEL : DTM_SETSYSTEMTIME, calendar ? 0 : GDT_VALID, reinterpret_cast<LPARAM>(&value));
     }
 }
 void NativeDocumentBridge::invalidate_line_numbers() {
@@ -481,28 +429,19 @@ void NativeDocumentBridge::paint_document() {
 }
 void NativeDocumentBridge::changed() {
     if (setting_ || composing_) return;
-    if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
-        auto value = text();
-        // WM_CHAR can deliver a surrogate pair in two notifications. Publish only
-        // complete text, without treating the first half as an application error.
-        if (complete_utf16(value)) {
-            update_line_numbers(value);
-            document->commit_text(std::move(value));
-        }
-    }
-    else if (auto password = std::dynamic_pointer_cast<PasswordInput>(model_)) {
-        auto value = text();
-        if (!complete_utf16(value)) {
-            volatile wchar_t* data = value.data();
-            for (std::size_t i = 0; i < value.size(); ++i) data[i] = 0;
-            return;
-        }
-        password->commit_password(std::move(value)); revision_ = password->revision();
+    auto value = text();
+    // WM_CHAR can deliver a surrogate pair in two notifications. Publish only
+    // complete text, without treating the first half as an application error.
+    if (complete_native_utf16(value)) {
+        update_line_numbers(value);
+        const auto document = model_;
+        document->commit_text(std::move(value));
     }
 }
 LRESULT NativeDocumentBridge::notify(const NMHDR& notification) {
     if (setting_) return 0;
-    if (auto document = std::dynamic_pointer_cast<DocumentText>(model_)) {
+    {
+        const auto document = model_;
         if (notification.code == EN_SELCHANGE) {
             const auto& selected = reinterpret_cast<const SELCHANGE&>(notification);
             document->commit_selection({static_cast<std::size_t>(std::max(0L, selected.chrg.cpMin)),
@@ -511,30 +450,11 @@ LRESULT NativeDocumentBridge::notify(const NMHDR& notification) {
             const auto& link = reinterpret_cast<const ENLINK&>(notification);
             if (link.msg == WM_LBUTTONUP) document->activate_link(static_cast<std::size_t>(link.chrg.cpMin));
         }
-    } else if (auto date = std::dynamic_pointer_cast<DateTimePicker>(model_)) {
-        SYSTEMTIME value{}; bool changed{};
-        if (notification.code == DTN_DATETIMECHANGE) {
-            const auto& change = reinterpret_cast<const NMDATETIMECHANGE&>(notification);
-            value = change.st; changed = change.dwFlags == GDT_VALID;
-        } else if (notification.code == MCN_SELCHANGE) {
-            value = reinterpret_cast<const NMSELCHANGE&>(notification).stSelStart; changed = true;
-        }
-        if (changed) {
-            auto next = date_value(value); const auto before = date->value();
-            if (date->presentation() == DateTimePresentation::time) {
-                next.year = before.year; next.month = before.month; next.day = before.day;
-            } else { next.hour = before.hour; next.minute = before.minute; next.second = before.second; }
-            if (next < date->minimum() || next > date->maximum()) {
-                revision_ = 0; model_->invalidate(Invalidation::paint);
-            } else {
-                date->change_value(next); revision_ = date->revision();
-            }
-        }
     }
     return 0;
 }
 bool NativeDocumentBridge::command(TextCommand value) {
-    auto document = std::dynamic_pointer_cast<DocumentText>(model_);
+    const auto document = model_;
     if (!document || !window_ || !IsWindowVisible(window_) || !IsWindowEnabled(window_) || composing_) return false;
     update(dpi_, palette_);
     if (document->read_only() && (value == TextCommand::undo || value == TextCommand::redo || value == TextCommand::cut || value == TextCommand::paste))
@@ -550,7 +470,7 @@ bool NativeDocumentBridge::command(TextCommand value) {
     return false;
 }
 TextSelection NativeDocumentBridge::replace_range(TextSelection range, const std::wstring& expected, const std::wstring& replacement) {
-    const auto document = std::dynamic_pointer_cast<DocumentText>(model_);
+    const auto document = model_;
     if (!document || !window_ || GetWindowThreadProcessId(window_, nullptr) != GetCurrentThreadId() ||
         !IsWindowVisible(window_) || composing_ || setting_ ||
         document->read_only() || (GetWindowLongPtrW(window_, GWL_STYLE) & ES_READONLY))
@@ -606,16 +526,8 @@ LRESULT CALLBACK NativeDocumentBridge::subclass(HWND hwnd, UINT message, WPARAM 
             return result;
         }
         if (message == WM_DROPFILES) return 0;
-        if (message == WM_PRINTCLIENT && std::dynamic_pointer_cast<DateTimePicker>(self.model_)) {
-            // Common controls do not paint unused calendar margins for WM_PRINTCLIENT.
-            // Initialize their native background before the shared bitmap is composed.
-            RECT bounds{}; GetClientRect(hwnd, &bounds);
-            FillRect(reinterpret_cast<HDC>(wp), &bounds, GetSysColorBrush(COLOR_WINDOW));
-        }
-        if (auto password = std::dynamic_pointer_cast<PasswordInput>(self.model_)) {
-            if (message == WM_COPY || message == WM_CUT || message == WM_CONTEXTMENU) return 0;
-            if (message == WM_KILLFOCUS || message == WM_CANCELMODE || (message == WM_SHOWWINDOW && !wp)) password->set_revealed(false);
-        } else if (auto document = std::dynamic_pointer_cast<DocumentText>(self.model_)) {
+        {
+            const auto document = self.model_;
             if (message == WM_PASTE) {
                 if (document->read_only()) return 0;
                 return SendMessageW(hwnd, EM_PASTESPECIAL, CF_UNICODETEXT, 0);
@@ -626,10 +538,8 @@ LRESULT CALLBACK NativeDocumentBridge::subclass(HWND hwnd, UINT message, WPARAM 
         }
         if (message == WM_NCDESTROY) {
             RemoveWindowSubclass(hwnd, subclass, id); self.window_ = nullptr;
-            if (auto document = std::dynamic_pointer_cast<DocumentText>(self.model_)) {
-                document->bind_commands({});
-                document->bind_range_replacement({});
-            }
+            self.model_->bind_commands({});
+            self.model_->bind_range_replacement({});
         }
         const bool scrolling = self.line_number_width_ && (message == WM_VSCROLL || message == WM_MOUSEWHEEL ||
             message == EM_LINESCROLL || message == EM_SCROLL || message == EM_SETSCROLLPOS ||

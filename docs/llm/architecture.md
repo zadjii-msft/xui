@@ -91,7 +91,7 @@ The family translation units do not receive or include `Window::Impl`.
 | `src\grid_host.hpp/.cpp` | Grid gesture/header/resize/reorder/file-press/OLE target/wheel and lazy row-image state; attachment, grid painting/input, publication and retirement. The OLE owner lease aliases the existing window control block through restricted services. |
 | `src\file_list_host.hpp/.cpp` | Embeds the existing ListPeer without an extra adapter allocation or redundant generic UIA state; owns its Window lifecycle/theme/placement/thumbnail/shared-frame integration. |
 | `src\collection_accessibility.hpp/.cpp`, `src\grid_accessibility.hpp/.cpp` | Concrete immutable collection/grid snapshots, independently retained provider state and bounded value-only action mailboxes (32/64). `src\host_accessibility.hpp` shares identity and locked swap/disconnect mechanics, not family payload storage. |
-| Private `Window::Impl::UnextractedPeer` | Only remaining editor/document/image/runtime/basic/navigation/composite payloads. Collection/grid/list gesture, wheel and accessibility payloads are physically absent. The [finite stage-3 ledger](architecture-review-2026-10-21.md#finite-stage-3-family-ledger) assigns the remainder. |
+| `src\control_host`, `basic_host`, `scene_host`, `navigation_host`, `composite_host` | Concrete remaining families own their attachment, paint/input, measurement, cancellation and native state. `UnextractedPeer` is eliminated. See the [completed source map and evidence limits](stage3-host-boundaries.md). |
 
 Window-wide focus/modal/popup coordination, exception/dispatch lifetime barriers,
 whole-window close, topology/borrowed-child traversal, shared Drawing, clipping and
@@ -111,7 +111,42 @@ use sources outside locks. Replaced/disconnected snapshots and queued actions re
 outside the state mutex; retained children become unavailable after disconnection rather
 than retaining live controls. ListPeer likewise moves its old view out before disposal.
 The [3a companion](stage3a-collection-host.md) records storage, matched-source evidence
-and unresolved native/performance limits. This pilot does not complete finding 1.
+and unresolved native/performance limits. The later consolidated phase-3 extraction
+completes the family partition, not those unresolved acceptance criteria.
+
+### Native editor host boundary
+
+`src\native_field_host.hpp/.cpp` supplies only shared native override identity,
+clipping, field-frame/placement primitives and the closed `NativeFieldServices` seam.
+`src\text_input_host.hpp/.cpp` owns the real `NativeEditBridge`, caption HWND/state,
+optional clear adornment and its dedicated `TextClearHostPeer`, native presentation,
+notifications and suggestion integration. `src\document_host.hpp/.cpp` owns
+`NativeDocumentBridge`, narrowed to the meaningful `DocumentText` capability shared
+by MultilineText and RichText. Password and date/time/calendar each have concrete
+host/bridge translation units (`password_host`, `native_password`, `date_time_host`,
+`native_date_time`), without document TOM/syntax/range-command payload.
+
+`src\native_field_accessibility.hpp/.cpp` retains independent identity/metadata state,
+not live controls or Window. Queries copy only the requested metadata under the
+mutex; native/COM operations occur outside it. RichEdit delegates Text/Text2 to its
+OS provider. Password value queries remain denied/empty. Clear retains its Pane-root/
+semantic-Button tree, runtime identity and identity-checked Invoke/ScrollItem actions.
+Native resources retire before provider release and runtime termination; bridge
+lifetime tokens protect post-callback revision writes.
+
+Window retains topology, shared Drawing/frame/capture/placement batching, native
+navigation interception, focus/modal/popup policy, scheduling and exception/InputScope/
+dispatch/close barriers. A phase-local embedding descriptor preserves NumericInput/
+ComboBox field presentation. Their enclosing input/choice behavior now belongs to
+`BasicHostPeer`; native numeric select-all remains at the shared native dispatch barrier.
+Native EDIT/RichEdit still owns
+text, composition, selection, caret, undo and clipboard behavior. Scroll-only updates
+bypass unchanged editor writes. In particular, idle clear `WM_CANCELMODE` does not
+manufacture repaint work; `WM_CAPTURECHANGED` retains its explicit repaint.
+
+The [consolidated phase-3 source map](stage3-host-boundaries.md) records the remaining
+family owners and all prior acceptance limitations.
+Stage 4 is deferred; implementation and PR submission do not waive acceptance limits.
 
 `src\list_peer.cpp` supplies list drawing, pointer input, keyboard navigation, scrolling, and the adapter for existing list providers.
 `src\accessibility.cpp` remains the single implementation of the virtual-list providers.
