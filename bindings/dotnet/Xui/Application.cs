@@ -127,13 +127,13 @@ public sealed unsafe partial class Window
         return this;
     }
     internal Application? Application { get; }
-    private GCHandle closedRoot;
+    private CallbackLifetime.Registration? closedRoot;
     public event Action<WindowClosedEventArgs>? Closed;
     public WindowState State { get { Guard(); Check(Native.WindowState(Handle, out uint state)); return (WindowState)state; } }
     private void InitializeClosed()
     {
-        closedRoot = GCHandle.Alloc(this, GCHandleType.Weak);
-        Check(Native.WindowClosed(Handle, &ClosedTrampoline, GCHandle.ToIntPtr(closedRoot)));
+        closedRoot = callbackLifetime.Register(this, static window => { window.closedRoot = null; window.Closed = null; });
+        Check(Native.WindowClosed(Handle, &ClosedTrampoline, closedRoot!.Context));
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int ClosedTrampoline(nint context, Native.Event* value)
@@ -143,6 +143,8 @@ public sealed unsafe partial class Window
         {
             window = GCHandle.FromIntPtr(context).Target as Window;
             if (window is null) return 8;
+            using var dispatch = window.closedRoot?.Enter() ?? default;
+            if (!dispatch.Active) return 0;
             ++window.callbacks;
             try
             {

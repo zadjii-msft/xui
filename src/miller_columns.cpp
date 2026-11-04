@@ -33,7 +33,6 @@ bool valid_item(const std::shared_ptr<const ItemsSource>& source, ItemKey key) {
 MillerColumnList::MillerColumnList(MillerColumns& owner, std::size_t index) :
     VirtualCollection(ControlRole::items_view, L"Column items"), owner_(&owner), index_(index) {
     set_item_size({240, 40});
-    on_activate([this](ItemKey key) { if (owner_) owner_->activate_item(index_, key); });
 }
 bool MillerColumnList::available(ItemKey key) const {
     return owner_ && owner_->enabled() && owner_->visible() && enabled() &&
@@ -150,8 +149,27 @@ MillerColumns::MillerColumns(std::wstring name) :
     for (const auto& child : children_) adopt(child);
     layout();
 }
+void MillerColumns::bind_columns(std::size_t count) {
+    while (bound_columns_ < count) {
+        const auto& list = lists_[bound_columns_];
+        const std::weak_ptr<MillerColumnList> weak = list;
+        detail::CompositionAccess::activate(*list, composition_, [weak](ItemKey key) {
+            if (const auto value = weak.lock(); value && value->owner_)
+                value->owner_->activate_item(value->index_, key);
+        }, [weak](ItemKey key) {
+            const auto value = weak.lock();
+            return value && value->available(key) && value->selection().focused() == key;
+        });
+        detail::CompositionAccess::focus(*list, composition_, [weak] {
+            if (const auto value = weak.lock(); value && value->owner_ && value->index_ < value->owner_->columns().size())
+                value->owner_->set_active_column(value->index_);
+        });
+        ++bound_columns_;
+    }
+}
 MillerColumns::~MillerColumns() {
-    for (const auto& list : lists_) { list->on_activate({}); list->owner_ = nullptr; }
+    composition_.retire();
+    for (const auto& list : lists_) list->owner_ = nullptr;
 }
 void MillerColumns::set_columns(std::vector<MillerColumn> value) {
     if (value.size() > maximum_columns) throw std::length_error("Miller columns support at most 32 columns");
@@ -161,6 +179,7 @@ void MillerColumns::set_columns(std::vector<MillerColumn> value) {
         if (column.selected && !valid_item(column.source, *column.selected))
             throw std::invalid_argument("Selected identity must identify an enabled column item");
     }
+    bind_columns(value.size());
     const bool appended = value.size() > columns_.size();
     columns_ = std::move(value);
     for (std::size_t i = 0; i < maximum_columns; ++i) {
@@ -255,7 +274,7 @@ void MillerColumns::focus_column(std::size_t index) {
     set_active_column(index);
     auto callback = focus_;
     const std::shared_ptr<VirtualCollection> target = lists_[active_];
-    if (callback) callback(target);
+    if (callback) std::move(callback)(target);
 }
 bool MillerColumns::focus_pointer(const Control& target, Point point) {
     if (!std::isfinite(point.x) || !std::isfinite(point.y))
@@ -279,7 +298,9 @@ bool MillerColumns::focus_pointer(const Control& target, Point point) {
     return false;
 }
 bool MillerColumns::select_item(std::size_t index, ItemKey key, SelectionGesture gesture) {
-    auto& list = *lists_[index];
+    const auto retained = lists_[index];
+    auto& list = *retained;
+    const auto source = list.source_;
     set_active_column(index);
     const bool changed = gesture != SelectionGesture::focus_only && columns_[index].selected != key;
     list.selection_.select(list.source_, key, gesture == SelectionGesture::focus_only ?
@@ -288,6 +309,9 @@ bool MillerColumns::select_item(std::size_t index, ItemKey key, SelectionGesture
     list.reveal(key); list.invalidate(Invalidation::state);
     auto callback = selection_;
     if (changed && callback) callback(index, key);
+    if (changed && list.owner_ && list.source_ == source && index < list.owner_->columns_.size() &&
+        list.enabled() && list.owner_->enabled() && list.owner_->visible() && list.selection().focused() == key)
+        detail::CompositionAccess::selection(list);
     return true;
 }
 void MillerColumns::activate_item(std::size_t index, ItemKey key) {

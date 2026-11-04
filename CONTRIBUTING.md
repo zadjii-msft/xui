@@ -1119,6 +1119,65 @@ and can run on an unswitched owned desktop. This is not physical IME/Narrator,
 foreground latency or repeated-frame graphics acceptance.
 See [the source map and retained evidence](docs/llm/stage4-targeted-invalidation.md).
 
+### Callback ownership checks
+
+The ordinary Framework gate requires `xui_callback_ownership_tests` and at least
+53 headless/six lifetime registrations. It also runs managed scoped-callback tests
+through the existing `Tests --headless` selection.
+
+```powershell
+cmake --build $build --config Release --target xui_callback_ownership_tests xui_control_style_expansion_tests
+ctest --test-dir $build -C Release -R "^xui_(callback_ownership|control_style_expansion|abi_features_headless)_tests$" --no-tests=error --output-on-failure -j 1
+dotnet run --project bindings\dotnet\Tests -c Release -p:XuiNativeDir="$build\Release" -- --headless
+```
+
+Test composition and public observers separately: replacement, removal, reentrant
+mutation, parent destruction, candidate rollback/commit/clear and callback failure.
+Native editing/lifetime comparisons still require the owned-desktop procedures,
+matching Release `/GL` and full `/LTCG`, and separate immutable baseline/candidate
+artifacts. Do not equate headless callback tests with physical IME or foreground
+latency acceptance. The [stage-5 source map](docs/llm/stage5-callback-ownership.md)
+records which scope owns composition, foreign subscriptions and managed roots.
+
+### Comprehensive callback performance study
+
+Build the extra explicit probes; they are not timing tests in ordinary CI:
+
+```powershell
+cmake --build $build --config Release --target xui_callback_performance_matrix xui_callback_abi_performance xui_native_editor_host_probe xui_collection_host_probe
+& ".\$build\Release\xui_callback_performance_matrix.exe"
+& ".\$build\Release\xui_callback_abi_performance.exe"
+dotnet run --project bindings\dotnet\Tests -c Release -p:XuiNativeDir="$build\Release" -- --callback-performance
+python -m unittest discover -s tests -p test_callback_performance_study.py
+```
+
+Default fixture modes check effects without reporting timing measurements.
+`--measure` opts into measurement. Set `XUI_PERF_COUNTS` to a frozen text file with
+one `phase-name iteration-count` pair per line for model/ABI/managed comparisons.
+Counts must be multiples of 32. The study's counts come from a separately retained
+baseline-only sizing pilot targeting350ms, not a sample-dependent rerun rule.
+
+`tests\callback-performance-study.py <study-directory> --group model` (or `abi`,
+`managed`, `editor`, `collection`) runs one fixed2warmup+7alternatingrecorded-pair
+group described by `manifest.json`; rerunning into the same block path is rejected.
+The manifest pins exact executables, source/counts/tool/library identities, phases,
+argv and the owned-desktop runner. The runtime environment must provide the matching
+native/managed DLLs beside each executable. Never point both revisions at shared,
+mutable native or managed output directories. The committed evidence retains the
+study manifest, actual compile/link commands, count derivation and raw samples.
+
+Run groups serially without builds or other native/performance work. After every
+group is complete, omit `--group` to reconstruct all work and compute per-phase and
+group distributions, tails, paired/independent changes and every >5% threshold
+signal. Source reads may legitimately differ between revisions: require stable
+logical effects across versions and stable actual source work within each version,
+then report extra reads/keys/finds explicitly. Do not ignore a stopped block,
+discard outliers, pool changed workloads or call a group total an application
+usage-weighted performance result.
+
+The [comprehensive report](docs/llm/stage5-comprehensive-performance.md) records
+the current non-green outcome and distinguishes observed signals from causal proof.
+
 ### Collection-family host checks
 
 The ordinary gate includes `xui_family_accessibility_tests` and

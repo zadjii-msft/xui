@@ -115,9 +115,9 @@ public sealed unsafe partial class Window
     public Button TitlebarMinimize => titlebarMinimize ??= new(this, TitlebarChild(5));
     public Button TitlebarMaximize => titlebarMaximize ??= new(this, TitlebarChild(6));
     public Button TitlebarClose => titlebarClose ??= new(this, TitlebarChild(7));
-    private GCHandle keyRoot;
+    private CallbackLifetime.Registration? keyRoot;
     private Func<UiKeyEvent, bool>? keyHandler;
-    private GCHandle navigationRoot;
+    private CallbackLifetime.Registration? navigationRoot;
     private Func<UiNavigationEvent, bool>? navigationHandler;
     public TabStrip TitlebarTabs => titlebarTabs ??= new(this, TitlebarChild(0));
     public TabStrip TitlebarSecondaryTabs => titlebarSecondaryTabs ??= new(this, TitlebarChild(2));
@@ -141,9 +141,15 @@ public sealed unsafe partial class Window
         set
         {
             GuardWindowCallback();
-            if (!keyRoot.IsAllocated) keyRoot = GCHandle.Alloc(this, GCHandleType.Weak);
-            Check(Native.WindowKeyHandler(Handle, value is null ? null : &KeyTrampoline, GCHandle.ToIntPtr(keyRoot)));
-            keyHandler = value;
+            bool allocated = value is not null && keyRoot is null;
+            if (allocated) keyRoot = callbackLifetime.Register(this, static window => { window.keyRoot = null; window.keyHandler = null; });
+            try
+            {
+                Check(Native.WindowKeyHandler(Handle, value is null ? null : &KeyTrampoline, keyRoot?.Context ?? 0));
+                keyHandler = value;
+                if (value is null) keyRoot?.Dispose();
+            }
+            catch { if (allocated) keyRoot?.Dispose(); throw; }
         }
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -154,6 +160,8 @@ public sealed unsafe partial class Window
         {
             window = GCHandle.FromIntPtr(context).Target as Window;
             if (window is null) return 8;
+            using var dispatch = window.keyRoot?.Enter() ?? default;
+            if (!dispatch.Active) return 0;
             ++window.callbacks;
             try
             {
@@ -172,9 +180,15 @@ public sealed unsafe partial class Window
         set
         {
             GuardWindowCallback();
-            if (!navigationRoot.IsAllocated) navigationRoot = GCHandle.Alloc(this, GCHandleType.Weak);
-            Check(Native.WindowNavigationHandler(Handle, value is null ? null : &NavigationTrampoline, GCHandle.ToIntPtr(navigationRoot)));
-            navigationHandler = value;
+            bool allocated = value is not null && navigationRoot is null;
+            if (allocated) navigationRoot = callbackLifetime.Register(this, static window => { window.navigationRoot = null; window.navigationHandler = null; });
+            try
+            {
+                Check(Native.WindowNavigationHandler(Handle, value is null ? null : &NavigationTrampoline, navigationRoot?.Context ?? 0));
+                navigationHandler = value;
+                if (value is null) navigationRoot?.Dispose();
+            }
+            catch { if (allocated) navigationRoot?.Dispose(); throw; }
         }
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -185,6 +199,8 @@ public sealed unsafe partial class Window
         {
             window = GCHandle.FromIntPtr(context).Target as Window;
             if (window is null) return 8;
+            using var dispatch = window.navigationRoot?.Enter() ?? default;
+            if (!dispatch.Active) return 0;
             ++window.callbacks;
             try
             {

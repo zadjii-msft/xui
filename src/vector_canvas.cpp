@@ -114,17 +114,17 @@ std::optional<ShapeId> VectorScene::hit_test(Point p) const {
     return {};
 }
 VectorCanvas::VectorCanvas(std::wstring name) : VectorCanvas(ControlRole::vector_canvas, std::move(name)) {}
-VectorCanvas::~VectorCanvas() { items_->on_selection({}); items_->on_activate({}); }
+VectorCanvas::~VectorCanvas() { composition_.retire(); }
 VectorCanvas::VectorCanvas(ControlRole role, std::wstring name) : Control(role, std::move(name), {480, 360}),
     items_(std::make_shared<SceneItems>()), children_{items_} {
     adopt(items_);
     items_->set_item_size({240, 36});
-    items_->on_selection([this] {
+    detail::CompositionAccess::change(*items_, composition_, [this] {
         const auto key = items_->selection().focused();
         if (key && items_->selection().contains(*key)) select(key->id);
         else set_selected({});
     });
-    items_->on_activate([this](ItemKey key) { select(key.id); });
+    detail::CompositionAccess::activate(*items_, composition_, [this](ItemKey key) { select(key.id); });
     set_help_text(L"Select interactive elements in the accompanying list. Shapes use straight segments, canvas-space clips, and fixed-width strokes.");
 }
 void VectorCanvas::set_scene(std::shared_ptr<const VectorScene> scene) {

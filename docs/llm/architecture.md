@@ -89,6 +89,17 @@ updates select the origin's subtree and relevant composite ancestors, while geom
 theme/modal/DPI and shared image/native ordering retain their global policies.
 See the [stage-4 source map and evidence](stage4-targeted-invalidation.md).
 
+### Composition and callback ownership
+
+`include\xui\callback.hpp` separates scoped internal behavior from public observer
+slots. Composite model and host adapters bind their own scopes; ABI observers no
+longer capture/chains prior callbacks. The original preservation variant and
+navigation/Miller binding relays are removed. Keyed-child current-identity checks
+remain in their real model behavior.
+Managed `CallbackLifetime` owns dictionary/delegate/root cleanup per window or
+content scope; its in-flight leases defer physical release after cancellation.
+See the [stage-5 contract, source map and evidence](stage5-callback-ownership.md).
+
 ### Collection-family host boundary
 
 `src\host_peer.hpp/.cpp` defines the common materialized peer and the closed
@@ -241,7 +252,9 @@ The host clears hover during capture and cancellation. Source replacement also c
 `MillerColumns::separator_bounds` describes the reserved space between columns.
 The host rounds separator edges and child widths to shared pixel boundaries.
 This keeps fractional scrolling and DPI changes from covering a row or scrollbar.
-`src\c_api_features.inc` preserves the composition callbacks when bindings subscribe to borrowed column lists.
+Miller child composition owns column focus and native parent-before-child event
+delivery. `src\c_api_features.inc` installs only independent observers, not a
+parent-to-child rescue relay.
 `bindings\dotnet\Xui\MillerColumns.cs` supplies typed path records, events, and borrowed child access.
 The FileExplorer controller owns asynchronous directory scans and rejects obsolete results.
 `ExplorerColumn.Filter` owns each column's query. `ExplorerTab.Filter` retains the Details query.

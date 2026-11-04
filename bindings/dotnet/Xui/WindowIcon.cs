@@ -5,7 +5,7 @@ namespace Xui;
 
 public sealed unsafe partial class Window
 {
-    private GCHandle iconErrorRoot;
+    private CallbackLifetime.Registration? iconErrorRoot;
     private Action<string>? iconErrorHandler;
 
     /// <summary>Requests a Shell thumbnail or icon for the native window. An empty path clears it.</summary>
@@ -32,16 +32,16 @@ public sealed unsafe partial class Window
                 ReleaseIconCallback();
                 return;
             }
-            bool allocated = !iconErrorRoot.IsAllocated;
-            if (allocated) iconErrorRoot = GCHandle.Alloc(this, GCHandleType.Weak);
+            bool allocated = iconErrorRoot is null;
+            if (allocated) iconErrorRoot = callbackLifetime.Register(this, static window => { window.iconErrorRoot = null; window.iconErrorHandler = null; });
             try
             {
-                Check(Native.WindowOnIconError(Handle, &IconErrorTrampoline, GCHandle.ToIntPtr(iconErrorRoot)));
+                Check(Native.WindowOnIconError(Handle, &IconErrorTrampoline, iconErrorRoot!.Context));
                 iconErrorHandler = value;
             }
             catch
             {
-                if (allocated) iconErrorRoot.Free();
+                if (allocated) iconErrorRoot?.Dispose();
                 throw;
             }
         }
@@ -49,7 +49,7 @@ public sealed unsafe partial class Window
 
     private void ReleaseIconCallback()
     {
-        if (iconErrorRoot.IsAllocated) iconErrorRoot.Free();
+        iconErrorRoot?.Dispose();
         iconErrorHandler = null;
     }
 
@@ -61,6 +61,8 @@ public sealed unsafe partial class Window
         {
             window = GCHandle.FromIntPtr(context).Target as Window;
             if (window is null) return 8;
+            using var dispatch = window.iconErrorRoot?.Enter() ?? default;
+            if (!dispatch.Active) return 0;
             ++window.callbacks;
             try { window.iconErrorHandler?.Invoke(Encoding.GetString(text, checked((int)length))); }
             finally { --window.callbacks; }

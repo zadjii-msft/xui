@@ -528,8 +528,6 @@ struct Window::Impl : std::enable_shared_from_this<Window::Impl>, ControlHostSer
         if (auto* animation = dynamic_cast<Animation*>(peer.control.get())) animation->settle();
         peer.control->set_text_measurer({});
         if (auto label = std::dynamic_pointer_cast<Label>(peer.control)) label->set_wrapped_text_measurer({});
-        if (auto* columns = dynamic_cast<MillerColumns*>(peer.control.get())) columns->on_focus_column({});
-        if (auto combo = std::dynamic_pointer_cast<ComboBox>(peer.control)) combo->choices()->on_accept({});
         peer.detach_owner();
         if (auto* map = dynamic_cast<MapView*>(peer.control.get())) map->cancel_request();
     }

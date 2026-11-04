@@ -12,6 +12,7 @@ public:
     ULONGLONG typeahead_time{};
     std::optional<std::size_t> hovered_choice;
     std::optional<std::uint64_t> pressed_choice;
+    detail::CallbackScope composition;
 
     BasicHostPeer(ControlHostServices&, std::shared_ptr<Control>);
     ~BasicHostPeer() override;

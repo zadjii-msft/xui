@@ -15,7 +15,7 @@ public readonly record struct TabDragEvent(TabDragKind Kind, uint SourceStrip, u
 
 public sealed unsafe partial class Window
 {
-    private GCHandle tabDragRoot;
+    private CallbackLifetime.Registration? tabDragRoot;
     private Func<TabDragEvent, bool>? tabDragHandler;
 
     /// <summary>Gets or sets normal outer bounds and maximized state. Set also works before Show.</summary>
@@ -72,16 +72,16 @@ public sealed unsafe partial class Window
                 ReleaseTabDragCallback();
                 return;
             }
-            bool allocated = !tabDragRoot.IsAllocated;
-            if (allocated) tabDragRoot = GCHandle.Alloc(this, GCHandleType.Weak);
+            bool allocated = tabDragRoot is null;
+            if (allocated) tabDragRoot = callbackLifetime.Register(this, static window => { window.tabDragRoot = null; window.tabDragHandler = null; });
             try
             {
-                Check(Native.WindowTabDragHandler(Handle, &TabDragTrampoline, GCHandle.ToIntPtr(tabDragRoot)));
+                Check(Native.WindowTabDragHandler(Handle, &TabDragTrampoline, tabDragRoot!.Context));
                 tabDragHandler = value;
             }
             catch
             {
-                if (allocated) tabDragRoot.Free();
+                if (allocated) tabDragRoot?.Dispose();
                 throw;
             }
         }
@@ -89,7 +89,7 @@ public sealed unsafe partial class Window
 
     private void ReleaseTabDragCallback()
     {
-        if (tabDragRoot.IsAllocated) tabDragRoot.Free();
+        tabDragRoot?.Dispose();
         tabDragHandler = null;
     }
 
@@ -103,6 +103,8 @@ public sealed unsafe partial class Window
             *accepted = 0;
             window = GCHandle.FromIntPtr(context).Target as Window;
             if (window is null) return 8;
+            using var dispatch = window.tabDragRoot?.Enter() ?? default;
+            if (!dispatch.Active) return 0;
             window.Guard();
             if (value == null || value->Size != sizeof(Native.TabDragEvent))
                 throw new XuiException(5, "The tab drag event size does not match.");

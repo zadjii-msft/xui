@@ -20,6 +20,9 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
 - [Stage-3 host boundaries](stage3-host-boundaries.md): Completed family extraction, window coordination boundary, typed provider state and preserved performance limitations.
 - [Stage-4 targeted invalidation](stage4-targeted-invalidation.md): Origin-safe dirty work, captured-pass ordering, narrow native/UIA synchronization and retained comparison evidence.
+- [Stage-5 callback ownership](stage5-callback-ownership.md): Separate composition/observation, scoped registration retirement, in-flight managed roots and validation.
+- [Stage-5 comprehensive performance study](stage5-comprehensive-performance.md): All 61 model/ABI/managed/native phases, 32-family setup/storage inventory and the additional regression blockers.
+- [Stage-5 final callback correction measurements](stage5-callback-correction-performance.md): Final 61-phase tables, original numeric/button protocol, all 32 setup observations, remaining flags and lossless correction evidence.
 - [Owned model tree and traversal policies](architecture.md#owned-model-tree-and-traversal-policies): Borrowed Element children, deferred realization, presentation clips, inspection, ABI scopes, and explicit host adornments.
 - [Architecture review and sequential refactoring roadmap](architecture-review-2026-10-21.md): Seven structural findings, source-verified evidence limits, preserved native behavior, and the acceptance-driven merge-before-next-PR ledger.
 - [Stage-2 raw ownership evidence](stage2-owned-children-evidence.json): All 1,278 warmup/recorded processes, intermediate/final source identities and binary hashes, actual link modes, reproducible probe/runner sources, native results, and the coupled LTCG diagnosis. Interpretation and limitations are in the roadmap ledger.

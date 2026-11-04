@@ -12,6 +12,7 @@ public:
     std::optional<Point> tab_pointer;
     std::optional<std::uint64_t> pressed_tab;
     POINT tab_press{};
+    detail::CallbackScope composition;
 
     NavigationHostPeer(ControlHostServices&, std::shared_ptr<Control>);
     ~NavigationHostPeer() override;

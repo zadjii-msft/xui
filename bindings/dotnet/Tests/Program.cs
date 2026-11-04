@@ -8,6 +8,8 @@ internal static class Tests
     {
         try
         {
+            if (args is ["--callback-performance"]) return CallbackPerformanceStudy.Run([]);
+            if (args is ["--callback-performance", "--measure"]) return CallbackPerformanceStudy.Run(["--measure"]);
             if (args is ["--multiwindow"]) { MultiWindowTests.Run(); return 0; }
             if (args is ["--window-drag-layouts"]) { WindowDragTests.Layouts(); return 0; }
             if (args is ["--window-drag"]) { WindowDragTests.Run(); return 0; }
@@ -26,6 +28,7 @@ internal static class Tests
             StylingTests.Definitions();
             if (args is ["--headless"])
             {
+                CallbackOwnershipTests.Run();
                 Run();
                 FeatureTests.Run(headless: true);
                 StylingTests.Native();

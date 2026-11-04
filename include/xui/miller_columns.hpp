@@ -30,6 +30,7 @@ public:
     MillerColumns* owner() const { return owner_; }
     std::size_t column_index() const { return index_; }
 private:
+    friend struct detail::CompositionAccess;
     friend class MillerColumns;
     MillerColumnList(MillerColumns& owner, std::size_t index);
     bool available(ItemKey key) const;
@@ -77,12 +78,14 @@ public:
     OwnedChildren owned_children() const override { return OwnedChildren{children_}; }
 private:
     friend class MillerColumnList;
+    friend struct detail::CompositionAccess;
     bool select_item(std::size_t index, ItemKey key, SelectionGesture gesture);
     void activate_item(std::size_t index, ItemKey key);
     void focus_column(std::size_t index);
     void reveal_active();
     void reveal_column(std::size_t index);
     void layout();
+    void bind_columns(std::size_t count);
     float effective_width() const;
     std::vector<MillerColumn> columns_;
     std::vector<std::shared_ptr<MillerColumnList>> lists_;
@@ -93,7 +96,9 @@ private:
     float width_{240};
     double offset_{};
     std::function<void(std::size_t, ItemKey)> selection_, activate_;
-    std::function<void(const std::shared_ptr<VirtualCollection>&)> focus_;
+    detail::Callback<void(const std::shared_ptr<VirtualCollection>&)> focus_;
+    detail::CallbackScope composition_;
+    std::size_t bound_columns_{};
 };
 
 }
