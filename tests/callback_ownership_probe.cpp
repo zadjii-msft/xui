@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <iomanip>
 #include <new>
 #include <string_view>
 
@@ -50,6 +51,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::string_view(argv[1]) == "--measure") measured = true;
     else if (argc != 1) { std::cerr << "Usage: callback_ownership_probe [--measure]\n"; return 2; }
     try {
+        std::cout << std::setprecision(17);
         using namespace xui;
         const unsigned actions = measured ? 134217728 : 256;
         const unsigned edits = measured ? 1048576 : 64;
