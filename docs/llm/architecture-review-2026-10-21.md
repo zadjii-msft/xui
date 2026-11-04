@@ -339,7 +339,7 @@ Writing this plan does not complete any runtime finding.
 | 2 | `child-contract` | Verified merged: [#59](https://github.com/zadjii-msft/xui/pull/59); accepted `38f377f4cea2e4632421c4871616dd54501045b4`, squash `a3f112c9293d41998276f3e97e03e6f1f4b1ffd2`; recorded timing/native limits remain unresolved | 1 | Finding 3: owned children and separate traversal policies |
 | 3 | `host-boundaries` | 3a merged; remaining families merged in [#61](https://github.com/zadjii-msft/xui/pull/61), head `993bdcd7`, squash `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b`; [recorded limits](stage3-host-boundaries.md) remain | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Merged [#62](https://github.com/zadjii-msft/xui/pull/62), accepted head `4f5a8016`, squash `de9ee24ea4664f0f6d0fcaf87f573383086244da`; [source map and evidence](stage4-targeted-invalidation.md) | Merged #61, `c0173871` | Finding 2: originating identity and targeted ordered work |
-| 5 | `callback-ownership` | Implemented directly after verified merged #62; [#63](https://github.com/zadjii-msft/xui/pull/63) open for review; functional checks pass; [comprehensive performance study](stage5-comprehensive-performance.md) finds additional control/allocation/registration/native blockers, not just numeric stepping | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
+| 5 | `callback-ownership` | Implemented directly after verified merged #62; [#63](https://github.com/zadjii-msft/xui/pull/63) open; functional checks pass; [final correction measurements](stage5-callback-correction-performance.md) retain 84 threshold statistics across 22 matrix phases plus six numeric-step statistics; performance acceptance remains blocked | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
 | 6 | `contract-metadata` | Not started | 5 | Finding 5: authoritative contracts, adapters, compiler/reload rules |
 | 7 | `legacy-file-list` | Not started | 6 | Finding 6: foundation isolation and shared algorithms |
 | 8 | `boundary-enforcement` | Not started | 7 | Finding 7: dependency enforcement and final evidence/source maps |
@@ -693,6 +693,15 @@ The subsequent [61-phase performance study](stage5-comprehensive-performance.md)
 retains 90 processes/1,098 timed rows and finds 161 threshold statistics across
 29 ordinary phases and two group sums. New allocation and real-host signals also
 block acceptance. Green correctness checks and narrower improvements are not waivers.
+
+The [final correction](stage5-callback-correction-performance.md), functional
+commit `4dea0022ff1b747bdaaa70bb0a3525c85308c077`, removes per-event callable
+copies, redundant Miller source work, dormant Miller registrations and extra
+managed cleanup allocations. All five final group wall sums improve, but
+84 screening statistics across 22 matrix phases remain; the separate final
+numeric step is +7.66% median wall / +8.51% owner CPU. Its 90 matrix processes
+and 18 narrow processes are retained independently of every earlier iteration.
+This final report does not accept or merge phase 5 or authorize phase 6.
 
 ### Stage 6: Authoritative contract metadata
 

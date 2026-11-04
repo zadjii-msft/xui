@@ -119,7 +119,19 @@ Commands belong in
 [CONTRIBUTING](../../CONTRIBUTING.md#callback-ownership-checks).
 Structural source changes alone are not a performance or desktop acceptance claim.
 
-## Results: November 4, 2026
+## Final correction: November 4, 2026
+
+The final measured functional code is `4dea0022ff1b747bdaaa70bb0a3525c85308c077`.
+The [final correction report](stage5-callback-correction-performance.md) records
+all 61 phases / 90 processes, the separate 18-process Button/NumericInput block,
+all 32 setup/storage observations and the complete correction history.
+Model/ABI/managed/editor/collection wall sums change
+-2.47% / -9.26% / -0.93% / -3.14% / -6.97%.
+Acceptance still fails: 84 screening statistics affect 22 matrix phases;
+numeric stepping separately crosses six statistics (+7.66% median wall).
+The following original results are retained, not substituted for the final run.
+
+## Original results: November 4, 2026
 
 The later [comprehensive study](stage5-comprehensive-performance.md) expands this
 two-workload result to 61 phases / 90 processes. It finds additional model,

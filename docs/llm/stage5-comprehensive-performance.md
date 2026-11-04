@@ -1,5 +1,10 @@
 # Phase-5 comprehensive performance study
 
+**Historical pre-correction study.** The tables below describe the original
+implementation, not the current PR head. See the
+[final callback correction measurements](stage5-callback-correction-performance.md)
+for every final phase, allocation/storage delta and remaining blocker.
+
 ## Conclusion
 
 **The delta is not performance-neutral. Do not treat phase 5 as accepted.**
