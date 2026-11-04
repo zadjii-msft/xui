@@ -92,6 +92,14 @@ content scope nor a GCHandle. A self-unsubscribed token is not reusable until it
 last dispatch returns, even if a replacement subscription is added immediately.
 Native Node delivery needs only a cancellation bit: the dispatch's existing
 shared Node reference already retains its callback context through return.
+Window handler roots store their cleanup target with a cached static typed
+delegate, instead of allocating a closure/delegate for each window and handler.
+
+MillerColumns still constructs all fixed retained child identities, and callers
+can configure dormant child observers before populating columns. Only internal
+callback registration is deferred until a slot is first populated; the high-water
+mark is bounded by the existing 32-column limit. An empty view no longer creates
+64 unused activation/focus registrations. Later path changes reuse those bindings.
 
 ## Verification
 

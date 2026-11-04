@@ -142,7 +142,7 @@ public sealed unsafe partial class Window
         {
             GuardWindowCallback();
             bool allocated = value is not null && keyRoot is null;
-            if (allocated) keyRoot = callbackLifetime.Register(this, () => { keyRoot = null; keyHandler = null; });
+            if (allocated) keyRoot = callbackLifetime.Register(this, static window => { window.keyRoot = null; window.keyHandler = null; });
             try
             {
                 Check(Native.WindowKeyHandler(Handle, value is null ? null : &KeyTrampoline, keyRoot?.Context ?? 0));
@@ -181,7 +181,7 @@ public sealed unsafe partial class Window
         {
             GuardWindowCallback();
             bool allocated = value is not null && navigationRoot is null;
-            if (allocated) navigationRoot = callbackLifetime.Register(this, () => { navigationRoot = null; navigationHandler = null; });
+            if (allocated) navigationRoot = callbackLifetime.Register(this, static window => { window.navigationRoot = null; window.navigationHandler = null; });
             try
             {
                 Check(Native.WindowNavigationHandler(Handle, value is null ? null : &NavigationTrampoline, navigationRoot?.Context ?? 0));

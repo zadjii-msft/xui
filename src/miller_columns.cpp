@@ -142,6 +142,16 @@ MillerColumns::MillerColumns(std::wstring name) :
         auto header = std::make_shared<Label>(L"");
         header->set_body_strong(true);
         auto list = std::shared_ptr<MillerColumnList>(new MillerColumnList(*this, i));
+        header->set_visible(false); list->set_visible(false);
+        headers_.push_back(header); lists_.push_back(list);
+        children_.push_back(header); children_.push_back(list);
+    }
+    for (const auto& child : children_) adopt(child);
+    layout();
+}
+void MillerColumns::bind_columns(std::size_t count) {
+    while (bound_columns_ < count) {
+        const auto& list = lists_[bound_columns_];
         const std::weak_ptr<MillerColumnList> weak = list;
         detail::CompositionAccess::activate(*list, composition_, [weak](ItemKey key) {
             if (const auto value = weak.lock(); value && value->owner_)
@@ -154,12 +164,8 @@ MillerColumns::MillerColumns(std::wstring name) :
             if (const auto value = weak.lock(); value && value->owner_ && value->index_ < value->owner_->columns().size())
                 value->owner_->set_active_column(value->index_);
         });
-        header->set_visible(false); list->set_visible(false);
-        headers_.push_back(header); lists_.push_back(list);
-        children_.push_back(header); children_.push_back(list);
+        ++bound_columns_;
     }
-    for (const auto& child : children_) adopt(child);
-    layout();
 }
 MillerColumns::~MillerColumns() {
     composition_.retire();
@@ -173,6 +179,7 @@ void MillerColumns::set_columns(std::vector<MillerColumn> value) {
         if (column.selected && !valid_item(column.source, *column.selected))
             throw std::invalid_argument("Selected identity must identify an enabled column item");
     }
+    bind_columns(value.size());
     const bool appended = value.size() > columns_.size();
     columns_ = std::move(value);
     for (std::size_t i = 0; i < maximum_columns; ++i) {

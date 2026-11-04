@@ -33,7 +33,7 @@ public sealed unsafe partial class Window
                 return;
             }
             bool allocated = iconErrorRoot is null;
-            if (allocated) iconErrorRoot = callbackLifetime.Register(this, () => { iconErrorRoot = null; iconErrorHandler = null; });
+            if (allocated) iconErrorRoot = callbackLifetime.Register(this, static window => { window.iconErrorRoot = null; window.iconErrorHandler = null; });
             try
             {
                 Check(Native.WindowOnIconError(Handle, &IconErrorTrampoline, iconErrorRoot!.Context));

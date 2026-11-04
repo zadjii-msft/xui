@@ -41,7 +41,7 @@ public sealed unsafe partial class Window
             bool allocated = false;
             if (value is not null && nativeCreatedRoot is null)
             {
-                nativeCreatedRoot = callbackLifetime.Register(this, () => { nativeCreatedRoot = null; nativeCreated = null; });
+                nativeCreatedRoot = callbackLifetime.Register(this, static window => { window.nativeCreatedRoot = null; window.nativeCreated = null; });
                 allocated = true;
             }
             try

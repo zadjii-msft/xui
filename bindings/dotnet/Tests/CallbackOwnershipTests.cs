@@ -49,6 +49,17 @@ internal static class CallbackOwnershipTests
             Expect(!rejected.Active, "All registrations retire before cleanup can reenter a sibling");
         });
         cancellation.Dispose();
+        using var typedLifetime = new CallbackLifetime();
+        var counter = new StrongBox<int>();
+        var typed = typedLifetime.Register(counter, static value => ++value.Value);
+        using (var call = typed.Enter())
+        {
+            typedLifetime.Dispose();
+            Expect(counter.Value == 0 && !typed.Released,
+                "Typed cleanup retains its target through the current dispatch");
+        }
+        Expect(counter.Value == 1 && typed.Released && typedLifetime.Count == 0,
+            "Typed cleanup releases its target exactly once without a per-registration closure");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

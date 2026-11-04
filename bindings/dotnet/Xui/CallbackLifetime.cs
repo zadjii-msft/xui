@@ -30,6 +30,31 @@ internal sealed class CallbackLifetime : IDisposable
         ObjectDisposedException.ThrowIf(Retired, this);
         return new ActionRegistration(this, target, release);
     }
+    internal Registration Register<T>(T target, Action<T> release) where T : class
+    {
+        ObjectDisposedException.ThrowIf(Retired, this);
+        return new TargetRegistration<T>(this, target, release);
+    }
+
+    private sealed class TargetRegistration<T> : Registration where T : class
+    {
+        private T? target;
+        private Action<T>? release;
+        internal TargetRegistration(CallbackLifetime owner, T target, Action<T> release) : base(owner)
+        {
+            this.target = target;
+            this.release = release;
+            try { Bind(target); } catch { Dispose(); throw; }
+        }
+        protected override void Release()
+        {
+            var value = target;
+            var callback = release;
+            target = null;
+            release = null;
+            if (value is not null) callback?.Invoke(value);
+        }
+    }
 
     private sealed class ActionRegistration : Registration
     {

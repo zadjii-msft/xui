@@ -132,7 +132,7 @@ public sealed unsafe partial class Window
     public WindowState State { get { Guard(); Check(Native.WindowState(Handle, out uint state)); return (WindowState)state; } }
     private void InitializeClosed()
     {
-        closedRoot = callbackLifetime.Register(this, () => { closedRoot = null; Closed = null; });
+        closedRoot = callbackLifetime.Register(this, static window => { window.closedRoot = null; window.Closed = null; });
         Check(Native.WindowClosed(Handle, &ClosedTrampoline, closedRoot!.Context));
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]

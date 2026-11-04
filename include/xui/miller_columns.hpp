@@ -85,6 +85,7 @@ private:
     void reveal_active();
     void reveal_column(std::size_t index);
     void layout();
+    void bind_columns(std::size_t count);
     float effective_width() const;
     std::vector<MillerColumn> columns_;
     std::vector<std::shared_ptr<MillerColumnList>> lists_;
@@ -97,6 +98,7 @@ private:
     std::function<void(std::size_t, ItemKey)> selection_, activate_;
     detail::Callback<void(const std::shared_ptr<VirtualCollection>&)> focus_;
     detail::CallbackScope composition_;
+    std::size_t bound_columns_{};
 };
 
 }

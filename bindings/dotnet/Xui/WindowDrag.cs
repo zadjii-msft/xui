@@ -73,7 +73,7 @@ public sealed unsafe partial class Window
                 return;
             }
             bool allocated = tabDragRoot is null;
-            if (allocated) tabDragRoot = callbackLifetime.Register(this, () => { tabDragRoot = null; tabDragHandler = null; });
+            if (allocated) tabDragRoot = callbackLifetime.Register(this, static window => { window.tabDragRoot = null; window.tabDragHandler = null; });
             try
             {
                 Check(Native.WindowTabDragHandler(Handle, &TabDragTrampoline, tabDragRoot!.Context));

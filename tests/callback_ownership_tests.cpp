@@ -141,12 +141,12 @@ void captured_delivery() {
 void miller_events() {
     MillerColumns columns;
     const auto source = std::make_shared<collections_test::Items>(4);
-    columns.set_columns({{L"First", source}, {L"Second", source}});
     const auto child = columns.column_list(1);
     std::vector<unsigned> order;
     columns.on_selection([&](std::size_t column, ItemKey) { require(column == 1, "Parent selection has the actual column"); order.push_back(1); });
     child->on_selection([&] { order.push_back(2); });
     child->on_focus([&] { require(columns.active_column() == 1, "Focus composition precedes observation"); });
+    columns.set_columns({{L"First", source}, {L"Second", source}});
     child->set_focused(true);
     require(child->select(source->key(1)) && order == std::vector<unsigned>{1, 2},
         "Miller selection emits parent then child exactly once without an ABI relay");
