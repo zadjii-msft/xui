@@ -32,7 +32,7 @@ void contracts() {
     reveal.set_duration(200);
     unsigned layout{}, placement{}, paint{};
     reveal.set_invalidator([&](Invalidation kind) {
-        if (kind == Invalidation::layout) ++layout;
+        if (kind == Invalidation::layout || kind == Invalidation::topology) ++layout;
         else if (kind == Invalidation::placement) ++placement;
         else ++paint;
     });
@@ -125,7 +125,7 @@ void expanding_contracts() {
         reveal.set_duration(1000);
         unsigned layouts{}, placements{};
         reveal.set_invalidator([&](Invalidation kind) {
-            if (kind == Invalidation::layout) ++layouts;
+            if (kind == Invalidation::layout || kind == Invalidation::topology) ++layouts;
             if (kind == Invalidation::placement) ++placements;
         });
         reveal.set_open(true);

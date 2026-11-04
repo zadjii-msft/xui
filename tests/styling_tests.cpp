@@ -91,7 +91,7 @@ void button_model() {
     auto size = button.measure({1000, 1000});
     require(size.width == 53 && size.height == 26, "Measurement includes four padding and border edges");
     button.pointer_move(true);
-    require(invalidation == Invalidation::paint, "Color-only hover requires paint, not layout");
+    require(invalidation == Invalidation::state, "Color-only hover synchronizes local state, not layout");
     require(button.effective_control_style_values(StylePart::root)->background == ThemeColor{0x222222}, "Hover resolves on state transition");
     button.set_enabled(false);
     require(invalidation == Invalidation::layout, "Disabled padding change requires layout");

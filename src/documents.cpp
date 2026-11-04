@@ -81,13 +81,13 @@ void DocumentText::set_syntax_highlighter(std::function<std::vector<SyntaxSpan>(
     highlighter_ = std::move(callback);
     syntax_spans_ = std::move(spans);
     ++syntax_revision_;
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 void DocumentText::set_maximum_length(std::size_t value) {
     if (highlighting_) throw std::logic_error("Cannot change document limits from its syntax highlighter");
     if (!value || value > document_limit || value < text_.size()) throw std::invalid_argument("Invalid document limit");
     if (maximum_ == value) return;
-    maximum_ = value; invalidate(Invalidation::paint);
+    maximum_ = value; invalidate(Invalidation::state);
 }
 void DocumentText::set_read_only(bool value) {
     if (highlighting_) throw std::logic_error("Cannot change document editability from its syntax highlighter");
@@ -96,7 +96,7 @@ void DocumentText::set_read_only(bool value) {
 }
 void DocumentText::set_monospace(bool value) {
     if (monospace_ == value) return;
-    monospace_ = value; invalidate(Invalidation::paint);
+    monospace_ = value; invalidate(Invalidation::state);
 }
 void DocumentText::assign_runs(std::vector<TextRun> value) {
     if (value.size() > 4096) throw std::length_error("At most 4096 document runs are supported");
@@ -124,7 +124,7 @@ void DocumentText::set_selection(TextSelection value) {
     const auto boundary = [&](std::size_t i) { return !i || i == text_.size() || text_[i] < 0xdc00 || text_[i] > 0xdfff; };
     if (!boundary(value.start) || !boundary(value.end)) throw std::invalid_argument("Selection splits a UTF-16 surrogate");
     if (selection_ == value) return;
-    selection_ = value; ++selection_revision_; invalidate(Invalidation::paint);
+    selection_ = value; ++selection_revision_; invalidate(Invalidation::state);
 }
 void DocumentText::commit_selection(TextSelection value) {
     if (value.start <= value.end && value.end <= text_.size()) selection_ = value;
@@ -234,7 +234,7 @@ void PasswordInput::with_password(const std::function<void(std::wstring_view)>& 
 void PasswordInput::set_maximum_length(std::size_t value) {
     if (!value || value > 4096 || value < value_.size()) throw std::invalid_argument("Invalid password limit");
     if (maximum_ == value) return;
-    maximum_ = value; invalidate(Invalidation::paint);
+    maximum_ = value; invalidate(Invalidation::state);
 }
 void PasswordInput::set_reveal_policy(PasswordRevealPolicy value) {
     if (value != PasswordRevealPolicy::never && value != PasswordRevealPolicy::explicit_request)
@@ -277,13 +277,13 @@ void DateTimePicker::set_value(DateTimeValue value) {
     value.validate();
     if (value < minimum_ || value > maximum_) throw std::out_of_range("Date/time is outside its range");
     if (value_ == value) return;
-    value_ = value; ++revision_; invalidate(Invalidation::paint);
+    value_ = value; ++revision_; invalidate(Invalidation::state);
 }
 void DateTimePicker::set_range(DateTimeValue minimum, DateTimeValue maximum) {
     minimum.validate(); maximum.validate();
     if (minimum > maximum || value_ < minimum || value_ > maximum) throw std::invalid_argument("Date/time range excludes the current value");
     if (minimum_ == minimum && maximum_ == maximum) return;
-    minimum_ = minimum; maximum_ = maximum; ++revision_; invalidate(Invalidation::paint);
+    minimum_ = minimum; maximum_ = maximum; ++revision_; invalidate(Invalidation::state);
 }
 bool DateTimePicker::change_value(DateTimeValue value) {
     if (!enabled() || value_ == value) return false;
@@ -383,7 +383,7 @@ void ColorPicker::sync() {
 }
 void ColorPicker::set_value(RgbaColor value) {
     if (value_ == value) return;
-    value_ = value; sync(); invalidate(Invalidation::paint);
+    value_ = value; sync(); invalidate(Invalidation::state);
 }
 bool ColorPicker::change_value(RgbaColor value) {
     if (!enabled() || value_ == value) return false;
@@ -407,7 +407,7 @@ void ColorPicker::set_swatches(std::vector<RgbaColor> values) {
         button->set_icon(ButtonIcon::none);
         button->set_visible(true); button->on_click([this, value] { change_value(value); });
     }
-    invalidate(Invalidation::layout);
+    invalidate(Invalidation::topology);
 }
 void ColorPicker::arrange(Rect bounds) {
     Element::arrange(bounds);

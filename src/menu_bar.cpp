@@ -129,7 +129,7 @@ void MenuBar::set_commands(std::shared_ptr<const CommandSet> commands) {
     }
     repair_current();
     refresh_headings();
-    invalidate(Invalidation::layout);
+    invalidate(Invalidation::topology);
 }
 
 void MenuBar::repair_current() {
@@ -163,7 +163,7 @@ bool MenuBar::set_current(CommandId id) {
     current_ = id;
     expanded_.reset();
     refresh_headings();
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
     return true;
 }
 void MenuBar::set_expanded(std::optional<CommandId> id) {
@@ -172,7 +172,7 @@ void MenuBar::set_expanded(std::optional<CommandId> id) {
     if (expanded_ == id) return;
     expanded_ = id;
     refresh_headings();
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 void MenuBar::cancel() {
     Control::cancel();

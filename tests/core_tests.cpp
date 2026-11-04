@@ -356,7 +356,7 @@ void file_list_tests() {
     xui::FileList list;
     int paints = 0;
     list.set_invalidator([&](xui::Invalidation kind) {
-        require(kind == xui::Invalidation::paint, "list behavior requests paint invalidation");
+        require(kind == xui::Invalidation::state, "list behavior requests local accessible state and paint");
         ++paints;
     });
     list.set_viewport_height(96);

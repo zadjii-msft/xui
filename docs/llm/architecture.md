@@ -78,6 +78,17 @@ The shared backend uses `Drawing`, theme tokens, and `NativeEditBridge`.
 `src\controls.cpp` contains platform-independent behavior. `src\application.cpp` connects controls to Windows and drawing.
 `src\control_accessibility.cpp` contains the control providers.
 
+### Targeted host work
+
+`InvalidationEvent` preserves the originating element identity through weak parent
+notification states. `src\dirty_work.hpp` coalesces explicit topology, layout,
+placement, native, accessibility and paint work. Window captures one work set per
+pass; newer invalidations cannot be cleared with that captured work.
+Topology reconciliation is separate from property synchronization. Local native/UIA
+updates select the origin's subtree and relevant composite ancestors, while geometry,
+theme/modal/DPI and shared image/native ordering retain their global policies.
+See the [stage-4 source map and evidence](stage4-targeted-invalidation.md).
+
 ### Collection-family host boundary
 
 `src\host_peer.hpp/.cpp` defines the common materialized peer and the closed

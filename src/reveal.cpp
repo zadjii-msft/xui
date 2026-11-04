@@ -43,7 +43,7 @@ void Reveal::set_open(bool value) {
     started_ = now;
     animating_ = duration_ && progress_ != (open_ ? 1.0f : 0.0f);
     if (!animating_) progress_ = open_ ? 1.0f : 0.0f;
-    invalidate(Invalidation::layout);
+    invalidate(Invalidation::topology);
 }
 
 void Reveal::advance(Clock::time_point now) {

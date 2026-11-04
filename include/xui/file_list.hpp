@@ -23,7 +23,7 @@ public:
         reload_thumbnails();
     }
     bool thumbnails() const { return thumbnails_; }
-    void reload_thumbnails() { ++thumbnail_revision_; invalidate(Invalidation::paint); }
+    void reload_thumbnails() { ++thumbnail_revision_; invalidate(Invalidation::state); }
     std::uint64_t thumbnail_revision() const { return thumbnail_revision_; }
     // Runs on the UI thread, once per failed visible request. Missing thumbnails use Shell icons.
     void on_thumbnail_error(std::function<void(ItemId, const std::wstring&)> callback) {
@@ -43,7 +43,7 @@ public:
     }
     void set_empty_text(std::wstring title, std::wstring detail) {
         empty_title_ = std::move(title); empty_detail_ = std::move(detail);
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
     }
     const std::wstring& empty_title() const { return empty_title_; }
     const std::wstring& empty_detail() const { return empty_detail_; }
@@ -73,7 +73,7 @@ public:
         if (dispose_) dispose_(std::move(previous));
         if (focused_ && !model_.view()->source()->find(*focused_)) focused_.reset();
         scroll_to(offset_);
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
         notify_view();
     }
     void set_filter(std::wstring filter) {
@@ -81,7 +81,7 @@ public:
         model_.set_filter(std::move(filter));
         if (dispose_) dispose_(std::move(previous));
         offset_ = 0;
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
         notify_view();
     }
     void set_view(std::shared_ptr<const FilteredView> view) {
@@ -92,12 +92,12 @@ public:
         if (dispose_) dispose_(std::move(previous));
         if (focused_ && !model_.view()->source()->find(*focused_)) focused_.reset();
         scroll_to(changed_query ? 0 : offset_);
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
         notify_view();
     }
     void scroll_to(float offset) {
         offset_ = clamp_scroll(model_.visible_indices().size(), row_height(), offset, content_height());
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
     }
     void reveal(size_t index) {
         scroll_to(reveal_row(index, row_height(), offset(), content_height()));
@@ -106,23 +106,23 @@ public:
         model_.select_index(index);
         focused_ = model_.selected_id();
         if (ensure_visible) reveal(index);
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
         notify_selection();
     }
     void clear_selection() {
         model_.clear_selection();
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
         notify_selection();
     }
     void focus_item(size_t index) {
         if (index >= model_.visible_indices().size()) throw std::out_of_range("Invalid focus row");
         focused_ = (*model_.items())[model_.visible_indices()[index]].id;
         reveal(index);
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
     }
     void focus_list() {
         focused_.reset();
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
     }
     void restore_state(std::optional<ItemId> selected, std::optional<ItemId> focused, float offset) {
         model_.selected_ = selected && model_.view()->source()->find(*selected) ? selected : std::nullopt;
@@ -145,7 +145,7 @@ public:
         }
         focused_ = model_.selected_id();
         if (const auto selected = model_.selected_index()) reveal(*selected);
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
         notify_selection();
     }
 protected:

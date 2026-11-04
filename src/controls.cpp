@@ -14,7 +14,7 @@ void PageView::add_page(std::shared_ptr<Element> content) { add(std::make_shared
 void PageView::select(std::size_t index) {
     if (index >= child_count()) throw std::out_of_range("Page index");
     if (selected_ == index) return;
-    selected_ = index; invalidate(Invalidation::layout);
+    selected_ = index; invalidate(Invalidation::topology);
 }
 Size PageView::measure(Size available) {
     if (!auto_size()) return Element::measure(available);
@@ -73,7 +73,7 @@ void Control::set_name(std::wstring name) {
 void Control::set_help_text(std::wstring value) {
     if (help_text_ == value) return;
     help_text_ = std::move(value);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::accessibility);
 }
 void Control::set_tooltip_delay(unsigned value) {
     if (value < 100 || value > 60000) throw std::invalid_argument("Tooltip delay must be 100 to 60000 milliseconds");
@@ -87,14 +87,17 @@ bool Control::actionable() const {
 }
 void Control::text_changed() {
     text_dirty_ = true;
-    invalidate(auto_size() ? Invalidation::layout : Invalidation::paint);
+    invalidate(auto_size() ? Invalidation::layout : Invalidation::state);
 }
 void Control::control_style_changed(Invalidation kind) {
     if (kind == Invalidation::layout) {
         text_dirty_ = true;
         presentation_changed();
     }
-    invalidate(kind);
+    const bool native_color = role_ == ControlRole::text_input || role_ == ControlRole::document_text ||
+        role_ == ControlRole::password_input || role_ == ControlRole::date_time ||
+        role_ == ControlRole::numeric_input || role_ == ControlRole::combo_box;
+    invalidate(kind == Invalidation::paint && native_color ? Invalidation::native : kind);
 }
 void Control::set_text_measurer(TextMeasurer measurer) {
     measurer_ = std::move(measurer);
@@ -176,7 +179,7 @@ void TextInput::set_shortcut_hint(std::wstring value) {
     const auto* shortcut = effective_control_style_values(StylePart::shortcut);
     const bool styled_metrics = shortcut && shortcut->font_size;
     shortcut_ = std::move(value);
-    invalidate(styled_metrics ? Invalidation::layout : Invalidation::paint);
+    invalidate(styled_metrics ? Invalidation::layout : Invalidation::native);
 }
 
 void Label::set_wrapping(bool value, std::size_t maximum_lines) {
@@ -387,7 +390,7 @@ void Button::set_behavior(ButtonBehavior value) {
         throw std::invalid_argument("Invalid button behavior");
     if (behavior_ == value) return;
     cancel(); behavior_ = value;
-    invalidate(visual_style() == VisualStyle::winui && auto_size() ? Invalidation::layout : Invalidation::paint);
+    invalidate(visual_style() == VisualStyle::winui && auto_size() ? Invalidation::layout : Invalidation::state);
 }
 void Button::set_appearance(ButtonAppearance value) {
     if (value < ButtonAppearance::standard || value > ButtonAppearance::subtle)
@@ -402,7 +405,7 @@ void Button::set_checked(bool value) {
     invalidate_state();
 }
 void Control::invalidate_state() {
-    if (!invalidate_control_style_state()) invalidate(Invalidation::paint);
+    if (!invalidate_control_style_state(Invalidation::state)) invalidate(Invalidation::state);
 }
 StyleStateMask Control::control_style_state_bits() const {
     return (focused() ? style_states::focused : 0) | (hovered() ? style_states::hovered : 0) |
@@ -671,7 +674,7 @@ Size Toggle::measure(Size available) {
 void TextInput::set_text(std::wstring text) {
     ++suggestion_revision_;
     assign_text(std::move(text));
-    if (suggestions_) invalidate(Invalidation::paint);
+    if (suggestions_) invalidate(Invalidation::state);
 }
 TextInput::Selection TextInput::normalize_selection(std::wstring_view text, Selection value) {
     value.start = std::min(value.start, text.size());
@@ -720,7 +723,7 @@ void TextInput::assign_text(std::wstring text) {
 void TextInput::set_maximum_length(std::size_t value) {
     maximum_length_ = std::clamp<std::size_t>(value, 1, 32767);
     set_text(text_);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 
 TabStrip::TabStrip(std::wstring name) : Control(ControlRole::tab_strip, std::move(name), {320, 38}),
@@ -877,7 +880,7 @@ void TabStrip::set_tabs(std::vector<TabItem> tabs, std::optional<std::uint64_t> 
         motion_started_ = Clock::now();
     }
     arrange_new_button();
-    invalidate(animating() ? Invalidation::placement : new_button_visible_ ? Invalidation::layout : Invalidation::paint);
+    invalidate(animating() ? Invalidation::placement : new_button_visible_ ? Invalidation::layout : Invalidation::state);
 }
 bool TabStrip::select(std::uint64_t id) {
     if (!enabled() || std::none_of(tabs_.begin(), tabs_.end(), [&](const auto& tab) { return tab.id == id; })) return false;
@@ -888,7 +891,7 @@ bool TabStrip::select(std::uint64_t id) {
     reveal_selected();
     if (first_ != previous_first) start_scroll(previous_presented_first);
     arrange_new_button();
-    invalidate(animating() ? Invalidation::placement : new_button_visible_ ? Invalidation::layout : Invalidation::paint);
+    invalidate(animating() ? Invalidation::placement : new_button_visible_ ? Invalidation::layout : Invalidation::state);
     if (select_) { auto callback = select_; callback(id); }
     return true;
 }

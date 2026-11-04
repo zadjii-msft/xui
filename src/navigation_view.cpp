@@ -286,12 +286,12 @@ bool NavigationList::select(ItemKey key, SelectionGesture gesture) {
     if (owner_->duration() && gesture != SelectionGesture::focus_only &&
         source_->hierarchy(*row).group && source_->hierarchy(*row).expandable) {
         selection_.set_focus(key);
-        invalidate(Invalidation::paint);
+        invalidate(Invalidation::state);
         return owner_->navigate(key);
     }
     selection_.set_focus(key);
     reveal(key);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
     if (gesture == SelectionGesture::focus_only) return true;
     return owner_->navigate(key);
 }
@@ -323,7 +323,7 @@ bool NavigationList::disclose(ItemKey key, bool value) {
     if (!owner_ || !owner_->enabled() || !enabled() || !row ||
         !source_->item(*row).enabled || !source_->hierarchy(*row).expandable) return false;
     selection_.set_focus(key);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
     return owner_->set_item_expanded(key, value);
 }
 void NavigationList::horizontal(bool right, SelectionGesture gesture) {
@@ -365,7 +365,7 @@ void NavigationList::hover_item(std::optional<ItemKey> key) {
     hover_requested_ = false;
     const auto row = key && source_ ? source_->find(*key) : std::nullopt;
     set_help_text(row ? source_->item(*row).primary : L"");
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
     auto callback = owner_ ? owner_->hover_changed_ : nullptr;
     if (callback) callback(key);
 }
@@ -499,8 +499,8 @@ bool NavigationView::set_item_image(ItemKey key, std::wstring path) {
         images_->paths.at(key) = path;
     }
     entries_[entry->second].image_path = std::move(path);
-    for (const auto& list : {header_, main_, footer_}) list->invalidate(Invalidation::paint);
-    invalidate(Invalidation::paint);
+    for (const auto& list : {header_, main_, footer_}) list->invalidate(Invalidation::state);
+    invalidate(Invalidation::state);
     return true;
 }
 void NavigationView::rebuild(std::optional<ItemKey> transition) {

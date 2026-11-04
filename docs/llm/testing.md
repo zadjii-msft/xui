@@ -3,6 +3,16 @@
 This reference describes regression scope and measurement methods.
 Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry points.
 
+## Targeted invalidation
+
+`tests\dirty_work_tests.cpp` is a required headless/lifetime test for origin-safe
+propagation, weak-ancestor destruction, coalescing and captured-pass ordering.
+`tests\dirty_work_window_tests.cpp` checks real EDIT/UIA work isolation, new
+dirtiness raised during synchronization/measurement, content replacement, lazy
+pages, themes and closure. Its explicit `--measure` selector reports three
+fixed property-synchronization workloads, not graphics or foreground latency.
+See [the stage-4 source map and evidence](stage4-targeted-invalidation.md).
+
 ## Complete host-family boundary
 
 `tests\control_host_tests.cpp` is a required headless/lifetime test for the completed

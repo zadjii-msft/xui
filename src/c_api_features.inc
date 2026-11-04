@@ -207,7 +207,7 @@ xui_status XUI_CALL xui_context_menu_bind(xui_handle target, xui_callback callba
         require(!node->menu_requesting, XUI_BUSY, "Cannot replace a context menu during its request.");
         node->menu_callback = callback; node->menu_context = context;
         node->menu_items.clear(); node->menu_shell_paths.clear(); node->menu_current = {}; ++node->menu_revision;
-        control(node).invalidate(xui::Invalidation::paint);
+        control(node).invalidate(xui::Invalidation::state);
         if (!callback) { control(node).on_context_menu({}); return; }
         std::weak_ptr<Node> weak = node;
         control(node).on_context_menu_content([weak] {

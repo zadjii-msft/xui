@@ -175,7 +175,7 @@ void DataGrid::set_columns(std::vector<GridColumn> value) {
     focused_column_ = std::min(focused_column_, columns_.size() - 1);
     set_header_part(header_part_);
     set_offset(offset_, horizontal_);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 std::optional<std::size_t> DataGrid::display_column(std::size_t source_column) const {
     const auto it = std::find(column_order_.begin(), column_order_.end(), source_column);
@@ -197,7 +197,7 @@ void DataGrid::set_column_order(std::vector<std::size_t> order) {
     column_order_ = std::move(order);
     focused_column_ = *display_column(focused);
     set_offset(offset_, horizontal_);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 bool DataGrid::reorder_column(std::size_t from, std::size_t to) {
     if (from >= columns_.size() || to >= columns_.size()) return false;
@@ -217,7 +217,7 @@ void DataGrid::set_source(std::shared_ptr<const GridSource> value) {
     source_ = std::move(value);
     // Keep the old identity even when filtered out; actions require a visible match.
     set_offset(offset_, horizontal_);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 bool DataGrid::select(RowKey key, bool reveal) {
     return select(key, SelectionGesture::replace, reveal);
@@ -231,7 +231,7 @@ bool DataGrid::select(RowKey key, SelectionGesture gesture, bool reveal) {
     selection_.select(source_, key, gesture);
     header_focus_ = false;
     if (reveal) reveal_selection();
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
     if ((changed || !(*before == selection_)) && select_callback_) { auto callback = select_callback_; callback(); }
     return true;
 }
@@ -240,7 +240,7 @@ void DataGrid::clear_selection() {
     if (!selected_ && selection_.empty()) return;
     selected_.reset();
     selection_.clear(); selection_.set_focus({});
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
     if (select_callback_) { auto callback = select_callback_; callback(); }
 }
 void DataGrid::step(int delta, SelectionGesture gesture) {
@@ -258,7 +258,7 @@ void DataGrid::activate_selected() {
 }
 void DataGrid::set_sort(std::size_t column, bool descending) {
     if (column >= columns_.size()) return;
-    sort_ = column; descending_ = descending; invalidate(Invalidation::paint);
+    sort_ = column; descending_ = descending; invalidate(Invalidation::state);
 }
 void DataGrid::sort(std::size_t column) {
     const auto display = display_column(column);
@@ -268,15 +268,15 @@ void DataGrid::sort(std::size_t column) {
 }
 void DataGrid::set_selection(CollectionSelection value) {
     if (file_press_key_ && file_press_key_ != value.focused()) end_file_press(false);
-    selection_ = std::move(value); selected_ = selection_.focused(); invalidate(Invalidation::paint);
+    selection_ = std::move(value); selected_ = selection_.focused(); invalidate(Invalidation::state);
 }
 void DataGrid::select_all() {
     if (!enabled() || !source_) return;
     selection_.select_all(source_, scope_, full_source_);
-    invalidate(Invalidation::paint); auto callback = select_callback_; if (callback) callback();
+    invalidate(Invalidation::state); auto callback = select_callback_; if (callback) callback();
 }
 void DataGrid::set_checked(RowKey key, bool value) {
-    selection_.set(key, value); invalidate(Invalidation::paint);
+    selection_.set(key, value); invalidate(Invalidation::state);
 }
 void DataGrid::toggle_check(std::optional<RowKey> key) {
     if (!enabled() || !source_) return;
@@ -288,21 +288,21 @@ void DataGrid::toggle_check(std::optional<RowKey> key) {
         if (check_state() == SelectionState::all) selection_.clear();
         else { select_all(); return; }
     }
-    invalidate(Invalidation::paint); auto callback = select_callback_; if (callback) callback();
+    invalidate(Invalidation::state); auto callback = select_callback_; if (callback) callback();
 }
 void DataGrid::set_filter(std::size_t column, std::wstring text) {
     const auto display = display_column(column);
     if (!display || !columns_[*display].filterable || text.size() > 4096) throw std::invalid_argument("Invalid grid filter");
     if (filters_[column] == text) return;
     filter_stop_.request_stop(); filter_pending_ = false; ++filter_generation_;
-    filters_[column] = std::move(text); invalidate(Invalidation::paint);
+    filters_[column] = std::move(text); invalidate(Invalidation::state);
 }
 void DataGrid::filter(std::size_t column, std::wstring text) {
     if (!enabled()) return;
     set_filter(column, std::move(text));
     filter_stop_.request_stop(); filter_stop_ = std::stop_source{};
     const GridFilterRequest request{++filter_generation_, column, filters_, filter_stop_.get_token()};
-    filter_pending_ = true; filter_column_ = column; invalidate(Invalidation::paint);
+    filter_pending_ = true; filter_column_ = column; invalidate(Invalidation::state);
     auto callback = filter_callback_;
     if (callback) {
         try { callback(request); } catch (...) { cancel(); throw; }
@@ -315,13 +315,13 @@ void DataGrid::open_filter(std::size_t column) {
 }
 bool DataGrid::complete_filter(GridFilterRequest request, std::shared_ptr<const GridSource> source) {
     if (!filter_pending_ || request.generation != filter_generation_ || request.cancellation != filter_stop_.get_token() || request.cancellation.stop_requested()) return false;
-    filter_pending_ = false; set_source(std::move(source)); invalidate(Invalidation::paint); return true;
+    filter_pending_ = false; set_source(std::move(source)); invalidate(Invalidation::state); return true;
 }
 void DataGrid::cancel() {
     end_file_press(false);
     hover_pointer({});
     Control::cancel(); filter_stop_.request_stop(); ++filter_generation_;
-    if (filter_pending_) { filter_pending_ = false; invalidate(Invalidation::paint); }
+    if (filter_pending_) { filter_pending_ = false; invalidate(Invalidation::state); }
 }
 Rect DataGrid::header_part_bounds(std::size_t column, GridHeaderPart part) const {
     const auto display = display_column(column); if (!display) return {};
@@ -338,7 +338,7 @@ GridHeaderPart DataGrid::header_part_at(float x) const {
 void DataGrid::set_header_part(GridHeaderPart part) {
     if (columns_.empty() || !header_part_bounds(source_column(focused_column_), part).width) part = GridHeaderPart::sort;
     if (header_part_ == part) return;
-    header_part_ = part; invalidate(Invalidation::paint);
+    header_part_ = part; invalidate(Invalidation::state);
 }
 float DataGrid::content_width() const { float width{}; for (const auto& c : columns_) width += c.width; return width; }
 float DataGrid::viewport_width() const { return geometry().viewport_width(); }
@@ -349,7 +349,7 @@ void DataGrid::set_offset(double vertical, double horizontal) {
     const auto y = std::clamp(std::isfinite(vertical) ? vertical : 0, 0.0, maximum_offset());
     const auto x = std::clamp(std::isfinite(horizontal) ? horizontal : 0, 0.0, maximum_horizontal());
     if (y == offset_ && x == horizontal_) return;
-    offset_ = y; horizontal_ = x; invalidate(Invalidation::paint);
+    offset_ = y; horizontal_ = x; invalidate(Invalidation::state);
 }
 void DataGrid::arrange(Rect rect) { Control::arrange(rect); set_offset(offset_, horizontal_); }
 std::pair<std::size_t, std::size_t> DataGrid::visible_rows() const {
@@ -430,9 +430,9 @@ void DataGrid::set_column_width(std::size_t column, float width) {
         throw std::invalid_argument("Invalid grid column width");
     if (columns_[column].width == width) return;
     columns_[column].width = width;
-    set_offset(offset_, horizontal_); invalidate(Invalidation::paint);
+    set_offset(offset_, horizontal_); invalidate(Invalidation::state);
 }
-void DataGrid::focus_header(bool value) { header_focus_ = value; invalidate(Invalidation::paint); }
+void DataGrid::focus_header(bool value) { header_focus_ = value; invalidate(Invalidation::state); }
 void DataGrid::step_header(int delta) {
     if (columns_.empty()) return;
     focused_column_ = static_cast<std::size_t>(std::clamp(static_cast<int>(focused_column_) + delta, 0, static_cast<int>(columns_.size() - 1)));
@@ -440,7 +440,7 @@ void DataGrid::step_header(int delta) {
     float left{}; for (std::size_t i = 0; i < focused_column_; ++i) left += columns_[i].width;
     set_offset(offset_, left < horizontal_ ? left : left + columns_[focused_column_].width > horizontal_ + viewport_width() ?
         left + columns_[focused_column_].width - viewport_width() : horizontal_);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 HistoryChart::HistoryChart(std::wstring name) : Control(ControlRole::history_chart, std::move(name), {400, 160}) {}
 std::optional<StyleTarget> HistoryChart::control_style_target() const { return StyleTarget::history_chart; }

@@ -15,7 +15,7 @@ void behavior() {
     int clicks{}, changes{}, paints{}, layouts{};
     button.on_click([&] { ++clicks; });
     button.set_invalidator([&](Invalidation kind) {
-        if (kind == Invalidation::paint) ++paints;
+        if (kind == Invalidation::paint || kind == Invalidation::state) ++paints;
         else ++layouts;
     });
     require(!button.pointer_down(), "Pointer outside cannot capture");
@@ -64,7 +64,7 @@ void behavior() {
     button.set_name(L"Save");
     require(paints == before, "No-op property causes no invalidation");
     button.set_name(L"Saved");
-    require(paints == before + 1 && layouts == 0, "Fixed-size caption update only repaints");
+    require(paints == before + 1 && layouts == 0, "Fixed-size caption update requests local state and paint, not layout");
     button.set_preferred_size({120, 50});
     require(layouts == 1, "Size update requests layout");
 }

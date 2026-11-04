@@ -79,7 +79,7 @@ LRESULT NativeDateTimeBridge::notify(const NMHDR& notification) {
     }
     if (next < model->minimum() || next > model->maximum()) {
         revision_ = 0;
-        model->invalidate(Invalidation::paint);
+        model->invalidate(Invalidation::state);
     } else {
         const std::weak_ptr<bool> lifetime = lifetime_;
         model->change_value(next);

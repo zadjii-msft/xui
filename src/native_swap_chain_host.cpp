@@ -182,7 +182,7 @@ void SwapChainPanel::set_swap_chain(IDXGISwapChain* swap_chain) {
         state.chain = next_chain;
         state.set_handle(nullptr);
     }
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 void SwapChainPanel::set_swap_chain_handle(HANDLE surface) {
     auto& state = *state_;
@@ -214,7 +214,7 @@ void SwapChainPanel::set_swap_chain_handle(HANDLE surface) {
         if (duplicate && duplicate != state.handle) CloseHandle(duplicate);
         throw;
     }
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 bool SwapChainPanel::has_content() const { return state_->has_producer(); }
 const SwapChainPanelMetrics& SwapChainPanel::metrics() const { return state_->metrics; }

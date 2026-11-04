@@ -23,7 +23,9 @@ void defaults_and_frames(VisualStyle style) {
     require(progress.presented_value() == 20 && progress.presented_fraction() == 0.2,
         "Default presentation keeps the original value and fraction");
     unsigned paints{}, other{};
-    progress.set_invalidator([&](Invalidation kind) { if (kind == Invalidation::paint) ++paints; else ++other; });
+    progress.set_invalidator([&](Invalidation kind) {
+        if (kind == Invalidation::paint || kind == Invalidation::state) ++paints; else ++other;
+    });
     progress.set_duration(10000);
     require(paints == 0 && other == 0, "Enabling motion does not start idle work");
     const auto before = Animation::Clock::now();

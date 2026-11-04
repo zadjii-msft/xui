@@ -337,8 +337,8 @@ Writing this plan does not complete any runtime finding.
 | 0 | `architecture-refactor-roadmap` | Merged: [#57](https://github.com/zadjii-msft/xui/pull/57); accepted `b00835a76d10d0188722f25551b6c375e66e4a30`, squash `3f86e085aad8ac36445a47061e1f7640da407fb6` | None | Records all seven findings and the complete rollout |
 | 1 | `baseline-gates` | Verified merged: [#58](https://github.com/zadjii-msft/xui/pull/58); accepted `dce6ae447cc566816b32653fe3dd43de5fb9432a`, squash `8fdc2269a065837737b1dc5dcc0962a574ce10cd`; recorded desktop/timing limits remain unresolved | 0 | Establishes evidence and ordinary PR protection for every later stage |
 | 2 | `child-contract` | Verified merged: [#59](https://github.com/zadjii-msft/xui/pull/59); accepted `38f377f4cea2e4632421c4871616dd54501045b4`, squash `a3f112c9293d41998276f3e97e03e6f1f4b1ffd2`; recorded timing/native limits remain unresolved | 1 | Finding 3: owned children and separate traversal policies |
-| 3 | `host-boundaries` | 3a merged; remaining families implemented directly in [#61](https://github.com/zadjii-msft/xui/pull/61) per October 22 maintainer direction; review/acceptance pending; [source map and limits](stage3-host-boundaries.md) | 2 | Finding 1: family peers and family-specific peer/UIA state |
-| 4 | `dirty-work` | Not started | 3, including all approved subdivisions | Finding 2: originating identity and targeted ordered work |
+| 3 | `host-boundaries` | 3a merged; remaining families merged in [#61](https://github.com/zadjii-msft/xui/pull/61), head `993bdcd7`, squash `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b`; [recorded limits](stage3-host-boundaries.md) remain | 2 | Finding 1: family peers and family-specific peer/UIA state |
+| 4 | `dirty-work` | Implemented directly per November 3 request; [#62](https://github.com/zadjii-msft/xui/pull/62) open for review; [source map and evidence](stage4-targeted-invalidation.md) | Merged #61, `c0173871` | Finding 2: originating identity and targeted ordered work |
 | 5 | `callback-ownership` | Not started | 4 | Finding 4: composition/observation separation and scoped retirement |
 | 6 | `contract-metadata` | Not started | 5 | Finding 5: authoritative contracts, adapters, compiler/reload rules |
 | 7 | `legacy-file-list` | Not started | 6 | Finding 6: foundation isolation and shared algorithms |
@@ -640,7 +640,8 @@ families have concrete owners, not another universal aggregate beneath behavior 
 | 3e | Navigation/Miller containers, Breadcrumb/PathBar, tabs/titlebar/menu-bar and command-surface/palette/location coordination, artwork and family UIA. Shared NavigationList/MillerColumnList/CommandMenu row engines remain in 3a; native fields use 3b. Cross-window tab move loop, focus/modal/popup coordination and scheduling remain window-owned. | Consolidated with 3b | Implemented by `NavigationHostPeer` and closed window services; review pending |
 | 3f | Generic content_view, ContentView/ContentHost, Popup/ContentDialog, ScrollView translation, SplitView, Reveal/Expander and Stack/PageView/Wrap/Grid/AdaptiveLayout host integration; owned-child/active/native/UIA policy separation, deferred realization, clipping, animation and replacement. Eliminate UnextractedPeer. Window still owns topology, shared frame/placement batching and lifetime barriers. | Consolidated with 3b | Implemented by `CompositeHostPeer` and existing window ownership transactions; `UnextractedPeer` eliminated; review pending |
 
-Stage 4 is explicitly deferred and remains blocked until **all six** rows are accepted and merged. Stage 7's legacy
+Stage 4 was authorized on November 3 after merged #61 completed the remaining
+family partition. Previously recorded acceptance limits remain explicit. Stage 7's legacy
 file-list foundational isolation is not part of 3a's Windows adapter extraction.
 
 ### Stage 4: Origin-aware targeted dirty work
@@ -657,6 +658,13 @@ replacement/removal/closure never leaves stale identity work.
 Desktop checks preserve focus, IME/caret/selection/undo and necessary UIA events.
 Repeated old/new comparisons report actual traversal, snapshot, allocation, and latency deltas,
 including scroll-only, large-source, and callback-driven cases; no speedup is assumed.
+
+**Implementation:** origin-bearing notifications, explicit topology and native/UIA/
+paint work, captured/pending dirty buffers, scoped family synchronization and
+conservative global geometry/visibility/theme handling are implemented directly.
+The [stage-4 companion](stage4-targeted-invalidation.md) records exact native work
+checks, reentrancy/lifetime coverage and separate fixed baseline comparisons.
+Only this stage is authorized; stage 5 and later remain untouched.
 
 ### Stage 5: Callback ownership and scoped lifetime
 

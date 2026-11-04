@@ -55,7 +55,7 @@ void MillerColumnList::replace(const MillerColumn& column) {
     reveal_selection_ = column.selected && (changed_source || !old_selected || old_selected->size() != 1 ||
         old_selected->front() != *column.selected);
     set_offset(offset());
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
 }
 void MillerColumnList::arrange(Rect value) {
     if (value.x != bounds().x || value.y != bounds().y || value.width != bounds().width || value.height != bounds().height)
@@ -90,7 +90,7 @@ bool MillerColumnList::prepare_context_menu(std::optional<Point> point) {
     owner_->columns_[index_].selected = key;
     selection_.select(source_, *key, SelectionGesture::replace);
     reveal(*key);
-    invalidate(Invalidation::paint);
+    invalidate(Invalidation::state);
     return true;
 }
 void MillerColumnList::step(int delta, SelectionGesture gesture) {
@@ -177,7 +177,7 @@ void MillerColumns::set_columns(std::vector<MillerColumn> value) {
         if (columns_.empty()) pending_reveal_.reset();
         else if (pending_reveal_) pending_reveal_ = std::min(*pending_reveal_, columns_.size() - 1);
     }
-    layout(); invalidate(Invalidation::layout);
+    layout(); invalidate(Invalidation::topology);
 }
 std::shared_ptr<MillerColumnList> MillerColumns::column_list(std::size_t index) const {
     if (index >= maximum_columns) throw std::invalid_argument("Column index is out of range");
@@ -285,7 +285,7 @@ bool MillerColumns::select_item(std::size_t index, ItemKey key, SelectionGesture
     list.selection_.select(list.source_, key, gesture == SelectionGesture::focus_only ?
         SelectionGesture::focus_only : SelectionGesture::replace);
     if (gesture != SelectionGesture::focus_only) columns_[index].selected = key;
-    list.reveal(key); list.invalidate(Invalidation::paint);
+    list.reveal(key); list.invalidate(Invalidation::state);
     auto callback = selection_;
     if (changed && callback) callback(index, key);
     return true;

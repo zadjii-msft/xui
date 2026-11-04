@@ -103,7 +103,7 @@ struct Fixture final : PeerHostServices, NativeFieldServices {
     }
     void collect_text_clear(TextInputHostPeer&) override { std::terminate(); }
     void activate_text_clear(std::uint64_t) override { std::terminate(); }
-    void invalidate_native_field(Invalidation) override {}
+    void invalidate_native_field(InvalidationEvent) override {}
 };
 void partial_attachment() {
     Fixture fixture;

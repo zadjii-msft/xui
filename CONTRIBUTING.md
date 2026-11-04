@@ -1095,6 +1095,30 @@ separate evidence. Position notifications with NOMOVE/NOSIZE are retained, not
 misreported as actual outer moves. This is not physical IME/Narrator/foreground
 latency or complete private-memory attribution.
 
+### Targeted invalidation checks
+
+The ordinary gate requires `xui_dirty_work_tests` and at least 52 headless/five
+lifetime registrations. Configure desktop tests ON to build the real-host fixture:
+
+```powershell
+cmake --build $build --config Release --target xui_dirty_work_window_tests
+& ".\$build\Release\xui_dirty_work_window_tests.exe"
+```
+
+Its default mode checks work/identity/lifetime without reporting timing results.
+Unknown selectors exit 2 before work. `--measure` explicitly performs three
+2,048-edit phases over 134 retained peers and reports wall/owning-thread CPU,
+ordinary C++ allocations, native messages and resource/work counters.
+Run comparative measurements serially with separate immutable merged-baseline and
+candidate libraries, the same fixture/resource/runtime/toolchain, full LTCG and
+the [baseline/candidate protocol](#baselinecandidate-acceptance-protocol).
+Only a baseline probe built with `XUI_DIRTY_WORK_BASELINE` may omit assertions for
+the new targeting counters; iterations and real effects must remain identical.
+The fixture uses its own HWNDs, does not inject global input or mutate the clipboard,
+and can run on an unswitched owned desktop. This is not physical IME/Narrator,
+foreground latency or repeated-frame graphics acceptance.
+See [the source map and retained evidence](docs/llm/stage4-targeted-invalidation.md).
+
 ### Collection-family host checks
 
 The ordinary gate includes `xui_family_accessibility_tests` and
@@ -1102,8 +1126,9 @@ The ordinary gate includes `xui_family_accessibility_tests` and
 and ten source/full-source/nonempty-selection release cases. The retirement test uses
 another thread's bounded `try_lock`, not same-owner mutex behavior. Unknown selectors
 and incomplete coverage fail explicitly. Both tests are required by name, with at
-least 51 headless and four lifetime registrations, including the required
-`xui_native_field_accessibility_tests` and `xui_control_host_tests`; the core minimum remains 37.
+least 52 headless and five lifetime registrations, including the required
+`xui_native_field_accessibility_tests`, `xui_control_host_tests` and
+`xui_dirty_work_tests`; the core minimum remains 37.
 
 Build the native probe and focused collection fixtures in a separate Release directory:
 
