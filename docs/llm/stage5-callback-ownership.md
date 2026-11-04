@@ -57,13 +57,10 @@ registration when no captured copy needs the old one.
 
 Scopes use intrusive registration links rather than a vector of weak pointers.
 Composition snapshots use non-atomic, UI-thread reference counts and retain the
-callable itself instead of copying its captures for each dispatch. Small,
-nothrow-copyable public observers use `std::function` inline storage; larger
-or already type-erased observers retain an immutable callable through an inline
-reference-counted adapter. Templated observer setters preserve the concrete
-callable until that storage choice, while the existing empty/`std::function`
-overloads remain available. Neither path allocates during warmed dispatch.
-An explicit
+callable itself instead of copying its captures for each dispatch. Public
+observers retain their immutable callable through a non-atomic reference-counted
+record. An event without an observer captures only the composition registration,
+not an empty observer slot and a second Callback wrapper. An explicit
 in-flight count prevents retirement from destroying the executing callable when
 its owner releases the last non-dispatch reference. Current-identity predicates
 run only while their composition is still active; ungated retained-child

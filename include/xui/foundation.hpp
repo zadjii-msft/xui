@@ -28,8 +28,6 @@ public:
     void on_preview(std::function<void(double)> callback) { preview_callback_ = std::move(callback); }
     const std::function<void(double)>& preview_callback() const { return preview_callback_; }
     void on_change(std::function<void(double)> callback) { change_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void(double)>, F>
-    void on_change(F&& callback) { change_ = std::forward<F>(callback); }
     const std::function<void(double)>& change_callback() const { return change_.observer(); }
     void on_cancel(std::function<void(double)> callback) { cancel_callback_ = std::move(callback); }
     const std::function<void(double)>& cancel_callback() const { return cancel_callback_; }
@@ -75,12 +73,8 @@ public:
     bool step(int delta);
     bool type_ahead(std::wstring_view prefix);
     void on_change(std::function<void(std::uint64_t)> callback) { change_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void(std::uint64_t)>, F>
-    void on_change(F&& callback) { change_ = std::forward<F>(callback); }
     const std::function<void(std::uint64_t)>& change_callback() const { return change_.observer(); }
     void on_accept(std::function<void(std::uint64_t)> callback) { accept_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void(std::uint64_t)>, F>
-    void on_accept(F&& callback) { accept_ = std::forward<F>(callback); }
     bool accept();
     Rect item_bounds(std::size_t index) const;
     std::optional<Rect> selected_item_bounds() const;
@@ -231,8 +225,6 @@ public:
     Rect field_bounds() const;
     Rect header_bounds() const;
     void on_change(std::function<void(double)> callback) { change_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void(double)>, F>
-    void on_change(F&& callback) { change_ = std::forward<F>(callback); }
     const std::function<void(double)>& change_callback() const { return change_.observer(); }
     bool step(int direction);
     bool change_value(double value);

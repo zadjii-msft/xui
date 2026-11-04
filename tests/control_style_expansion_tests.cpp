@@ -351,17 +351,6 @@ void abi_callback_storage() {
     CallbackScope scope;
     Callback<void()> callback;
     unsigned composition{}, observation{};
-    {
-        Probe probe;
-        auto* first = &composition;
-        auto* second = &observation;
-        callback = [first, second, increment = std::size_t{0}] { *first += increment; *second += increment; };
-        auto snapshot = callback;
-        snapshot();
-        callback = std::function<void()>{};
-        require(allocation_probe::calls == 0 && allocation_probe::bytes == 0,
-            "Small nothrow observer registration, snapshots and removal use inline storage");
-    }
     callback.compose(scope, [&] { ++composition; });
     callback = [&] { ++observation; };
     {

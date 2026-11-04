@@ -74,8 +74,6 @@ public:
     // Backend state transition. Applications request focus through Window::focus.
     void set_focused(bool focused);
     void on_focus(std::function<void()> callback) { focus_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void()>, F>
-    void on_focus(F&& callback) { focus_ = std::forward<F>(callback); }
     bool hovered() const { return hovered_; }
     bool pressed() const { return pointer_ ? hovered_ : keyboard_; }
     bool captured() const { return pointer_; }
@@ -203,8 +201,6 @@ class Button : public Control {
 public:
     explicit Button(std::wstring text) : Control(ControlRole::button, std::move(text), {240, 40}) { set_auto_size(true); }
     void on_click(std::function<void()> callback) { click_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void()>, F>
-    void on_click(F&& callback) { click_ = std::forward<F>(callback); }
     const detail::Callback<void()>& click_callback() const { return click_; }
     ButtonBehavior behavior() const { return behavior_; }
     void set_behavior(ButtonBehavior value);
@@ -213,8 +209,6 @@ public:
     bool checked() const { return checked_; }
     void set_checked(bool value);
     void on_toggle(std::function<void(bool)> callback) { toggle_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void(bool)>, F>
-    void on_toggle(F&& callback) { toggle_ = std::forward<F>(callback); }
     unsigned repeat_delay() const { return repeat_delay_; }
     unsigned repeat_interval() const { return repeat_interval_; }
     void set_repeat_timing(unsigned delay, unsigned interval);
@@ -410,8 +404,6 @@ public:
     void set_maximum_length(std::size_t value);
     std::size_t maximum_length() const { return maximum_length_; }
     void on_change(std::function<void(const std::wstring&)> callback) { change_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void(const std::wstring&)>, F>
-    void on_change(F&& callback) { change_ = std::forward<F>(callback); }
     const std::function<void(const std::wstring&)>& change_callback() const { return change_.observer(); }
     // Backend boundary: publish committed native text, not IME preedit text.
     void commit_text(std::wstring text);
@@ -428,8 +420,6 @@ public:
     const std::wstring& shortcut_hint() const { return shortcut_; }
     void set_shortcut_hint(std::wstring value);
     void on_submit(std::function<void()> callback) { submit_ = std::move(callback); }
-    template<class F> requires std::is_constructible_v<std::function<void()>, F>
-    void on_submit(F&& callback) { submit_ = std::forward<F>(callback); }
     const std::function<void()>& submit_callback() const { return submit_.observer(); }
     void submit() { submit_(); }
     void set_suggestions(std::shared_ptr<SuggestionSource> source) {

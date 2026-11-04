@@ -3,7 +3,6 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
-#include <type_traits>
 #include <utility>
 
 namespace xui::detail {
@@ -71,34 +70,16 @@ template<class... Args> class Callback<void(Args...)> {
             std::function<void(Args...)> action;
             explicit Record(std::function<void(Args...)> value) : action(std::move(value)) {}
         };
-        struct Capture {
-            Record* value;
-            explicit Capture(Record* record) noexcept : value(record) {}
-            Capture(const Capture& other) noexcept : value(other.value) { ++value->references; }
-            Capture(Capture&& other) noexcept : value(std::exchange(other.value, nullptr)) {}
-            ~Capture() { if (value && --value->references == 0) delete value; }
-            void operator()(Args... args) const { value->action(args...); }
-        };
-        std::function<void(Args...)> value_;
+        Record* value_{};
     public:
         Observer() = default;
-        template<class F> requires (!std::is_same_v<std::decay_t<F>, Observer>)
-        explicit Observer(F&& value) {
-            using Value = std::decay_t<F>;
-            if constexpr (sizeof(Value) <= 3 * sizeof(void*) && alignof(Value) <= alignof(void*) &&
-                std::is_nothrow_copy_constructible_v<Value> &&
-                std::is_nothrow_move_constructible_v<Value>) {
-                value_ = std::forward<F>(value);
-            } else {
-                std::function<void(Args...)> action(std::forward<F>(value));
-                if (action) value_ = Capture(new Record(std::move(action)));
-            }
-        }
-        Observer(const Observer&) = default;
-        Observer(Observer&&) noexcept = default;
-        Observer& operator=(Observer other) noexcept { value_.swap(other.value_); return *this; }
-        explicit operator bool() const noexcept { return bool(value_); }
-        const std::function<void(Args...)>& operator*() const noexcept { return value_; }
+        explicit Observer(std::function<void(Args...)> value) : value_(new Record(std::move(value))) {}
+        Observer(const Observer& other) noexcept : value_(other.value_) { if (value_) ++value_->references; }
+        Observer(Observer&& other) noexcept : value_(std::exchange(other.value_, nullptr)) {}
+        Observer& operator=(Observer other) noexcept { std::swap(value_, other.value_); return *this; }
+        ~Observer() { if (value_ && --value_->references == 0) delete value_; }
+        explicit operator bool() const noexcept { return value_ != nullptr; }
+        const std::function<void(Args...)>& operator*() const noexcept { return value_->action; }
     };
     struct Composition final : CallbackRegistration {
         std::size_t references{1};
@@ -108,6 +89,11 @@ template<class... Args> class Callback<void(Args...)> {
         Composition(std::function<void(Args...)> value, std::function<bool(Args...)> current)
             : action(std::move(value)), observer_current(std::move(current)) {}
         ~Composition() override { detach(); }
+        struct Call {
+            Composition& owner;
+            explicit Call(Composition& value) : owner(value) { ++owner.dispatches; }
+            ~Call() { if (--owner.dispatches == 0 && !owner.active) owner.clear(); }
+        };
         void clear() noexcept {
             auto old_action = std::move(action);
             auto old_current = std::move(observer_current);
@@ -153,13 +139,6 @@ public:
         observer_ = std::move(next);
         return *this;
     }
-    template<class F> requires (!std::is_same_v<std::decay_t<F>, Callback> &&
-        !std::is_same_v<std::decay_t<F>, std::function<void(Args...)>> &&
-        std::is_constructible_v<std::function<void(Args...)>, F>)
-    Callback& operator=(F&& observer) {
-        observer_ = Observer(std::forward<F>(observer));
-        return *this;
-    }
     const std::function<void(Args...)>& observer() const noexcept {
         static const std::function<void(Args...)> empty;
         return observer_ ? *observer_ : empty;
@@ -194,6 +173,13 @@ public:
             if (observer) (*observer)(args...);
             return;
         }
+        if (!observer_) {
+            const auto registration = composition_;
+            if (!registration->active) return;
+            typename Composition::Call call(*registration);
+            if (registration->action) registration->action(args...);
+            return;
+        }
         auto snapshot = *this;
         std::move(snapshot)(args...);
     }
@@ -206,11 +192,7 @@ public:
             return;
         }
         // Keep the registration immutable through action and current-identity checking.
-        ++registration->dispatches;
-        struct Finish {
-            Composition& owner;
-            ~Finish() { if (--owner.dispatches == 0 && !owner.active) owner.clear(); }
-        } finish{*registration};
+        typename Composition::Call call(*registration);
         if (registration->action) registration->action(args...);
         if (observer && (!registration->observer_current ||
             (registration->active && registration->observer_current(args...)))) (*observer)(args...);
