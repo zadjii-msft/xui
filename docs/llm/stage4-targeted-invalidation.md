@@ -3,8 +3,8 @@
 ## Scope and source map
 
 This is stage 4 only, implemented directly without a child session.
-It is submitted in [#62](https://github.com/zadjii-msft/xui/pull/62), open for review,
-not merged.
+It merged in [#62](https://github.com/zadjii-msft/xui/pull/62) as
+`de9ee24ea4664f0f6d0fcaf87f573383086244da`. Its recorded evidence limits remain.
 The immediate baseline is merged stage 3:
 `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b`
 ([#61](https://github.com/zadjii-msft/xui/pull/61)).

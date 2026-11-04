@@ -1119,6 +1119,26 @@ and can run on an unswitched owned desktop. This is not physical IME/Narrator,
 foreground latency or repeated-frame graphics acceptance.
 See [the source map and retained evidence](docs/llm/stage4-targeted-invalidation.md).
 
+### Callback ownership checks
+
+The ordinary Framework gate requires `xui_callback_ownership_tests` and at least
+53 headless/six lifetime registrations. It also runs managed scoped-callback tests
+through the existing `Tests --headless` selection.
+
+```powershell
+cmake --build $build --config Release --target xui_callback_ownership_tests xui_control_style_expansion_tests
+ctest --test-dir $build -C Release -R "^xui_(callback_ownership|control_style_expansion|abi_features_headless)_tests$" --no-tests=error --output-on-failure -j 1
+dotnet run --project bindings\dotnet\Tests -c Release -p:XuiNativeDir="$build\Release" -- --headless
+```
+
+Test composition and public observers separately: replacement, removal, reentrant
+mutation, parent destruction, candidate rollback/commit/clear and callback failure.
+Native editing/lifetime comparisons still require the owned-desktop procedures,
+matching Release `/GL` and full `/LTCG`, and separate immutable baseline/candidate
+artifacts. Do not equate headless callback tests with physical IME or foreground
+latency acceptance. The [stage-5 source map](docs/llm/stage5-callback-ownership.md)
+records which scope owns composition, foreign subscriptions and managed roots.
+
 ### Collection-family host checks
 
 The ordinary gate includes `xui_family_accessibility_tests` and

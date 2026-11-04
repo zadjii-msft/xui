@@ -244,6 +244,12 @@ The scope stops further managed callbacks after the first exception.
 The error handler runs later on the UI thread and must clear or replace the failed content.
 Without this handler, callback exceptions keep the fatal-window contract.
 The scoped path covers control events, collection menus, file callbacks, Miller callbacks, and managed posted actions.
+Callback registrations belong to one window or content lifetime. Retirement
+prevents new delivery before releasing managed roots. A registration removed from
+inside its own callback releases its root only after that in-flight callback returns.
+Repeated removal/disposal does not release a root twice. A failed initial bind
+releases its newly allocated registration; a rejected replacement preserves the
+previous handler.
 Immutable-source queries and native failures retain the fatal-window contract.
 They cannot return fabricated data as an error substitute.
 
@@ -940,9 +946,18 @@ Child accessors do not change action visibility or expose an unsupported ColorPi
 
 The ABI extends `xui_feature_child` without changing existing indices.
 The public header lists each index and identifies the retained-only `XUI_RETAINED_ELEMENT` kind.
-Button and TextInput event subscriptions preserve the composition's original action, change, and submit callbacks.
-NumericInput, RadioGroup, RangeInput, and Popup subscriptions also preserve their original callbacks.
-Repeated subscriptions do not wrap the binding callbacks recursively.
+Composition and observation have separate slots. Button/TextInput/numeric/choice
+and range child subscriptions do not capture, wrap or replace the callbacks that
+make their enclosing composite work. Native subscriptions replace only their
+observer; C# events retain their usual multiple-handler semantics.
+Removing an observer leaves numeric parsing/stepping, editable ComboBox behavior,
+navigation-owned actions and Miller focus/selection intact.
+Miller parent selection precedes its child selection observer; path replacement
+can suppress a now-stale child event. Keyed command/breadcrumb notifications likewise
+check the current child after the action, without suppressing a completed action
+merely because that same child was disabled.
+Reentrant subscription changes affect the next delivery; existing callback-error,
+busy/thread and content-retirement rules remain in force.
 Style replacement and clearing preserve child-local values.
 
 The `.xui` compiler rejects facade-specific style declarations.
