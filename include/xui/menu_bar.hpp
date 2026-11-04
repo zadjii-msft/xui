@@ -58,6 +58,7 @@ private:
     std::vector<std::shared_ptr<Element>> children_;
     std::optional<CommandId> current_, expanded_;
     std::function<void(CommandId)> open_;
+    detail::CallbackScope composition_;
 };
 
 }

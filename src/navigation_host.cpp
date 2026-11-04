@@ -22,14 +22,14 @@ void NavigationHostPeer::attach(HWND parent, int id) {
     if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) {
         const std::weak_ptr<ControlHostServices> owner =
             std::static_pointer_cast<ControlHostServices>(host.acquire_owner_lease());
-        columns->on_focus_column([owner](const std::shared_ptr<VirtualCollection>& list) {
+        detail::CompositionAccess::focus(*columns, composition, [owner](const std::shared_ptr<VirtualCollection>& list) {
             if (const auto host = owner.lock()) host->focus_owned_control(*list);
         });
     }
 }
 void NavigationHostPeer::detach_owner() {
     if (row_images) row_images->clear();
-    if (auto* columns = dynamic_cast<MillerColumns*>(control.get())) columns->on_focus_column({});
+    composition.retire();
 }
 void NavigationHostPeer::cancel_input() {
     dragging = false;

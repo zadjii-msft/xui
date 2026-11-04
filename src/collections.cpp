@@ -471,7 +471,7 @@ PartStyleValues VirtualCollection::row_style_values(StylePart part, const Collec
 }
 void VirtualCollection::changed() {
     invalidate(Invalidation::state);
-    auto callback = change_; if (callback) callback();
+    auto callback = change_; if (callback) std::move(callback)();
 }
 void VirtualCollection::set_selection(CollectionSelection value) { selection_ = std::move(value); invalidate(Invalidation::state); }
 void VirtualCollection::set_source(std::shared_ptr<const ItemsSource> value, std::shared_ptr<const CollectionIndex> full,
@@ -548,7 +548,7 @@ void VirtualCollection::activate_item(ItemKey key, bool inline_action) {
     if (!enabled() || !index) return;
     const auto content = source_->item(*index);
     if (!content.enabled || (inline_action && content.action.empty())) return;
-    auto callback = inline_action ? action_ : activate_; if (callback) callback(key);
+    auto callback = inline_action ? action_ : activate_; if (callback) std::move(callback)(key);
 }
 void VirtualCollection::set_presentation(ItemsPresentation value) {
     if (value < ItemsPresentation::list || value > ItemsPresentation::gallery ||

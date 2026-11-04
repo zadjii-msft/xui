@@ -330,7 +330,7 @@ void Control::set_focused(bool focused) {
     focused_ = focused;
     if (!focused) cancel();
     invalidate_state();
-    if (focused && focus_) { auto callback = focus_; callback(); }
+    if (focused && focus_) { auto callback = focus_; std::move(callback)(); }
 }
 void Control::pointer_move(bool inside) {
     inside = inside && enabled_;
@@ -375,15 +375,15 @@ bool Control::invoke() {
     return true;
 }
 void Button::activate() {
-    const auto callback = click_;
-    const auto toggle = toggle_;
+    auto callback = click_;
+    auto toggle = toggle_;
     const bool checked = !checked_;
     if (behavior_ == ButtonBehavior::toggle) {
         set_checked(checked);
-        if (toggle) toggle(checked);
+        if (toggle) std::move(toggle)(checked);
         return;
     }
-    if (callback) callback();
+    if (callback) std::move(callback)();
 }
 void Button::set_behavior(ButtonBehavior value) {
     if (value < ButtonBehavior::momentary || value > ButtonBehavior::dropdown)
@@ -552,14 +552,14 @@ void Toggle::set_check_state(CheckState state) {
 }
 void Toggle::activate() {
     set_checked(!checked());
-    const auto callback = change_;
-    if (callback) callback(checked());
+    auto callback = change_;
+    if (callback) std::move(callback)(checked());
 }
 void CheckBox::activate() {
     set_state(state() == CheckState::unchecked ? CheckState::checked :
         state() == CheckState::checked && three_state_ ? CheckState::indeterminate : CheckState::unchecked);
-    const auto callback = change_;
-    if (callback) callback(state());
+    auto callback = change_;
+    if (callback) std::move(callback)(state());
 }
 void InfoBadge::set_count(std::uint32_t value) {
     if (kind_ == InfoBadgeKind::count && count_ == value) return;
@@ -730,11 +730,11 @@ TabStrip::TabStrip(std::wstring name) : Control(ControlRole::tab_strip, std::mov
     new_button_(std::make_shared<Button>(L"New tab")) {
     new_button_->set_icon(ButtonIcon::add);
     new_button_->set_visible(false);
-    new_button_->on_click([this] { request_new_tab(); });
+    detail::CompositionAccess::click(*new_button_, composition_, [this] { request_new_tab(); });
     children_.push_back(new_button_);
     adopt(new_button_);
 }
-TabStrip::~TabStrip() { new_button_->on_click({}); }
+TabStrip::~TabStrip() { composition_.retire(); }
 void TabStrip::set_duration(unsigned milliseconds) {
     if (milliseconds > 10000) throw std::invalid_argument("Tab duration must be between 0 and 10000 milliseconds");
     if (duration_ == milliseconds) return;
@@ -897,7 +897,7 @@ bool TabStrip::select(std::uint64_t id) {
 }
 bool TabStrip::activate_tab(std::uint64_t id) {
     if (!select(id) || selected_ != id || !enabled()) return false;
-    if (activate_) { auto callback = activate_; callback(id); }
+    if (activate_) { auto callback = activate_; std::move(callback)(id); }
     return true;
 }
 void TabStrip::step(int delta) {
@@ -1261,10 +1261,10 @@ void TextInput::commit_text(std::wstring text) {
     const auto previous = text_;
     assign_text(std::move(text));
     if (text_ == previous) return;
-    const auto callback = change_;
+    auto callback = change_;
     if (callback) {
         const auto value = text_;
-        callback(value);
+        std::move(callback)(value);
     }
 }
 Control* next_focus(std::span<Control* const> controls, const Control* current, bool reverse) {

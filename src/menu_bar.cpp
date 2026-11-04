@@ -48,10 +48,9 @@ MenuBar::MenuBar(std::wstring name)
 }
 MenuBar::~MenuBar() {
     lifetime_->owner = nullptr;
+    composition_.retire();
     for (const auto& child : children_) {
         const auto button = std::static_pointer_cast<Heading>(child);
-        button->on_click({});
-        button->on_focus({});
         button->set_enabled(false);
     }
 }
@@ -83,8 +82,8 @@ void MenuBar::bind_heading(const std::shared_ptr<Heading>& button) {
         const auto callback = open ? owner->open_ : std::function<void(CommandId)>{};
         if (callback) callback(value->command_id());
     };
-    button->on_click([dispatch] { dispatch(true); });
-    button->on_focus([dispatch] { dispatch(false); });
+    detail::CompositionAccess::click(*button, composition_, [dispatch] { dispatch(true); });
+    detail::CompositionAccess::focus(*button, composition_, [dispatch] { dispatch(false); });
 }
 void MenuBar::set_open_handler(std::function<void(CommandId)> handler) { open_ = std::move(handler); }
 
@@ -110,8 +109,8 @@ void MenuBar::set_commands(std::shared_ptr<const CommandSet> commands) {
     }
     for (const auto& child : children_) if (std::find(next.begin(), next.end(), child) == next.end()) {
         const auto retired = std::static_pointer_cast<Heading>(child);
-        retired->on_click({});
-        retired->on_focus({});
+        detail::CompositionAccess::click(*retired, composition_, nullptr);
+        detail::CompositionAccess::focus(*retired, composition_, nullptr);
         retired->set_tab_stop(false);
         retired->set_checked(false);
         retired->set_enabled(false);

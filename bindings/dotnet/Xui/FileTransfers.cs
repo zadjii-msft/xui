@@ -19,41 +19,56 @@ public sealed unsafe partial class Window
         internal Action<FileTransferEffect>? Completed;
         internal Func<ItemKey?, FileTransferEffect, FileTransferEffect>? Query;
         internal Func<ItemKey?, string[], FileTransferEffect, FileTransferEffect>? Drop;
-        internal GCHandle Root;
+        internal CallbackLifetime.Registration Registration = null!;
     }
     private FileSubscription FileCallbacks(ulong handle)
     {
         Guard();
         if (fileSubscriptions.TryGetValue(handle, out var current)) return current;
         var subscription = new FileSubscription(this, handle, ScopeFor(handle));
-        subscription.Root = GCHandle.Alloc(subscription, GCHandleType.Weak);
+        subscription.Registration = LifetimeFor(subscription.Scope).Register(subscription, () =>
+        {
+            if (fileSubscriptions.TryGetValue(handle, out var current) && ReferenceEquals(current, subscription))
+                fileSubscriptions.Remove(handle);
+            subscription.Paths = null; subscription.Completed = null; subscription.Query = null; subscription.Drop = null;
+        });
         try { fileSubscriptions.Add(handle, subscription); }
-        catch { subscription.Root.Free(); throw; }
+        catch { subscription.Registration.Dispose(); throw; }
         return subscription;
     }
     internal void FileDrag(ulong handle, Func<string[]> paths, Action<FileTransferEffect> completed)
     {
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(completed);
+        bool existing = fileSubscriptions.ContainsKey(handle);
         var subscription = FileCallbacks(handle);
-        Check(Native.GridFileDragBind(handle, &FileDragTrampoline, GCHandle.ToIntPtr(subscription.Root)));
-        subscription.Paths = paths; subscription.Completed = completed;
+        try
+        {
+            Check(Native.GridFileDragBind(handle, &FileDragTrampoline, subscription.Registration.Context));
+            subscription.Paths = paths; subscription.Completed = completed;
+        }
+        catch { if (!existing) subscription.Registration.Dispose(); throw; }
     }
     internal void FileDrop(ulong handle, Func<ItemKey?, FileTransferEffect, FileTransferEffect> query,
         Func<ItemKey?, string[], FileTransferEffect, FileTransferEffect> drop)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(drop);
+        bool existing = fileSubscriptions.ContainsKey(handle);
         var subscription = FileCallbacks(handle);
-        Check(Native.GridFileDropBind(handle, &FileDropTrampoline, GCHandle.ToIntPtr(subscription.Root)));
-        subscription.Query = query; subscription.Drop = drop;
+        try
+        {
+            Check(Native.GridFileDropBind(handle, &FileDropTrampoline, subscription.Registration.Context));
+            subscription.Query = query; subscription.Drop = drop;
+        }
+        catch { if (!existing) subscription.Registration.Dispose(); throw; }
     }
     internal void ClearFileCallbacks(ulong handle)
     {
         Guard();
         Check(Native.GridFileDragBind(handle, null, 0));
         Check(Native.GridFileDropBind(handle, null, 0));
-        if (fileSubscriptions.Remove(handle, out var subscription)) subscription.Root.Free();
+        if (fileSubscriptions.Remove(handle, out var subscription)) subscription.Registration.Dispose();
     }
     internal static Native.Text[] FilePaths(Pins pins, string[] paths, bool allowEmpty = false)
     {
@@ -156,6 +171,8 @@ public sealed unsafe partial class Window
         {
             subscription = GCHandle.FromIntPtr(context).Target as FileSubscription;
             if (subscription is null) return 8;
+            using var dispatch = subscription.Registration.Enter();
+            if (!dispatch.Active) return 0;
             if (subscription.Scope is { AcceptCallbacks: false }) return 0;
             var window = subscription.Window;
             using var content = window.EnterContent(subscription.Scope);
@@ -186,6 +203,8 @@ public sealed unsafe partial class Window
             subscription = GCHandle.FromIntPtr(context).Target as FileSubscription;
             if (subscription is null) return 8;
             *effect = 0;
+            using var dispatch = subscription.Registration.Enter();
+            if (!dispatch.Active) return 0;
             if (subscription.Scope is { AcceptCallbacks: false }) return 0;
             var window = subscription.Window;
             using var content = window.EnterContent(subscription.Scope);

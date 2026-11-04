@@ -147,10 +147,10 @@ bool CommandBindings::invoke(const CommandSet& commands, CommandShortcut shortcu
 }
 CommandMenu::CommandMenu(std::wstring name) : VirtualCollection(ControlRole::command_menu, std::move(name)) {
     set_item_size({320, 48}); set_preferred_size({360, 288});
-    on_activate([this](ItemKey key) { execute(key.id); });
-    on_action([this](ItemKey key) { execute(key.id, true); });
+    detail::CompositionAccess::activate(*this, composition_, [this](ItemKey key) { execute(key.id); });
+    detail::CompositionAccess::action(*this, composition_, [this](ItemKey key) { execute(key.id, true); });
 }
-CommandMenu::~CommandMenu() { on_activate({}); on_action({}); }
+CommandMenu::~CommandMenu() { composition_.retire(); }
 void CommandMenu::set_commands(std::shared_ptr<const CommandSet> commands, CommandId parent, std::wstring query) {
     if (!commands || query.size() > 256) throw std::invalid_argument("Invalid command source or query");
     if (parent && (!commands->find(parent) || commands->find(parent)->kind != CommandKind::submenu))
@@ -246,14 +246,16 @@ CommandSurface::CommandSurface(std::wstring name, bool searchable) {
         header->add(title_, 1);
         close_ = std::make_shared<Button>(L"Close command palette");
         close_->set_icon(ButtonIcon::close); close_->set_fixed_size({32, 32});
-        close_->on_click([this] { menu_->horizontal(false, SelectionGesture::replace); });
+        detail::CompositionAccess::click(*close_, composition_, [this] { menu_->horizontal(false, SelectionGesture::replace); });
         header->add(close_); content->add(header);
         editor_ = std::make_shared<TextInput>(L"Search commands");
         editor_->set_search_style(true); editor_->set_maximum_length(256);
         editor_->set_preferred_size({448, 48});
         editor_->set_placeholder(L"Type a command...");
-        editor_->on_change([this](const std::wstring& text) { request(text); });
-        editor_->on_submit([this] { if (auto key = menu_->selection().focused()) menu_->execute(key->id); });
+        detail::CompositionAccess::change(*editor_, composition_, [this](const std::wstring& text) { request(text); });
+        detail::CompositionAccess::submit(*editor_, composition_, [this] {
+            if (auto key = menu_->selection().focused()) menu_->execute(key->id);
+        });
         content->add(editor_);
     }
     auto results = results_ = std::make_shared<Stack>(Axis::vertical);
@@ -304,8 +306,7 @@ Size CommandSurface::measure(Size available) const {
 }
 CommandSurface::~CommandSurface() {
     cancel(); popup_->on_dismiss({});
-    if (close_) close_->on_click({});
-    if (editor_) { editor_->on_change({}); editor_->on_submit({}); }
+    composition_.retire();
 }
 void CommandSurface::set_commands(std::shared_ptr<const CommandSet> commands, CommandId parent) {
     menu_->set_commands(commands, parent, text_); commands_ = std::move(commands); cancel();
@@ -336,42 +337,30 @@ bool CommandSurface::complete(const CommandQuery& request, std::shared_ptr<const
 }
 void CommandSurface::cancel() { stop_.request_stop(); ++generation_; }
 CommandBar::CommandBar(std::wstring name) : Control(ControlRole::content_view, std::move(name), {480, 40}),
-    overflow_(std::make_shared<Button>(L"More commands")) { overflow_->set_behavior(ButtonBehavior::dropdown); }
+    overflow_(std::make_shared<Button>(L"More commands")) {
+    overflow_->set_behavior(ButtonBehavior::dropdown);
+    button_invoked_ = std::make_shared<ButtonObserver>();
+    button_invoked_->owner = this;
+}
 CommandBar::~CommandBar() {
     if (button_invoked_) button_invoked_->owner = nullptr;
-    for (const auto& child : children_) {
-        const auto button = std::static_pointer_cast<Button>(child);
-        button->on_click({});
-        button->on_toggle({});
-    }
+    composition_.retire();
 }
 void CommandBar::bind_command_button(const std::shared_ptr<Button>& button,
     const std::shared_ptr<const CommandSet>& commands, CommandId id) {
-    const auto install = [&](auto dispatch) {
-        if (commands->find(id)->checked) {
-            button->on_click({});
-            button->on_toggle([dispatch = std::move(dispatch)](bool) { dispatch(); });
-        } else {
-            button->on_toggle({});
-            button->on_click(std::move(dispatch));
-        }
+    const auto current = [weak = std::weak_ptr<Button>(button), id,
+        observer = std::weak_ptr<ButtonObserver>(button_invoked_)] {
+        const auto value = weak.lock();
+        const auto signal = observer.lock();
+        return value && signal && signal->owner && signal->owner->command_button(id) == value;
     };
-    // Keep the unexposed callback within MSVC std::function's inline storage.
-    if (!button_invoked_) {
-        install([commands, id, weak = std::weak_ptr<Button>(button)] {
-            const auto value = weak.lock();
-            if (!value || !value->enabled()) return;
-            if (auto checked = commands->find(id)->checked) value->set_checked(*checked);
-            if (value->enabled()) commands->invoke(id);
-        });
-        return;
-    }
-    install([commands, id, weak = std::weak_ptr<Button>(button),
+    const auto dispatch = [id, weak = std::weak_ptr<Button>(button),
         observer = std::weak_ptr<ButtonObserver>(button_invoked_)] {
         const auto value = weak.lock();
         const auto signal = observer.lock();
         if (!value || !value->enabled() || !signal || !signal->owner ||
             signal->owner->command_button(id) != value) return;
+        const auto commands = signal->owner->commands_;
         if (auto checked = commands->find(id)->checked) value->set_checked(*checked);
         if (!value->enabled()) return;
         commands->invoke(id);
@@ -379,23 +368,19 @@ void CommandBar::bind_command_button(const std::shared_ptr<Button>& button,
             const auto callback = signal->callback;
             callback(*value);
         }
-    });
+    };
+    if (commands->find(id)->checked) {
+        detail::CompositionAccess::click(*button, composition_, nullptr);
+        detail::CompositionAccess::toggle(*button, composition_, [dispatch](bool) { dispatch(); }, [current](bool) { return current(); });
+    } else {
+        detail::CompositionAccess::toggle(*button, composition_, nullptr);
+        detail::CompositionAccess::click(*button, composition_, dispatch, current);
+    }
 }
 void CommandBar::set_button_invoked_handler(std::function<void(const Button&)> handler) {
-    if (!button_invoked_) {
-        if (!handler) return;
-        button_invoked_ = std::make_shared<ButtonObserver>();
-        button_invoked_->owner = this;
-        try {
-            for (std::size_t i = 0; i < ids_.size(); ++i)
-                bind_command_button(std::static_pointer_cast<Button>(children_[i]), commands_, ids_[i]);
-        } catch (...) {
-            button_invoked_.reset();
-            throw;
-        }
-    }
     button_invoked_->callback = std::move(handler);
 }
+
 void CommandBar::set_commands(std::shared_ptr<const CommandSet> commands) {
     if (!commands || commands->records().size() > 64) throw std::invalid_argument("Command bar supports at most 64 records");
     if (commands_ == commands) return;
@@ -426,7 +411,8 @@ void CommandBar::set_commands(std::shared_ptr<const CommandSet> commands) {
     for (std::size_t i = 0; i < ids_.size(); ++i) {
         if (std::find(children.begin(), children.end(), children_[i]) != children.end()) continue;
         const auto retired = std::static_pointer_cast<Button>(children_[i]);
-        retired->on_click({}); retired->on_toggle({}); retired->set_enabled(false);
+        detail::CompositionAccess::click(*retired, composition_, nullptr);
+        detail::CompositionAccess::toggle(*retired, composition_, nullptr); retired->set_enabled(false);
     }
     children_ = std::move(children); ids_ = std::move(ids); commands_ = std::move(commands);
     separators_ = separators;
@@ -490,5 +476,7 @@ std::shared_ptr<const CommandSet> CommandBar::overflow_commands() const {
     for (std::size_t i = visible_; i < ids_.size(); ++i) records.push_back(*commands_->find(ids_[i]));
     return std::make_shared<CommandSet>(std::move(records));
 }
-void CommandBar::on_overflow(std::function<void()> callback) { overflow_->on_click(std::move(callback)); }
+void CommandBar::on_overflow(std::function<void()> callback) {
+    detail::CompositionAccess::click(*overflow_, composition_, std::move(callback));
+}
 }

@@ -1,7 +1,7 @@
 #include "xui/control_styling.hpp"
 #include "xui/controls.hpp"
 #include "xui/xui.h"
-#include "../src/abi_callbacks.hpp"
+#include "xui/callback.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -336,69 +336,44 @@ void default_storage() {
         << " PartStyleValues=" << sizeof(PartStyleValues) << '\n';
 }
 void abi_callback_storage() {
-    namespace callbacks = xui::detail::callbacks;
+    using xui::detail::Callback;
+    using xui::detail::CallbackScope;
     {
         Probe probe;
         for (unsigned i = 0; i < 1024; ++i) {
-            callbacks::Storage storage;
-            storage.capture(callbacks::Action{});
-            storage.capture(callbacks::Input{});
-            storage.capture(callbacks::Range{});
-            storage.capture(callbacks::Number{});
-            storage.capture(callbacks::Selection{});
-            storage.capture(callbacks::Dismiss{});
-            require(!storage.get<callbacks::Action>() && !storage.get<callbacks::Input>(),
-                "Empty native callbacks need no preservation object");
+            CallbackScope scope;
+            Callback<void()> callback;
+            require(!callback && scope.active(), "Empty callback scopes allocate no registration");
         }
         require(allocation_probe::calls == 0 && allocation_probe::bytes == 0,
-            "Ordinary ABI nodes and empty native callbacks allocate no preservation storage");
+            "Empty native/ABI scopes and ordinary observer slots need no preservation storage");
     }
-    unsigned calls{};
-    callbacks::Storage storage;
+    CallbackScope scope;
+    Callback<void()> callback;
+    unsigned composition{}, observation{};
+    callback.compose(scope, [&] { ++composition; });
+    callback = [&] { ++observation; };
     {
         Probe probe;
-        storage.capture(callbacks::Action{[&] { ++calls; }});
-        require(allocation_probe::calls == 1 && allocation_probe::bytes == sizeof(callbacks::Action),
-            "An original action allocates only its own callback record");
+        for (unsigned index = 0; index != 8192; ++index) callback();
+        require(allocation_probe::calls == 0 && allocation_probe::bytes == 0,
+            "Warmed composition/observer dispatch performs no per-event allocation");
     }
-    (*storage.get<callbacks::Action>())();
+    require(composition == 8192 && observation == 8192, "Both roles deliver exactly once");
+    const std::array<unsigned, 64> payload{};
+    callback = [&, payload] { observation += 1 + payload[0]; };
     {
         Probe probe;
-        storage.capture(callbacks::Input{[&](const std::wstring&) { ++calls; }, [&] { ++calls; }});
-        require(allocation_probe::calls == 1 && allocation_probe::bytes == sizeof(callbacks::Input),
-            "Input preservation allocates only change and submit callbacks");
+        for (unsigned index = 0; index != 8192; ++index) callback();
+        require(allocation_probe::calls == 0 && allocation_probe::bytes == 0,
+            "Large observer captures are retained once, never copied into per-event allocations");
     }
-    require(!storage.get<callbacks::Action>(), "Callback storage retains only the actual native kind");
-    storage.get<callbacks::Input>()->change(L"text");
-    storage.get<callbacks::Input>()->submit();
-    {
-        Probe probe;
-        storage.capture(callbacks::Range{[&](double) { ++calls; }, [&](double) { ++calls; }, [&](double) { ++calls; }});
-        require(allocation_probe::calls == 1 && allocation_probe::bytes == sizeof(callbacks::Range),
-            "Range preservation allocates only its three native callbacks");
-    }
-    storage.get<callbacks::Range>()->change(1);
-    storage.get<callbacks::Range>()->preview(2);
-    storage.get<callbacks::Range>()->cancel(3);
-    storage.capture(callbacks::Number{[&](double) { ++calls; }});
-    (*storage.get<callbacks::Number>())(4);
-    storage.capture(callbacks::Selection{[&](uint64_t) { ++calls; }});
-    (*storage.get<callbacks::Selection>())(5);
-    storage.capture(callbacks::Dismiss{[&](PopupDismissReason) { ++calls; }});
-    (*storage.get<callbacks::Dismiss>())(static_cast<PopupDismissReason>(0));
-    require(calls == 9, "Typed optional storage preserves each original callback exactly once");
-    std::weak_ptr<unsigned> lifetime;
-    {
-        auto owner = std::make_shared<unsigned>();
-        lifetime = owner;
-        callbacks::Storage owned;
-        owned.capture(callbacks::Action{[owner] { ++*owner; }});
-        owner.reset();
-        require(!lifetime.expired(), "Callback storage retains its native callback owner");
-    }
-    require(lifetime.expired(), "Callback storage releases its native callback owner");
-    std::cout << "ABI callback storage=" << sizeof(callbacks::Storage)
-        << " bytes; empty captures=0 allocations\n";
+    require(composition == 16384 && observation == 16384, "Large captures deliver the same exact work");
+    scope.retire();
+    callback();
+    require(composition == 16384 && observation == 16385, "Retiring composition never deletes the public observer");
+    std::cout << "Scoped callback storage=" << sizeof(callback)
+        << " bytes; warmed16384 small/large dispatches=0 allocations\n";
 }
 }
 int main() {

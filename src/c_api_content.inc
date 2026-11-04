@@ -25,13 +25,10 @@ void retire_content(const std::shared_ptr<Node>& scope) {
             const auto found = registry.find(h);
             if (found == registry.end() || (found->second->content_scope != scope->handle && h != scope->handle)) continue;
             auto& n = found->second;
-            n->callback = nullptr; n->context = nullptr;
-            n->menu_callback = nullptr; n->menu_context = nullptr;
-            n->file_drag_callback = nullptr; n->file_drop_callback = nullptr;
-            n->miller_callback = nullptr;
             removed.push_back(std::move(n));
             registry.erase(found);
         }
+        for (const auto& node : removed) node->registrations.retire();
         std::erase_if(state->handles, [&](xui_handle h) { return !registry.contains(h); });
     }
     if (state->building_content == scope->handle) state->building_content = 0;

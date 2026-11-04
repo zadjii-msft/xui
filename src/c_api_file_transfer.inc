@@ -33,7 +33,7 @@ struct FileSpans {
 };
 template<class F> bool file_callback(const std::shared_ptr<Node>& node, F callback) {
     const auto state = node->owner;
-    if (state->closed || state->callback_failure) return false;
+    if (!node->registrations.active() || state->closed || state->callback_failure) return false;
     if (node->file_dispatching) {
         state->callback_failure = XUI_BUSY; state->window->close(); return false;
     }
@@ -99,9 +99,12 @@ xui_status XUI_CALL xui_grid_file_drag_bind(xui_handle target, xui_callback call
     return boundary([&] {
         auto node = get(target, XUI_DATA_GRID); editable(node->owner);
         require(!node->file_dispatching, XUI_BUSY, "Cannot replace file callbacks during dispatch.");
-        node->file_drag_callback = callback; node->file_drag_context = context;
         auto& grid = as<xui::DataGrid>(node);
-        if (!callback) { grid.on_file_drag({}, {}); return; }
+        if (!callback) {
+            grid.on_file_drag({}, {});
+            node->file_drag_callback = nullptr; node->file_drag_context = nullptr;
+            return;
+        }
         std::weak_ptr<Node> weak = node;
         grid.on_file_drag([weak] {
             auto node = weak.lock();
@@ -117,15 +120,19 @@ xui_status XUI_CALL xui_grid_file_drag_bind(xui_handle target, xui_callback call
                 file_callback(node, [&] { return node->file_drag_callback(node->file_drag_context, &event); });
             }
         });
+        node->file_drag_callback = callback; node->file_drag_context = context;
     });
 }
 xui_status XUI_CALL xui_grid_file_drop_bind(xui_handle target, xui_file_drop_handler callback, void* context) noexcept {
     return boundary([&] {
         auto node = get(target, XUI_DATA_GRID); editable(node->owner);
         require(!node->file_dispatching, XUI_BUSY, "Cannot replace file callbacks during dispatch.");
-        node->file_drop_callback = callback; node->file_drop_context = context;
         auto& grid = as<xui::DataGrid>(node);
-        if (!callback) { grid.on_file_drop({}, {}); return; }
+        if (!callback) {
+            grid.on_file_drop({}, {});
+            node->file_drop_callback = nullptr; node->file_drop_context = nullptr;
+            return;
+        }
         std::weak_ptr<Node> weak = node;
         const auto invoke = [weak](std::optional<xui::RowKey> key, const std::vector<std::wstring>& paths,
             xui::FileTransferEffect requested, bool perform) {
@@ -144,5 +151,6 @@ xui_status XUI_CALL xui_grid_file_drop_bind(xui_handle target, xui_file_drop_han
         };
         grid.on_file_drop([invoke](auto key, auto requested) { return invoke(key, {}, requested, false); },
             [invoke](auto key, const auto& paths, auto requested) { return invoke(key, paths, requested, true); });
+        node->file_drop_callback = callback; node->file_drop_context = context;
     });
 }

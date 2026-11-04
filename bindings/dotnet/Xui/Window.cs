@@ -26,6 +26,7 @@ public sealed unsafe partial class Window : IDisposable
     private readonly int thread = Environment.CurrentManagedThreadId;
     private readonly Dictionary<ulong, Subscription> subscriptions = [];
     private readonly Dictionary<ulong, Subscription> menuSubscriptions = [];
+    private readonly CallbackLifetime callbackLifetime = new();
     private bool running;
     private int callbacks;
     private Exception? callbackError;
@@ -176,25 +177,11 @@ public sealed unsafe partial class Window : IDisposable
         if (running || callbacks != 0) throw new XuiException(7, "Close the window and return from Run before Dispose.");
         Check(Native.WindowDestroy(Handle));
         foreach (var scope in contentScopes.Values.ToArray()) scope.Retire();
-        ReleaseIconCallback();
-        ReleaseTabDragCallback();
-        ReleaseNativeCreatedCallback();
+        callbackLifetime.Dispose();
         Handle = 0;
-        if (closedRoot.IsAllocated) closedRoot.Free();
         Closed = null;
         Application?.Forget(this);
-        foreach (var s in subscriptions.Values) s.Free();
-        subscriptions.Clear(); key = null;
-        foreach (var subscription in menuSubscriptions.Values) subscription.Free();
-        menuSubscriptions.Clear();
-        foreach (var subscription in fileSubscriptions.Values) subscription.Root.Free();
-        fileSubscriptions.Clear();
-        foreach (var subscription in millerSubscriptions.Values) subscription.Free();
-        millerSubscriptions.Clear();
-        if (keyRoot.IsAllocated) keyRoot.Free();
-        keyHandler = null;
-        if (navigationRoot.IsAllocated) navigationRoot.Free();
-        navigationHandler = null;
+        key = null;
     }
     internal void SetSubscription(ulong handle, Action<UiEvent>? action)
     {
@@ -206,10 +193,10 @@ public sealed unsafe partial class Window : IDisposable
             return;
         }
         if (subscriptions.TryGetValue(handle, out var current)) { current.Action = action; return; }
-        var subscription = new Subscription(this, action, ScopeFor(handle));
+        var subscription = new Subscription(this, handle, action, ScopeFor(handle), subscriptions);
         try
         {
-            Check(Native.Subscribe(handle, &Trampoline, GCHandle.ToIntPtr(subscription.Root)));
+            Check(Native.Subscribe(handle, &Trampoline, subscription.Registration.Context));
             subscriptions.Add(handle, subscription);
         }
         catch
@@ -229,14 +216,14 @@ public sealed unsafe partial class Window : IDisposable
         }
         if (menuSubscriptions.TryGetValue(handle, out var current))
         {
-            Check(Native.ContextMenuBind(handle, &Trampoline, GCHandle.ToIntPtr(current.Root)));
+            Check(Native.ContextMenuBind(handle, &Trampoline, current.Registration.Context));
             current.Action = action;
             return;
         }
-        var subscription = new Subscription(this, action, ScopeFor(handle));
+        var subscription = new Subscription(this, handle, action, ScopeFor(handle), menuSubscriptions);
         try
         {
-            Check(Native.ContextMenuBind(handle, &Trampoline, GCHandle.ToIntPtr(subscription.Root)));
+            Check(Native.ContextMenuBind(handle, &Trampoline, subscription.Registration.Context));
             menuSubscriptions.Add(handle, subscription);
         }
         catch
@@ -250,14 +237,19 @@ public sealed unsafe partial class Window : IDisposable
         internal readonly Window Window;
         internal Action<UiEvent> Action;
         internal readonly ContentUpdate? Scope;
-        internal GCHandle Root;
-        internal Subscription(Window window, Action<UiEvent> action, ContentUpdate? scope)
+        internal readonly CallbackLifetime.Registration Registration;
+        internal Subscription(Window window, ulong handle, Action<UiEvent> action, ContentUpdate? scope,
+            Dictionary<ulong, Subscription> entries)
         {
             Window = window; Action = action;
             Scope = scope;
-            Root = GCHandle.Alloc(this, GCHandleType.Weak);
+            Registration = window.LifetimeFor(scope).Register(this, () =>
+            {
+                if (entries.TryGetValue(handle, out var current) && ReferenceEquals(current, this)) entries.Remove(handle);
+                Action = null!;
+            });
         }
-        internal void Free() { if (Root.IsAllocated) Root.Free(); }
+        internal void Free() => Registration.Dispose();
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int Trampoline(nint context, Native.Event* value)
@@ -267,6 +259,8 @@ public sealed unsafe partial class Window : IDisposable
         {
             s = GCHandle.FromIntPtr(context).Target as Subscription;
             if (s is null) return 8;
+            using var dispatch = s.Registration.Enter();
+            if (!dispatch.Active) return 0;
             if (s.Scope is { AcceptCallbacks: false }) return 0;
             using var content = s.Window.EnterContent(s.Scope);
             ++s.Window.callbacks;

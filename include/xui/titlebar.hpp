@@ -45,5 +45,6 @@ private:
     std::shared_ptr<Button> minimize_, maximize_, close_;
     std::weak_ptr<Element> first_pane_, second_pane_;
     std::vector<std::shared_ptr<Element>> children_;
+    detail::CallbackScope composition_;
 };
 }

@@ -26,6 +26,7 @@ internal static class Tests
             StylingTests.Definitions();
             if (args is ["--headless"])
             {
+                CallbackOwnershipTests.Run();
                 Run();
                 FeatureTests.Run(headless: true);
                 StylingTests.Native();

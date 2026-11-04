@@ -192,6 +192,7 @@ private:
     std::shared_ptr<Button> action_, dismiss_;
     std::vector<std::shared_ptr<Element>> children_;
     std::function<void()> dismiss_callback_;
+    detail::CallbackScope composition_;
 };
 
 // Unpremultiplied sRGB bytes. Alpha is independent of the RGB channels.
@@ -228,6 +229,7 @@ private:
     std::vector<RgbaColor> swatches_;
     std::vector<std::shared_ptr<Element>> children_;
     std::function<void(RgbaColor)> change_;
+    detail::CallbackScope composition_;
 };
 
 enum class DialogResult { primary, cancel };
@@ -266,5 +268,6 @@ private:
     std::shared_ptr<InlineStatus> validation_;
     std::function<std::wstring()> validate_;
     std::function<void(DialogResult)> result_, close_;
+    detail::CallbackScope composition_;
 };
 }

@@ -142,6 +142,7 @@ private:
     std::function<void(bool)> expanded_changed_;
     std::function<void(std::optional<ItemKey>)> hover_changed_;
     std::function<void(ItemKey)> hover_requested_;
+    detail::CallbackScope composition_;
 };
 
 struct PathSegment {
@@ -179,6 +180,7 @@ private:
     std::vector<std::shared_ptr<Element>> children_;
     std::shared_ptr<Button> overflow_;
     std::size_t first_{};
+    detail::CallbackScope composition_;
 };
 struct NavigationQuery {
     std::wstring text;
@@ -215,6 +217,8 @@ private:
     std::stop_source stop_;
     std::uint64_t generation_{};
     std::function<void(NavigationQuery)> query_;
+    std::function<void(ItemKey)> navigate_;
+    detail::CallbackScope composition_;
 };
 class LocationPicker final {
 public:
@@ -233,6 +237,7 @@ private:
     std::shared_ptr<NavigationPane> navigation_;
     std::shared_ptr<CommandBar> toolbar_;
     std::shared_ptr<Popup> popup_;
+    detail::CallbackScope composition_;
 };
 // Radio choices and a separate vertical size editor change a real ItemsView.
 class ViewPicker final {
@@ -248,5 +253,6 @@ private:
     std::shared_ptr<Popup> popup_;
     std::shared_ptr<RadioGroup> choices_;
     std::shared_ptr<RangeInput> size_;
+    detail::CallbackScope composition_;
 };
 }

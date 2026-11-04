@@ -42,6 +42,7 @@ private:
     std::shared_ptr<NativeFieldAccessibility> caption_accessibility_;
     IRawElementProviderSimple* caption_provider_{};
     std::shared_ptr<Button> clear_button_;
+    detail::CallbackScope clear_actions_;
     HWND clear_window_{};
 };
 
