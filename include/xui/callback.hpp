@@ -105,6 +105,11 @@ public:
         composition_ = std::move(next);
     }
     void operator()(Args... args) const & {
+        if (!composition_) {
+            const auto observer = observer_;
+            if (observer) (*observer)(args...);
+            return;
+        }
         auto snapshot = *this;
         std::move(snapshot)(args...);
     }
@@ -112,8 +117,17 @@ public:
         // Consume an already captured event without taking a second ownership snapshot.
         const auto observer = std::move(observer_);
         const auto registration = std::move(composition_);
-        const auto composition = registration && registration->active ? registration->action : std::function<void(Args...)>{};
-        const auto current = registration && registration->active ? registration->observer_current : std::function<bool(Args...)>{};
+        if (!registration || !registration->active) {
+            if (observer) (*observer)(args...);
+            return;
+        }
+        const auto composition = registration->action;
+        if (!registration->observer_current) {
+            if (composition) composition(args...);
+            if (observer) (*observer)(args...);
+            return;
+        }
+        const auto current = registration->observer_current;
         if (composition) composition(args...);
         if (observer && (!current || current(args...))) (*observer)(args...);
     }

@@ -375,15 +375,14 @@ bool Control::invoke() {
     return true;
 }
 void Button::activate() {
-    auto callback = click_;
-    auto toggle = toggle_;
-    const bool checked = !checked_;
     if (behavior_ == ButtonBehavior::toggle) {
+        auto toggle = toggle_;
+        const bool checked = !checked_;
         set_checked(checked);
         if (toggle) std::move(toggle)(checked);
         return;
     }
-    if (callback) std::move(callback)();
+    click_();
 }
 void Button::set_behavior(ButtonBehavior value) {
     if (value < ButtonBehavior::momentary || value > ButtonBehavior::dropdown)
