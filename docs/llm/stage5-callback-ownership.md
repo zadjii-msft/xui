@@ -3,7 +3,9 @@
 ## Scope and implementation
 
 Phase 5 is implemented directly in the architecture-review worktree, without
-child sessions. Its immediate baseline is merged phase 4,
+child sessions. It is submitted in [#63](https://github.com/zadjii-msft/xui/pull/63),
+open for review with **numeric-step performance acceptance blocked**, not merged.
+Its immediate baseline is merged phase 4,
 `de9ee24ea4664f0f6d0fcaf87f573383086244da`
 ([#62](https://github.com/zadjii-msft/xui/pull/62)).
 Metadata authority, legacy foundation isolation and general dependency enforcement
