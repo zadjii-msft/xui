@@ -4,27 +4,56 @@ namespace Xui;
 
 internal sealed class CallbackLifetime : IDisposable
 {
-    private HashSet<Registration>? registrations = [];
+    private Registration? first;
+    private int count;
     internal bool Retired { get; private set; }
-    internal int Count => registrations?.Count ?? 0;
+    internal int Count => count;
+    private void Attach(Registration registration)
+    {
+        ObjectDisposedException.ThrowIf(Retired, this);
+        registration.Next = first;
+        if (first is not null) first.Previous = registration;
+        first = registration;
+        ++count;
+    }
+    private void Detach(Registration registration)
+    {
+        if (registration.Previous is not null) registration.Previous.Next = registration.Next;
+        else first = registration.Next;
+        if (registration.Next is not null) registration.Next.Previous = registration.Previous;
+        registration.Previous = registration.Next = null;
+        --count;
+    }
 
     internal Registration Register(object target, Action release)
     {
         ObjectDisposedException.ThrowIf(Retired, this);
-        var registration = new Registration(this, target, release);
-        try { registrations!.Add(registration); }
-        catch { registration.Dispose(); throw; }
-        return registration;
+        return new ActionRegistration(this, target, release);
     }
 
+    private sealed class ActionRegistration : Registration
+    {
+        private Action? release;
+        internal ActionRegistration(CallbackLifetime owner, object target, Action release) : base(owner)
+        {
+            this.release = release;
+            try { Bind(target); } catch { Dispose(); throw; }
+        }
+        protected override void Release()
+        {
+            var callback = release;
+            release = null;
+            callback?.Invoke();
+        }
+    }
     public void Dispose()
     {
         if (Retired) return;
         Retired = true;
-        var retired = registrations!;
-        registrations = null;
+        for (var registration = first; registration is not null; registration = registration.Next)
+            registration.Retired = true;
         List<Exception>? failures = null;
-        foreach (var registration in retired)
+        while (first is { } registration)
         {
             try { registration.Dispose(); }
             catch (Exception error) { (failures ??= []).Add(error); }
@@ -32,44 +61,57 @@ internal sealed class CallbackLifetime : IDisposable
         if (failures is not null) throw new AggregateException("Callback registration cleanup failed.", failures);
     }
 
-    internal sealed class Registration : IDisposable
+    internal abstract class Registration : IDisposable
     {
-        private readonly CallbackLifetime owner;
+        private CallbackLifetime? owner;
         private GCHandle root;
-        private Action? release;
         private int dispatches;
-        internal bool Retired { get; private set; }
+        private bool detached;
+        internal Registration? Previous, Next;
+        internal bool Retired { get; set; }
         internal bool Released => !root.IsAllocated;
         internal nint Context => GCHandle.ToIntPtr(root);
-        internal Registration(CallbackLifetime owner, object target, Action release)
+        protected Registration(CallbackLifetime owner)
         {
             this.owner = owner;
-            this.release = release;
+            owner.Attach(this);
+        }
+        protected void Rebind(CallbackLifetime lifetime, object target)
+        {
+            if (!Released || !Retired) throw new InvalidOperationException("The callback registration is still in use.");
+            owner = lifetime;
+            detached = Retired = false;
+            lifetime.Attach(this);
+            try { Bind(target); } catch { Dispose(); throw; }
+        }
+        protected void Bind(object target)
+        {
             root = GCHandle.Alloc(target, GCHandleType.Weak);
         }
         internal Call Enter()
         {
-            if (Retired || owner.Retired) return default;
+            if (Retired) return default;
             ++dispatches;
             return new(this);
         }
         public void Dispose()
         {
-            if (Retired) return;
+            if (detached) return;
             Retired = true;
-            owner.registrations?.Remove(this);
-            if (dispatches == 0) Release();
+            detached = true;
+            owner!.Detach(this);
+            owner = null;
+            if (dispatches == 0) FinishRelease();
         }
-        private void Release()
+        private void FinishRelease()
         {
-            var callback = release;
-            release = null;
-            try { callback?.Invoke(); }
+            try { Release(); }
             finally { if (root.IsAllocated) root.Free(); }
         }
+        protected abstract void Release();
         private void Leave()
         {
-            if (--dispatches == 0 && Retired) Release();
+            if (--dispatches == 0 && Retired) FinishRelease();
         }
         internal readonly struct Call(Registration? registration) : IDisposable
         {

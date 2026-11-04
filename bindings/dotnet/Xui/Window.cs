@@ -27,6 +27,7 @@ public sealed unsafe partial class Window : IDisposable
     private readonly Dictionary<ulong, Subscription> subscriptions = [];
     private readonly Dictionary<ulong, Subscription> menuSubscriptions = [];
     private readonly CallbackLifetime callbackLifetime = new();
+    private Subscription? spareSubscription;
     private bool running;
     private int callbacks;
     private Exception? callbackError;
@@ -193,7 +194,7 @@ public sealed unsafe partial class Window : IDisposable
             return;
         }
         if (subscriptions.TryGetValue(handle, out var current)) { current.Action = action; return; }
-        var subscription = new Subscription(this, handle, action, ScopeFor(handle), subscriptions);
+        var subscription = TakeSubscription(handle, action, ScopeFor(handle), subscriptions);
         try
         {
             Check(Native.Subscribe(handle, &Trampoline, subscription.Registration.Context));
@@ -220,7 +221,7 @@ public sealed unsafe partial class Window : IDisposable
             current.Action = action;
             return;
         }
-        var subscription = new Subscription(this, handle, action, ScopeFor(handle), menuSubscriptions);
+        var subscription = TakeSubscription(handle, action, ScopeFor(handle), menuSubscriptions);
         try
         {
             Check(Native.ContextMenuBind(handle, &Trampoline, subscription.Registration.Context));
@@ -232,24 +233,44 @@ public sealed unsafe partial class Window : IDisposable
             subscription.Free(); throw;
         }
     }
-    private sealed class Subscription
+    private Subscription TakeSubscription(ulong handle, Action<UiEvent> action, ContentUpdate? scope,
+        Dictionary<ulong, Subscription> entries)
+    {
+        if (spareSubscription is not { } available) return new(this, handle, action, scope, entries);
+        spareSubscription = null;
+        available.Reuse(handle, action, scope, entries);
+        return available;
+    }
+    private sealed class Subscription : CallbackLifetime.Registration
     {
         internal readonly Window Window;
         internal Action<UiEvent> Action;
-        internal readonly ContentUpdate? Scope;
-        internal readonly CallbackLifetime.Registration Registration;
+        internal ContentUpdate? Scope;
+        private ulong handle;
+        private Dictionary<ulong, Subscription> entries;
+        internal CallbackLifetime.Registration Registration => this;
         internal Subscription(Window window, ulong handle, Action<UiEvent> action, ContentUpdate? scope,
-            Dictionary<ulong, Subscription> entries)
+            Dictionary<ulong, Subscription> entries) : base(window.LifetimeFor(scope))
         {
             Window = window; Action = action;
             Scope = scope;
-            Registration = window.LifetimeFor(scope).Register(this, () =>
-            {
-                if (entries.TryGetValue(handle, out var current) && ReferenceEquals(current, this)) entries.Remove(handle);
-                Action = null!;
-            });
+            this.handle = handle; this.entries = entries;
+            try { Bind(this); } catch { Dispose(); throw; }
         }
-        internal void Free() => Registration.Dispose();
+        protected override void Release()
+        {
+            if (entries.TryGetValue(handle, out var current) && ReferenceEquals(current, this)) entries.Remove(handle);
+            Action = null!;
+            Scope = null;
+            if (!Window.callbackLifetime.Retired && Window.spareSubscription is null) Window.spareSubscription = this;
+        }
+        internal void Reuse(ulong handle, Action<UiEvent> action, ContentUpdate? scope,
+            Dictionary<ulong, Subscription> entries)
+        {
+            this.handle = handle; this.entries = entries; Action = action; Scope = scope;
+            Rebind(Window.LifetimeFor(scope), this);
+        }
+        internal void Free() => Dispose();
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int Trampoline(nint context, Native.Event* value)

@@ -41,6 +41,14 @@ internal static class CallbackOwnershipTests
         catch (AggregateException) { ++assertions; }
         Expect(first.Released && second.Released && released == 2 && failedCleanup.Retired,
             "Cleanup failure cannot strand other callback roots");
+        using var cancellation = new CallbackLifetime();
+        var sibling = cancellation.Register(target, () => { });
+        cancellation.Register(target, () =>
+        {
+            using var rejected = sibling.Enter();
+            Expect(!rejected.Active, "All registrations retire before cleanup can reenter a sibling");
+        });
+        cancellation.Dispose();
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -78,6 +86,30 @@ internal static class CallbackOwnershipTests
         number.IncreaseButton.Click += observer;
         number.IncreaseButton.Invoke();
         Expect(number.Value == 3 && clicks == 2);
+
+        var reused = window.Button("Reentrant subscription reuse");
+        int oldCalls = 0, newCalls = 0;
+        Action next = () => ++newCalls;
+        Action? old = null;
+        old = () =>
+        {
+            ++oldCalls;
+            reused.Click -= old;
+            reused.Click += next;
+        };
+        reused.Click += old;
+        reused.Invoke();
+        reused.Invoke();
+        Expect(oldCalls == 1 && newCalls == 1,
+            "Replacing a subscription cannot recycle its still-dispatching native context");
+        reused.Click -= next;
+        for (int i = 0; i < 32; ++i)
+        {
+            reused.Click += next;
+            reused.Invoke();
+            reused.Click -= next;
+        }
+        Expect(newCalls == 33, "A released registration can be rebound repeatedly without stale cancellation");
 
         var host = window.CreateContentHost();
         window.SetContent(window.Stack().Add(number).Add(host));

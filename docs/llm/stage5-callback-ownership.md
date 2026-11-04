@@ -4,7 +4,8 @@
 
 Phase 5 is implemented directly in the architecture-review worktree, without
 child sessions. It is submitted in [#63](https://github.com/zadjii-msft/xui/pull/63),
-open for review with **numeric-step performance acceptance blocked**, not merged.
+open for review, not merged. The original implementation's comprehensive
+performance failures and the subsequent correction remain separately recorded.
 Its immediate baseline is merged phase 4,
 `de9ee24ea4664f0f6d0fcaf87f573383086244da`
 ([#62](https://github.com/zadjii-msft/xui/pull/62)).
@@ -17,7 +18,7 @@ remain phases 6-8 and are not part of this change.
 | Core control/composite implementations | NumericInput/ComboBox editor behavior, child step buttons, color channels, navigation/search, command/menu/caption actions, tab-new actions and Miller child behavior bind the composition role rather than public observer slots. |
 | `src/basic_host.cpp`, `src/navigation_host.cpp` | Host-owned combo acceptance and Miller focus use host scopes independently of application observers. |
 | `src/c_api.cpp`, `src/c_api_features.inc` | Foreign subscriptions install observers without capturing previous callbacks. The old `abi_callbacks.hpp` preservation variant, navigation-owned-button interception and Miller parent-to-child relay are removed. |
-| `src/c_api_content.inc` | Content retirement closes a handle's registration scope, rather than clearing an expanding list of callback-family fields. |
+| `src/c_api_content.inc` | Content retirement closes a handle's delivery gate before releasing its retained Node, rather than clearing an expanding list of callback-family fields. |
 | `bindings/dotnet/Xui/CallbackLifetime.cs` | Owns callback roots, cleanup and in-flight leases for a window or content scope. Cancellation prevents new dispatch; physical release waits until existing dispatch has returned. |
 | Managed window/content/subscription adapters | Each registration joins its owning lifetime when created; retirement has no general/menu/file/Miller family loop. Long-lived window handler roots use the same mechanism. |
 
@@ -54,6 +55,20 @@ return. Retained children cannot call a destroyed composite; their independent
 application observers remain theirs. Replacing a composition binding reuses its
 registration when no captured copy needs the old one.
 
+Scopes use intrusive registration links rather than a vector of weak pointers.
+Composition snapshots use non-atomic, UI-thread reference counts and retain the
+callable itself instead of copying its captures for each dispatch. Small,
+nothrow-copyable public observers use `std::function` inline storage; larger
+or already type-erased observers retain an immutable callable through an inline
+reference-counted adapter. Templated observer setters preserve the concrete
+callable until that storage choice, while the existing empty/`std::function`
+overloads remain available. Neither path allocates during warmed dispatch.
+An explicit
+in-flight count prevents retirement from destroying the executing callable when
+its owner releases the last non-dispatch reference. Current-identity predicates
+run only while their composition is still active; ungated retained-child
+observers keep their independent delivery contract.
+
 Native EDIT/RichEdit text, caret, IME composition, selection, clipboard, undo and
 provider behavior remain OS-owned. Host/input exception barriers and deferred
 native destruction remain unchanged.
@@ -71,6 +86,15 @@ lease ends. Content rollback/replacement cancels the entire scope before releasi
 roots. Repeated retirement/disposal is idempotent. Failed initial registrations
 retire their new token, while failed replacements preserve an existing observer.
 Window disposal still requires returning from native execution/callbacks.
+
+General, menu, Miller and file subscription objects embed their registration;
+there is no separate token, cleanup closure or registration hash-set entry.
+Intrusive links permit constant-time removal. A window may retain at most one
+fully released general/menu subscription for reuse. It retains neither an old
+content scope nor a GCHandle. A self-unsubscribed token is not reusable until its
+last dispatch returns, even if a replacement subscription is added immediately.
+Native Node delivery needs only a cancellation bit: the dispatch's existing
+shared Node reference already retains its callback context through return.
 
 ## Verification
 
@@ -98,7 +122,7 @@ managed-registration and native-host signals, including per-event allocation
 regressions. **The blocker is not limited to NumericInput.** The earlier results
 below remain historical, separate evidence, not an all-up acceptance statement.
 
-The final implementation commit is `075196b2ee0e29e7d63d001709ceaa8d3fd1bf4d`.
+The original measured implementation commit is `075196b2ee0e29e7d63d001709ceaa8d3fd1bf4d`.
 The [raw companion](stage5-callback-ownership-evidence.json) preserves 257 byte-hashed
 artifacts / 1,582,662 original bytes, all blocks and stopped attempts, seven final
 native receipts, tool sources and a 429-file source manifest. Artifact bytes
@@ -107,9 +131,9 @@ Earlier draft implementation trees were not separately frozen; their libraries,
 images, probe sources and commands remain retained. Only the final implementation
 is claimed reproducible from its committed source.
 
-The functional implementation is frozen on this branch; PR review and performance
-acceptance are separate from implementation completion.
-The final Framework gate passes **53 native tests / six lifetime registrations**, the
+The following results describe that historical implementation, not acceptance of
+the subsequent performance correction.
+Its Framework gate passes **53 native tests / six lifetime registrations**, the
 existing compiler/generated/native-export guards, managed callback/wrapper/style
 tests and complete Rust coverage (1 sys, 39 library and 2 compile-fail doc tests).
 Generator/MSBuild checks pass 45,403/11 assertions; managed baseline coverage

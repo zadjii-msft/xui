@@ -150,8 +150,14 @@ public:
     virtual void edge(bool last, SelectionGesture gesture = SelectionGesture::replace);
     void activate_item(ItemKey key, bool inline_action = false);
     void on_selection(std::function<void()> callback) { change_ = std::move(callback); }
+    template<class F> requires std::is_constructible_v<std::function<void()>, F>
+    void on_selection(F&& callback) { change_ = std::forward<F>(callback); }
     void on_activate(std::function<void(ItemKey)> callback) { activate_ = std::move(callback); }
+    template<class F> requires std::is_constructible_v<std::function<void(ItemKey)>, F>
+    void on_activate(F&& callback) { activate_ = std::forward<F>(callback); }
     void on_action(std::function<void(ItemKey)> callback) { action_ = std::move(callback); }
+    template<class F> requires std::is_constructible_v<std::function<void(ItemKey)>, F>
+    void on_action(F&& callback) { action_ = std::forward<F>(callback); }
     virtual void set_presentation(ItemsPresentation value);
     ItemsPresentation presentation() const { return presentation_; }
     bool wraps_items() const { return presentation_ == ItemsPresentation::tiles || presentation_ == ItemsPresentation::gallery; }

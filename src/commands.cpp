@@ -337,30 +337,39 @@ bool CommandSurface::complete(const CommandQuery& request, std::shared_ptr<const
 }
 void CommandSurface::cancel() { stop_.request_stop(); ++generation_; }
 CommandBar::CommandBar(std::wstring name) : Control(ControlRole::content_view, std::move(name), {480, 40}),
-    overflow_(std::make_shared<Button>(L"More commands")) {
-    overflow_->set_behavior(ButtonBehavior::dropdown);
-    button_invoked_ = std::make_shared<ButtonObserver>();
-    button_invoked_->owner = this;
-}
+    overflow_(std::make_shared<Button>(L"More commands")) { overflow_->set_behavior(ButtonBehavior::dropdown); }
 CommandBar::~CommandBar() {
     if (button_invoked_) button_invoked_->owner = nullptr;
     composition_.retire();
 }
 void CommandBar::bind_command_button(const std::shared_ptr<Button>& button,
     const std::shared_ptr<const CommandSet>& commands, CommandId id) {
-    const auto current = [weak = std::weak_ptr<Button>(button), id,
-        observer = std::weak_ptr<ButtonObserver>(button_invoked_)] {
+    const auto current = [this, weak = std::weak_ptr<Button>(button), id] {
         const auto value = weak.lock();
-        const auto signal = observer.lock();
-        return value && signal && signal->owner && signal->owner->command_button(id) == value;
+        return value && command_button(id) == value;
     };
-    const auto dispatch = [id, weak = std::weak_ptr<Button>(button),
-        observer = std::weak_ptr<ButtonObserver>(button_invoked_)] {
+    const auto install = [&](auto dispatch) {
+        if (commands->find(id)->checked) {
+            detail::CompositionAccess::click(*button, composition_, nullptr);
+            detail::CompositionAccess::toggle(*button, composition_, [dispatch = std::move(dispatch)](bool) { dispatch(); },
+                [current](bool) { return current(); });
+        } else {
+            detail::CompositionAccess::toggle(*button, composition_, nullptr);
+            detail::CompositionAccess::click(*button, composition_, std::move(dispatch), current);
+        }
+    };
+    if (!button_invoked_) {
+        install([commands, id, weak = std::weak_ptr<Button>(button)] {
+            const auto value = weak.lock();
+            if (!value || !value->enabled()) return;
+            if (auto checked = commands->find(id)->checked) value->set_checked(*checked);
+            if (value->enabled()) commands->invoke(id);
+        });
+        return;
+    }
+    install([commands, id, weak = std::weak_ptr<Button>(button), signal = button_invoked_] {
         const auto value = weak.lock();
-        const auto signal = observer.lock();
-        if (!value || !value->enabled() || !signal || !signal->owner ||
-            signal->owner->command_button(id) != value) return;
-        const auto commands = signal->owner->commands_;
+        if (!value || !value->enabled() || !signal->owner) return;
         if (auto checked = commands->find(id)->checked) value->set_checked(*checked);
         if (!value->enabled()) return;
         commands->invoke(id);
@@ -368,16 +377,16 @@ void CommandBar::bind_command_button(const std::shared_ptr<Button>& button,
             const auto callback = signal->callback;
             callback(*value);
         }
-    };
-    if (commands->find(id)->checked) {
-        detail::CompositionAccess::click(*button, composition_, nullptr);
-        detail::CompositionAccess::toggle(*button, composition_, [dispatch](bool) { dispatch(); }, [current](bool) { return current(); });
-    } else {
-        detail::CompositionAccess::toggle(*button, composition_, nullptr);
-        detail::CompositionAccess::click(*button, composition_, dispatch, current);
-    }
+    });
 }
 void CommandBar::set_button_invoked_handler(std::function<void(const Button&)> handler) {
+    if (!button_invoked_) {
+        if (!handler) return;
+        button_invoked_ = std::make_shared<ButtonObserver>();
+        button_invoked_->owner = this;
+        for (std::size_t i = 0; i < ids_.size(); ++i)
+            bind_command_button(std::static_pointer_cast<Button>(children_[i]), commands_, ids_[i]);
+    }
     button_invoked_->callback = std::move(handler);
 }
 

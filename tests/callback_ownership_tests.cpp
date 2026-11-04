@@ -104,6 +104,39 @@ void captured_delivery() {
     require(step->invoke() && !dying && orphan == 1, "Parent destruction during composition preserves the captured child observer safely");
     step->invoke();
     require(orphan == 2, "Later retained-child events do not access the retired parent");
+
+    detail::CallbackScope cancellation;
+    detail::Callback<void()> first, second;
+    unsigned cancelled_calls{};
+    first.compose(cancellation, [&] { ++cancelled_calls; });
+    auto capture = std::shared_ptr<unsigned>(new unsigned, [&](unsigned* value) {
+        first();
+        delete value;
+    });
+    second.compose(cancellation, [capture] {});
+    capture.reset();
+    cancellation.retire();
+    require(cancelled_calls == 0, "All registrations are cancelled before capture destruction can reenter a sibling");
+
+    detail::CallbackScope unlinking;
+    auto removed = std::make_unique<detail::Callback<void()>>();
+    auto retiring_capture = std::shared_ptr<unsigned>(new unsigned, [&](unsigned* value) {
+        unlinking.retire();
+        delete value;
+    });
+    removed->compose(unlinking, [retiring_capture] {});
+    retiring_capture.reset();
+    removed.reset();
+    require(!unlinking.active(), "A registration unlinks before destroying captures that can retire its scope");
+
+    detail::CallbackScope replacement;
+    detail::Callback<void()> rebound;
+    unsigned replaced{}, captured{};
+    rebound = [&] { ++captured; };
+    rebound.compose(replacement, [&] { rebound.compose(replacement, [&] { ++replaced; }); });
+    rebound();
+    rebound();
+    require(replaced == 1 && captured == 2, "Rebinding during dispatch preserves the current callable and captured observation");
 }
 void miller_events() {
     MillerColumns columns;

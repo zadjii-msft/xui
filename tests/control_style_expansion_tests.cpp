@@ -351,6 +351,17 @@ void abi_callback_storage() {
     CallbackScope scope;
     Callback<void()> callback;
     unsigned composition{}, observation{};
+    {
+        Probe probe;
+        auto* first = &composition;
+        auto* second = &observation;
+        callback = [first, second, increment = std::size_t{0}] { *first += increment; *second += increment; };
+        auto snapshot = callback;
+        snapshot();
+        callback = std::function<void()>{};
+        require(allocation_probe::calls == 0 && allocation_probe::bytes == 0,
+            "Small nothrow observer registration, snapshots and removal use inline storage");
+    }
     callback.compose(scope, [&] { ++composition; });
     callback = [&] { ++observation; };
     {
@@ -369,6 +380,19 @@ void abi_callback_storage() {
             "Large observer captures are retained once, never copied into per-event allocations");
     }
     require(composition == 16384 && observation == 16384, "Large captures deliver the same exact work");
+    struct alignas(16) AlignedObserver {
+        unsigned* calls;
+        void operator()() const { ++*calls; }
+    };
+    unsigned aligned_calls{};
+    Callback<void()> aligned;
+    aligned = AlignedObserver{&aligned_calls};
+    {
+        Probe probe;
+        for (unsigned index = 0; index != 128; ++index) aligned();
+        require(allocation_probe::calls == 0 && aligned_calls == 128,
+            "Over-aligned observers use retained storage rather than allocating during snapshot copies");
+    }
     scope.retire();
     callback();
     require(composition == 16384 && observation == 16385, "Retiring composition never deletes the public observer");

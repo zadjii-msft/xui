@@ -3,7 +3,7 @@ void prepare_tree(const std::shared_ptr<Node>& n);
 void prepare_miller(const std::shared_ptr<Node>& n);
 bool dispatch_menu(const std::shared_ptr<Node>& node, uint32_t kind, uint64_t value = 0) {
     auto state = node->owner;
-    if (!node->registrations.active() || !node->menu_callback || state->closed || state->callback_failure) return false;
+    if (!node->callbacks_active || !node->menu_callback || state->closed || state->callback_failure) return false;
     ++state->callbacks;
     const xui_event event{sizeof(xui_event), kind, node->handle, value};
     xui_status status{};
@@ -323,7 +323,7 @@ xui_status XUI_CALL xui_window_on_icon_error(xui_handle window, xui_window_icon_
         if (!callback) { n->owner->window->on_icon_error({}); return; }
         n->owner->window->on_icon_error([weak = std::weak_ptr<Node>(n), callback, context](const std::wstring& error) {
             const auto node = weak.lock();
-            if (!node || !node->registrations.active() || node->owner->closed || node->owner->callback_failure) return;
+            if (!node || !node->callbacks_active || node->owner->closed || node->owner->callback_failure) return;
             const auto state = node->owner;
             const auto bytes = encode(error);
             ++state->callbacks;
@@ -1212,7 +1212,7 @@ struct Request {
     RequestValue value;
 };
 void revoke(const std::shared_ptr<Node>& n) {
-    n->registrations.retire();
+    n->callbacks_active = false;
     auto& handles = n->owner->handles;
     handles.erase(std::remove(handles.begin(), handles.end(), n->handle), handles.end());
     std::lock_guard lock(registry_mutex); registry.erase(n->handle);
@@ -1236,7 +1236,7 @@ void prepare_miller(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
     const auto send = [weak](uint32_t kind, size_t column, xui::ItemKey key) {
         auto node = weak.lock();
-        if (!node || !node->registrations.active() || node->owner->closed || node->owner->callback_failure) return;
+        if (!node || !node->callbacks_active || node->owner->closed || node->owner->callback_failure) return;
         auto state = node->owner;
         if (node->dispatching) {
             state->callback_failure = XUI_BUSY; state->window->close(); return;
@@ -1677,7 +1677,7 @@ xui_status XUI_CALL xui_web_evaluate(xui_handle target, xui_string script, xui_h
             web.evaluate(std::move(text), [weak](std::wstring value, std::wstring error_text) noexcept {
                 try {
                 auto request = weak.lock(); if (!request) return;
-                auto node = request->target.lock(); if (!node || !node->registrations.active() || node->owner->closed) return;
+                auto node = request->target.lock(); if (!node || !node->callbacks_active || node->owner->closed) return;
                 auto& result = std::get<WebResult>(request->value);
                 if (node->web_generation != result.generation || as<xui::WebContent>(node).revision() != result.revision) return;
                 result.failed = !error_text.empty();

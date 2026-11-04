@@ -125,7 +125,7 @@ struct Node {
     std::shared_ptr<const xui::CommandSet> commands;
     xui::CommandBindings bindings;
     uint64_t web_generation{};
-    xui::detail::CallbackScope registrations;
+    bool callbacks_active{true};
     bool observers_wired{};
     xui_miller_callback miller_callback{};
     void* miller_context{};
@@ -269,7 +269,7 @@ xui_handle event_target(const std::shared_ptr<State>& owner, const xui::Control*
 }
 void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0) noexcept {
     auto n = weak.lock();
-    if (!n || !n->registrations.active() || !n->callback || n->owner->closed || n->owner->callback_failure ||
+    if (!n || !n->callbacks_active || !n->callback || n->owner->closed || n->owner->callback_failure ||
         n->owner->window->state() >= xui::WindowState::closing) return;
     auto s = n->owner;
     if (n->dispatching) { s->callback_failure = XUI_BUSY; s->window->close(); return; }
@@ -383,7 +383,7 @@ xui_status XUI_CALL xui_window_destroy(xui_handle window) noexcept {
                 removed.push_back(std::move(it->second)); registry.erase(it);
             }
         }
-        for (const auto& node : removed) node->registrations.retire();
+        for (const auto& node : removed) node->callbacks_active = false;
         s->window.reset();
     });
 }

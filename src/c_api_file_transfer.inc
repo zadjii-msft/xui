@@ -33,7 +33,7 @@ struct FileSpans {
 };
 template<class F> bool file_callback(const std::shared_ptr<Node>& node, F callback) {
     const auto state = node->owner;
-    if (!node->registrations.active() || state->closed || state->callback_failure) return false;
+    if (!node->callbacks_active || state->closed || state->callback_failure) return false;
     if (node->file_dispatching) {
         state->callback_failure = XUI_BUSY; state->window->close(); return false;
     }

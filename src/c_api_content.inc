@@ -28,7 +28,7 @@ void retire_content(const std::shared_ptr<Node>& scope) {
             removed.push_back(std::move(n));
             registry.erase(found);
         }
-        for (const auto& node : removed) node->registrations.retire();
+        for (const auto& node : removed) node->callbacks_active = false;
         std::erase_if(state->handles, [&](xui_handle h) { return !registry.contains(h); });
     }
     if (state->building_content == scope->handle) state->building_content = 0;

@@ -236,9 +236,8 @@ bool RadioGroup::type_ahead(std::wstring_view prefix) {
 }
 bool RadioGroup::accept() {
     if (!enabled() || !selected_) return false;
-    auto callback = accept_;
     const auto id = *selected_;
-    if (callback) std::move(callback)(id);
+    accept_(id);
     return true;
 }
 float RadioGroup::effective_row_height() const {

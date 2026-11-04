@@ -140,24 +140,28 @@ public sealed unsafe partial class Window
             throw;
         }
     }
-    private sealed class MillerSubscription
+    private sealed class MillerSubscription : CallbackLifetime.Registration
     {
         internal readonly Window Window;
         internal Action<EventKind, MillerItemEvent> Action;
         internal readonly ContentUpdate? Scope;
-        internal readonly CallbackLifetime.Registration Registration;
+        private readonly ulong handle;
+        internal CallbackLifetime.Registration Registration => this;
         internal MillerSubscription(Window window, ulong handle, Action<EventKind, MillerItemEvent> action, ContentUpdate? scope)
+            : base(window.LifetimeFor(scope))
         {
             Window = window; Action = action;
             Scope = scope;
-            Registration = window.LifetimeFor(scope).Register(this, () =>
-            {
-                if (window.millerSubscriptions.TryGetValue(handle, out var current) && ReferenceEquals(current, this))
-                    window.millerSubscriptions.Remove(handle);
-                Action = null!;
-            });
+            this.handle = handle;
+            try { Bind(this); } catch { Dispose(); throw; }
         }
-        internal void Free() => Registration.Dispose();
+        protected override void Release()
+        {
+            if (Window.millerSubscriptions.TryGetValue(handle, out var current) && ReferenceEquals(current, this))
+                Window.millerSubscriptions.Remove(handle);
+            Action = null!;
+        }
+        internal void Free() => Dispose();
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int MillerTrampoline(nint context, Native.MillerEvent* value)

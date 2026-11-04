@@ -10,28 +10,33 @@ public sealed record FileClipboardContent(string[] Paths, FileTransferEffect Eff
 public sealed unsafe partial class Window
 {
     private readonly Dictionary<ulong, FileSubscription> fileSubscriptions = [];
-    private sealed class FileSubscription(Window window, ulong handle, ContentUpdate? scope)
+    private sealed class FileSubscription : CallbackLifetime.Registration
     {
-        internal readonly Window Window = window;
-        internal readonly ulong Handle = handle;
-        internal readonly ContentUpdate? Scope = scope;
+        internal readonly Window Window;
+        internal readonly ulong Handle;
+        internal readonly ContentUpdate? Scope;
         internal Func<string[]>? Paths;
         internal Action<FileTransferEffect>? Completed;
         internal Func<ItemKey?, FileTransferEffect, FileTransferEffect>? Query;
         internal Func<ItemKey?, string[], FileTransferEffect, FileTransferEffect>? Drop;
-        internal CallbackLifetime.Registration Registration = null!;
+        internal CallbackLifetime.Registration Registration => this;
+        internal FileSubscription(Window window, ulong handle, ContentUpdate? scope) : base(window.LifetimeFor(scope))
+        {
+            Window = window; Handle = handle; Scope = scope;
+            try { Bind(this); } catch { Dispose(); throw; }
+        }
+        protected override void Release()
+        {
+            if (Window.fileSubscriptions.TryGetValue(Handle, out var current) && ReferenceEquals(current, this))
+                Window.fileSubscriptions.Remove(Handle);
+            Paths = null; Completed = null; Query = null; Drop = null;
+        }
     }
     private FileSubscription FileCallbacks(ulong handle)
     {
         Guard();
         if (fileSubscriptions.TryGetValue(handle, out var current)) return current;
         var subscription = new FileSubscription(this, handle, ScopeFor(handle));
-        subscription.Registration = LifetimeFor(subscription.Scope).Register(subscription, () =>
-        {
-            if (fileSubscriptions.TryGetValue(handle, out var current) && ReferenceEquals(current, subscription))
-                fileSubscriptions.Remove(handle);
-            subscription.Paths = null; subscription.Completed = null; subscription.Query = null; subscription.Drop = null;
-        });
         try { fileSubscriptions.Add(handle, subscription); }
         catch { subscription.Registration.Dispose(); throw; }
         return subscription;

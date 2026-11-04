@@ -293,6 +293,7 @@ bool MillerColumns::focus_pointer(const Control& target, Point point) {
 bool MillerColumns::select_item(std::size_t index, ItemKey key, SelectionGesture gesture) {
     const auto retained = lists_[index];
     auto& list = *retained;
+    const auto source = list.source_;
     set_active_column(index);
     const bool changed = gesture != SelectionGesture::focus_only && columns_[index].selected != key;
     list.selection_.select(list.source_, key, gesture == SelectionGesture::focus_only ?
@@ -301,7 +302,8 @@ bool MillerColumns::select_item(std::size_t index, ItemKey key, SelectionGesture
     list.reveal(key); list.invalidate(Invalidation::state);
     auto callback = selection_;
     if (changed && callback) callback(index, key);
-    if (changed && list.owner_ && list.available(key) && list.selection().focused() == key)
+    if (changed && list.owner_ && list.source_ == source && index < list.owner_->columns_.size() &&
+        list.enabled() && list.owner_->enabled() && list.owner_->visible() && list.selection().focused() == key)
         detail::CompositionAccess::selection(list);
     return true;
 }
