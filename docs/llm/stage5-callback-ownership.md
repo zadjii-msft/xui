@@ -92,6 +92,12 @@ Structural source changes alone are not a performance or desktop acceptance clai
 
 ## Results: November 4, 2026
 
+The later [comprehensive study](stage5-comprehensive-performance.md) expands this
+two-workload result to 61 phases / 90 processes. It finds additional model,
+managed-registration and native-host signals, including per-event allocation
+regressions. **The blocker is not limited to NumericInput.** The earlier results
+below remain historical, separate evidence, not an all-up acceptance statement.
+
 The final implementation commit is `075196b2ee0e29e7d63d001709ceaa8d3fd1bf4d`.
 The [raw companion](stage5-callback-ownership-evidence.json) preserves 257 byte-hashed
 artifacts / 1,582,662 original bytes, all blocks and stopped attempts, seven final

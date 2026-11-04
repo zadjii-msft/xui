@@ -16,6 +16,11 @@ rollback across registration families, weak captures and idempotent retirement.
 observation plus native callback close/failure without global input or clipboard use.
 `xui_callback_ownership_probe` has explicit `--measure` mode for identical public-API
 baseline/candidate action workloads. See [the stage-5 evidence](stage5-callback-ownership.md).
+The expanded `callback_performance_matrix`, `callback_abi_performance`, managed
+`--callback-performance` fixture and existing native probes are compared by
+`tests\callback-performance-study.py`. Its unit tests reject malformed/reordered
+work and resource/CPU failures. The [full study](stage5-comprehensive-performance.md)
+records all phase results and additional blockers, not a universal performance pass.
 
 ## Targeted invalidation
 
