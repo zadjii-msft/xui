@@ -155,12 +155,44 @@ void miller_events() {
     child->select(source->key(2));
     require(order.empty(), "Path replacement suppresses a stale child selection after the parent event");
 }
+void immediate_delivery() {
+    RadioGroup radio;
+    radio.set_items({{1, L"First"}, {2, L"Second"}}, 1);
+    unsigned old_calls{}, next_calls{};
+    radio.on_change([&](std::uint64_t id) {
+        ++old_calls;
+        radio.on_change([&](std::uint64_t) { ++next_calls; });
+        require(radio.selected() == id, "Immediate observers see committed selection");
+    });
+    radio.select(2); radio.select(1);
+    require(old_calls == 1 && next_calls == 1, "Immediate delivery retains the selected observer during replacement");
+
+    NumericInput number;
+    RangeInput range;
+    unsigned changes{};
+    number.on_change([&](double) { ++changes; });
+    range.on_change([&](double) { ++changes; });
+    number.change_value(number.value());
+    number.commit_text(number.editor()->text());
+    range.change_value(range.value());
+    require(changes == 0, "Unchanged numeric/range values do not deliver an event");
+
+    detail::CallbackScope scope;
+    detail::CompositionAccess::change(number, scope, [&](double) { scope.retire(); throw std::runtime_error("controlled"); });
+    bool failed{};
+    try { number.change_value(2); }
+    catch (const std::runtime_error& error) { failed = std::string_view(error.what()) == "controlled"; }
+    require(failed && changes == 0, "Composition failure unwinds the lease without delivering the observer");
+    number.change_value(3);
+    require(changes == 1, "Retired composition leaves the observer independently usable after unwinding");
+}
 }
 int main() {
     try {
         native_composition();
         captured_delivery();
         miller_events();
+        immediate_delivery();
         std::cout << "Composition/observer separation, reentrant mutation, scope retirement and Miller ownership passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
