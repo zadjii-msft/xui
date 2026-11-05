@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Tests</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Optimize>true</Optimize>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Xui.Managed"><HintPath>$(CensusLibrary)\Xui.Managed.dll</HintPath></Reference>
+    <Compile Include="CallbackAllocationProbe.cs" />
+  </ItemGroup>
+  <Target Name="RequireCensusLibrary" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(CensusLibrary)' == '' Or !Exists('$(CensusLibrary)\Xui.Managed.dll')"
+           Text="Set CensusLibrary to the absolute directory containing the matched managed library." />
+  </Target>
+</Project>
