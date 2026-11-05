@@ -234,6 +234,11 @@ frames, native typing latency or a claim that the whole framework is faster.
 
 ## Remaining evidence limits
 
+The [stacked callback performance follow-up](callback-performance-followup.md)
+measures narrower delivery/managed-adapter changes directly against this final
+PR63 snapshot. Its gains and remaining flags do not replace the historical
+phase-4 comparison or constitute a blanket performance acceptance.
+
 This phase does not waive the historical stage-3 collection-paint concern, physical
 IME/Narrator/foreground latency, full private-memory attribution, or previously
 recorded unrelated desktop failures. Ordinary C++ new/new[] counters exclude
