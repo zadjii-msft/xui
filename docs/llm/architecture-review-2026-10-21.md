@@ -340,7 +340,7 @@ Writing this plan does not complete any runtime finding.
 | 3 | `host-boundaries` | 3a merged; remaining families merged in [#61](https://github.com/zadjii-msft/xui/pull/61), head `993bdcd7`, squash `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b`; [recorded limits](stage3-host-boundaries.md) remain | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Merged [#62](https://github.com/zadjii-msft/xui/pull/62), accepted head `4f5a8016`, squash `de9ee24ea4664f0f6d0fcaf87f573383086244da`; [source map and evidence](stage4-targeted-invalidation.md) | Merged #61, `c0173871` | Finding 2: originating identity and targeted ordered work |
 | 5 | `callback-ownership` | Verified merged [#63](https://github.com/zadjii-msft/xui/pull/63), head `233f042f`, squash `a459962c`; follow-up [#64](https://github.com/zadjii-msft/xui/pull/64), head `2581f410`, squash `65904462`. Historical performance flags below remain unresolved, not waived by merging. | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
-| 6 | `contract-metadata` | Implemented and verified locally on November 17, 2026 against merged `65904462`; not committed or merged. Correctness gates and the final scoped 15-workload performance comparison pass; evidence below. | Merged #63 and #64, `65904462` | Finding 5: authoritative contracts, adapters, compiler/reload rules |
+| 6 | `contract-metadata` | In review: [#66](https://github.com/zadjii-msft/xui/pull/66), implementation `ec581948`. Verified on November 17, 2026 against merged `65904462`; not merged. Correctness gates and the final scoped 15-workload performance comparison pass; evidence below. | Merged #63 and #64, `65904462` | Finding 5: authoritative contracts, adapters, compiler/reload rules |
 | 7 | `legacy-file-list` | Not started | 6 | Finding 6: foundation isolation and shared algorithms |
 | 8 | `boundary-enforcement` | Not started | 7 | Finding 7: dependency enforcement and final evidence/source maps |
 
@@ -731,8 +731,11 @@ No runtime reflection or hot-path dictionary lookup is introduced.
 #### Stage 6 implementation and evidence: November 17, 2026
 
 Implemented in the existing checkout after fast-forwarding clean local `main` to
-`6590446206507789861722529ed1dd796172397c`. No child session, new branch, commit, push,
-or PR was created. Stage 7 must wait for this phase's review and merge.
+`6590446206507789861722529ed1dd796172397c`. No child session was used.
+The measurements preceded publication. The implementation was subsequently committed as
+`ec581948b5f9d08ddc780db5bc5c6c7278f3edea` and published for review in
+[#66](https://github.com/zadjii-msft/xui/pull/66).
+Stage 7 must wait for this phase's review and merge.
 
 The [source map](xui-language-plan.md#authoritative-feature-and-compiler-contracts)
 describes the authoritative owners: C header identifiers/record layouts, symbolic feature metadata,
@@ -861,4 +864,4 @@ Any unresolved behavioral or performance requirement remains visible as blocked/
 
 The stage-0 document originally contained only source inspection and the separately attributed
 pristine correctness report. The later ledger entries record subsequent implementation and measurements.
-Stage 6 is locally implemented but unmerged; stages 7 and 8 remain unimplemented.
+Stage 6 is in review but unmerged; stages 7 and 8 remain unimplemented.
