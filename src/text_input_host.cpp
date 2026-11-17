@@ -10,6 +10,7 @@ TextInputHostPeer::TextInputHostPeer(PeerHostServices& host, NativeFieldServices
     edit_.on_failure([&host] { host.peer_failure(); });
 }
 TextInputHostPeer::~TextInputHostPeer() {
+    clear_actions_.retire();
     edit_.dismiss_suggestions();
     retire_native();
     if (caption_ && IsWindow(caption_)) DestroyWindow(caption_);
@@ -18,7 +19,6 @@ TextInputHostPeer::~TextInputHostPeer() {
     if (caption_provider_) caption_provider_->Release();
     if (clear_button_) {
         clear_button_->set_invalidator({});
-        clear_button_->on_click({});
     }
 }
 void TextInputHostPeer::attach(HWND parent, int id) {
@@ -147,7 +147,7 @@ void TextInputHostPeer::collect_clear() {
             if (const auto services = owner.lock())
                 services->invalidate_native_field({id, event.kind == Invalidation::layout ? Invalidation::native : event.kind});
         });
-        clear_button_->on_click([owner, id = control->id()] {
+        detail::CompositionAccess::click(*clear_button_, clear_actions_, [owner, id = control->id()] {
             if (const auto services = owner.lock()) services->activate_text_clear(id);
         });
     }

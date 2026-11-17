@@ -17,7 +17,7 @@
 #include "xui/xui_swap_chain.h"
 #include "xui/styling.hpp"
 #include "xui/reveal.hpp"
-#include "abi_callbacks.hpp"
+#include "xui/callback.hpp"
 #include <bit>
 #include <atomic>
 #include <variant>
@@ -32,7 +32,6 @@
 #include <unordered_map>
 
 namespace {
-namespace callbacks = xui::detail::callbacks;
 struct Failure { xui_status status; const char* message; };
 void require(bool condition, xui_status status, const char* message) {
     if (!condition) throw Failure{status, message};
@@ -126,11 +125,8 @@ struct Node {
     std::shared_ptr<const xui::CommandSet> commands;
     xui::CommandBindings bindings;
     uint64_t web_generation{};
-    callbacks::Storage prior_callbacks;
-    bool input_callbacks_captured{};
-    bool navigation_owned_button{}, navigation_button_observer_installed{};
-    bool feature_callbacks_captured{};
-    std::weak_ptr<Node> miller_owner;
+    bool callbacks_active{true};
+    bool observers_wired{};
     xui_miller_callback miller_callback{};
     void* miller_context{};
     unsigned dispatching{};
@@ -273,7 +269,7 @@ xui_handle event_target(const std::shared_ptr<State>& owner, const xui::Control*
 }
 void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0) noexcept {
     auto n = weak.lock();
-    if (!n || !n->callback || n->owner->closed || n->owner->callback_failure ||
+    if (!n || !n->callbacks_active || !n->callback || n->owner->closed || n->owner->callback_failure ||
         n->owner->window->state() >= xui::WindowState::closing) return;
     auto s = n->owner;
     if (n->dispatching) { s->callback_failure = XUI_BUSY; s->window->close(); return; }
@@ -287,21 +283,8 @@ void dispatch(const std::weak_ptr<Node>& weak, uint32_t kind, uint64_t value = 0
 }
 void wire(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
-    if (!n->input_callbacks_captured) {
-        if ((n->kind == XUI_BUTTON || n->kind == XUI_TOGGLE_BUTTON || n->kind == XUI_HYPERLINK_BUTTON) && !n->navigation_owned_button)
-            n->prior_callbacks.capture(as<xui::Button>(n).click_callback());
-        else if (n->kind == XUI_TEXT_INPUT) {
-            const auto& input = as<xui::TextInput>(n);
-            n->prior_callbacks.capture(callbacks::Input{input.change_callback(), input.submit_callback()});
-        }
-        n->input_callbacks_captured = true;
-    }
     if (auto* c = dynamic_cast<xui::Control*>(n->element.get()))
-        c->on_focus([weak] {
-            if (auto node = weak.lock(); node && !node->miller_owner.expired())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Action>()) (*prior)();
-            dispatch(weak, XUI_FOCUS_ENTERED);
-        });
+        c->on_focus([weak] { dispatch(weak, XUI_FOCUS_ENTERED); });
     switch (n->kind) {
     case XUI_SWAP_CHAIN_PANEL:
         as<xui::SwapChainPanel>(n).on_metrics_changed([weak](const xui::SwapChainPanelMetrics&) {
@@ -332,25 +315,20 @@ void wire(const std::shared_ptr<Node>& n) {
             return false;
         }); break;
     case XUI_BUTTON: case XUI_TOGGLE_BUTTON: case XUI_HYPERLINK_BUTTON:
-        if (n->navigation_owned_button) break;
         if (n->kind == XUI_TOGGLE_BUTTON)
             as<xui::Button>(n).on_toggle([weak](bool value) { dispatch(weak, XUI_CHANGE, value); });
+        if (n->kind == XUI_TOGGLE_BUTTON) break;
+        as<xui::Button>(n).on_toggle([weak](bool) { dispatch(weak, XUI_CLICK); });
         as<xui::Button>(n).on_click([weak] {
-        if (auto node = weak.lock())
-            if (const auto* prior = node->prior_callbacks.get<callbacks::Action>()) (*prior)();
         dispatch(weak, XUI_CLICK);
     }); break;
     case XUI_TOGGLE: case XUI_TOGGLE_SWITCH:
         as<xui::Toggle>(n).on_change([weak](bool value) { dispatch(weak, XUI_CHANGE, value); }); break;
     case XUI_TEXT_INPUT:
         as<xui::TextInput>(n).on_change([weak](const std::wstring& text) {
-            if (auto node = weak.lock())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Input>(); prior && prior->change) prior->change(text);
             dispatch(weak, XUI_CHANGE);
         });
         as<xui::TextInput>(n).on_submit([weak] {
-            if (auto node = weak.lock())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Input>(); prior && prior->submit) prior->submit();
             dispatch(weak, XUI_SUBMIT);
         }); break;
     case XUI_FILE_LIST:
@@ -402,10 +380,10 @@ xui_status XUI_CALL xui_window_destroy(xui_handle window) noexcept {
             for (auto h : s->handles) {
                 auto it = registry.find(h);
                 if (it == registry.end()) continue;
-                it->second->callback = nullptr; it->second->context = nullptr;
                 removed.push_back(std::move(it->second)); registry.erase(it);
             }
         }
+        for (const auto& node : removed) node->callbacks_active = false;
         s->window.reset();
     });
 }
@@ -927,7 +905,10 @@ xui_status XUI_CALL xui_subscribe(xui_handle target, xui_callback callback, void
         auto n = get(target);
         require(n->kind != XUI_WINDOW || !n->owner->content_context, XUI_BUSY,
             "Content scopes cannot replace window callbacks.");
-        if (callback) { editable(n->owner); wire(n); }
+        if (callback) {
+            editable(n->owner);
+            if (!n->observers_wired) { wire(n); n->observers_wired = true; }
+        }
         n->callback = callback; n->context = callback ? context : nullptr;
     });
 }

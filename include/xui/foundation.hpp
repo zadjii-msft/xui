@@ -28,7 +28,7 @@ public:
     void on_preview(std::function<void(double)> callback) { preview_callback_ = std::move(callback); }
     const std::function<void(double)>& preview_callback() const { return preview_callback_; }
     void on_change(std::function<void(double)> callback) { change_ = std::move(callback); }
-    const std::function<void(double)>& change_callback() const { return change_; }
+    const std::function<void(double)>& change_callback() const { return change_.observer(); }
     void on_cancel(std::function<void(double)> callback) { cancel_callback_ = std::move(callback); }
     const std::function<void(double)>& cancel_callback() const { return cancel_callback_; }
     bool move(RangeKey key);
@@ -44,12 +44,14 @@ protected:
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::range_input; }
     StyleStateMask control_style_state_bits() const override;
 private:
+    friend struct detail::CompositionAccess;
     NumericRange range_;
     double value_{};
     std::optional<double> preview_;
     Axis orientation_{Axis::horizontal};
     bool reversed_{};
-    std::function<void(double)> preview_callback_, change_, cancel_callback_;
+    std::function<void(double)> preview_callback_, cancel_callback_;
+    detail::Callback<void(double)> change_;
 };
 
 struct ChoiceItem {
@@ -71,7 +73,7 @@ public:
     bool step(int delta);
     bool type_ahead(std::wstring_view prefix);
     void on_change(std::function<void(std::uint64_t)> callback) { change_ = std::move(callback); }
-    const std::function<void(std::uint64_t)>& change_callback() const { return change_; }
+    const std::function<void(std::uint64_t)>& change_callback() const { return change_.observer(); }
     void on_accept(std::function<void(std::uint64_t)> callback) { accept_ = std::move(callback); }
     bool accept();
     Rect item_bounds(std::size_t index) const;
@@ -98,6 +100,7 @@ protected:
     }
     void presentation_changed() override;
 private:
+    friend struct detail::CompositionAccess;
     void reveal_selected();
     std::size_t horizontal_slots() const;
     float horizontal_gap() const;
@@ -106,7 +109,7 @@ private:
     std::size_t first_{};
     float item_height_{31};
     bool horizontal_{};
-    std::function<void(std::uint64_t)> change_, accept_;
+    detail::Callback<void(std::uint64_t)> change_, accept_;
 };
 
 class SelectorBar final : public RadioGroup {
@@ -193,6 +196,7 @@ private:
     std::optional<std::uint64_t> selected_;
     std::function<void(std::uint64_t)> change_;
     std::function<void(const std::wstring&)> edit_;
+    detail::CallbackScope composition_;
 };
 
 enum class NumberSpinPlacement { hidden, inline_buttons };
@@ -221,7 +225,7 @@ public:
     Rect field_bounds() const;
     Rect header_bounds() const;
     void on_change(std::function<void(double)> callback) { change_ = std::move(callback); }
-    const std::function<void(double)>& change_callback() const { return change_; }
+    const std::function<void(double)>& change_callback() const { return change_.observer(); }
     bool step(int direction);
     bool change_value(double value);
     bool commit_text(const std::wstring& text);
@@ -230,6 +234,7 @@ protected:
     StyleStateMask control_style_state_bits() const override;
     void presentation_changed() override;
 private:
+    friend struct detail::CompositionAccess;
     void format();
     NumericRange range_;
     double value_{};
@@ -239,7 +244,8 @@ private:
     std::shared_ptr<TextInput> editor_;
     std::shared_ptr<Button> decrease_, increase_;
     std::vector<std::shared_ptr<Element>> children_;
-    std::function<void(double)> change_;
+    detail::Callback<void(double)> change_;
+    detail::CallbackScope composition_;
 };
 
 class Expander final : public Control, public Animation {

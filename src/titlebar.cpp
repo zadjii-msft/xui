@@ -18,7 +18,7 @@ TitleBar::TitleBar(std::wstring title) : Control(ControlRole::content_view, L"Wi
     close_->set_automation_id(L"caption-close"); tabs_->set_automation_id(L"caption-tabs");
     minimize_->set_icon(ButtonIcon::minimize); maximize_->set_icon(ButtonIcon::maximize); close_->set_icon(ButtonIcon::close);
 }
-TitleBar::~TitleBar() { button_invoked_.reset(); on_caption({}); }
+TitleBar::~TitleBar() { composition_.retire(); button_invoked_.reset(); }
 void TitleBar::set_title(std::wstring title) { title_->set_text(std::move(title)); }
 void TitleBar::set_title_visible(bool visible) { title_->set_visible(visible); invalidate(Invalidation::layout); }
 void TitleBar::set_tab_panes(const std::shared_ptr<Element>& first, const std::shared_ptr<Element>& second) {
@@ -39,13 +39,13 @@ StyleStateMask TitleBar::control_style_state_bits() const {
         (maximized_ ? style_states::maximized : 0);
 }
 void TitleBar::on_caption(std::function<void(CaptionAction)> callback) {
+    if (!button_invoked_) button_invoked_ = std::make_shared<std::function<void(const Button&)>>();
     bind_caption_button(minimize_, callback ? std::function<void()>{[callback] { callback(CaptionAction::minimize); }} : std::function<void()>{});
     bind_caption_button(maximize_, callback ? std::function<void()>{[callback] { callback(CaptionAction::maximize_restore); }} : std::function<void()>{});
     bind_caption_button(close_, callback ? std::function<void()>{[callback] { callback(CaptionAction::close); }} : std::function<void()>{});
 }
 void TitleBar::bind_caption_button(const std::shared_ptr<Button>& button, std::function<void()> callback) {
-    if (!button_invoked_) { button->on_click(std::move(callback)); return; }
-    button->on_click([callback = std::move(callback), weak = std::weak_ptr<Button>(button),
+    detail::CompositionAccess::click(*button, composition_, [callback = std::move(callback), weak = std::weak_ptr<Button>(button),
         observer = std::weak_ptr<std::function<void(const Button&)>>(button_invoked_)] {
         if (callback) callback();
         if (auto signal = observer.lock(); signal && *signal) if (auto value = weak.lock()) {
@@ -58,13 +58,6 @@ void TitleBar::set_button_invoked_handler(std::function<void(const Button&)> han
     if (!button_invoked_) {
         if (!handler) return;
         button_invoked_ = std::make_shared<std::function<void(const Button&)>>();
-        try {
-            for (const auto& button : {minimize_, maximize_, close_})
-                bind_caption_button(button, button->click_callback());
-        } catch (...) {
-            button_invoked_.reset();
-            throw;
-        }
     }
     *button_invoked_ = std::move(handler);
 }

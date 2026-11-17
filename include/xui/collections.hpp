@@ -204,6 +204,7 @@ protected:
     CollectionSelection selection_;
 private:
     friend struct detail::CollectionPresentationAccess;
+    friend struct detail::CompositionAccess;
     std::shared_ptr<const detail::CollectionPresentation> collection_presentation_;
     std::uint64_t collection_presentation_version_{};
     ItemsPresentation presentation_{};
@@ -211,8 +212,8 @@ private:
     SelectAllScope scope_{SelectAllScope::filtered};
     Size item_size_{180, 56};
     double offset_{};
-    std::function<void()> change_;
-    std::function<void(ItemKey)> activate_, action_;
+    detail::Callback<void()> change_;
+    detail::Callback<void(ItemKey)> activate_, action_;
 };
 
 class ItemsView final : public VirtualCollection {

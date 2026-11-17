@@ -65,7 +65,6 @@ public:
 NavigationList::NavigationList(std::wstring name, NavigationView& owner) :
     VirtualCollection(ControlRole::tree_view, std::move(name)), owner_(&owner) {
     set_item_size({240, 40});
-    on_activate([this](ItemKey key) { if (owner_) owner_->activate_item(key); });
 }
 struct NavigationList::Motion {
     ItemKey group;
@@ -411,20 +410,26 @@ NavigationView::NavigationView(std::wstring name) :
     toggle_->set_icon(ButtonIcon::menu);
     toggle_->set_appearance(ButtonAppearance::subtle);
     toggle_->set_help_text(L"Expand or collapse navigation");
-    toggle_->on_click([this] { set_expanded(!expanded_); });
+    detail::CompositionAccess::click(*toggle_, composition_, [this] { set_expanded(!expanded_); });
     title_->set_heading(true);
     empty_->set_caption(true); empty_->set_tone(TextTone::secondary);
     search_->set_search_style(true); search_->set_placeholder(L"Filter navigation");
     search_->set_maximum_length(256);
-    search_->on_change([this](const std::wstring& text) { set_filter(text); });
+    detail::CompositionAccess::change(*search_, composition_, [this](const std::wstring& text) { set_filter(text); });
+    for (const auto& list : {header_, main_, footer_}) {
+        const std::weak_ptr<NavigationList> weak = list;
+        detail::CompositionAccess::activate(*list, composition_, [weak](ItemKey key) {
+            if (const auto value = weak.lock(); value && value->owner_) value->owner_->activate_item(key);
+        });
+    }
     children_ = {toggle_, title_, search_, header_, main_, footer_, empty_};
     for (const auto& child : children_) adopt(child);
     rebuild();
 }
 NavigationView::~NavigationView() {
     settle_motion();
-    toggle_->on_click({}); search_->on_change({});
-    for (const auto& list : {header_, main_, footer_}) { list->on_activate({}); list->owner_ = nullptr; }
+    composition_.retire();
+    for (const auto& list : {header_, main_, footer_}) list->owner_ = nullptr;
 }
 void NavigationView::presentation_changed() {
     settle_motion();

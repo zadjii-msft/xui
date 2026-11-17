@@ -65,5 +65,6 @@ private:
     std::array<std::shared_ptr<Element>, 1> children_;
     std::optional<ShapeId> selected_;
     std::function<void(ShapeId)> selected_callback_;
+    detail::CallbackScope composition_;
 };
 }

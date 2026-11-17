@@ -127,10 +127,10 @@ public sealed unsafe partial class Window
             return;
         }
         if (millerSubscriptions.TryGetValue(handle, out var current)) { current.Action = action; return; }
-        var subscription = new MillerSubscription(this, action, ScopeFor(handle));
+        var subscription = new MillerSubscription(this, handle, action, ScopeFor(handle));
         try
         {
-            Check(Native.MillerSubscribe(handle, &MillerTrampoline, GCHandle.ToIntPtr(subscription.Root)));
+            Check(Native.MillerSubscribe(handle, &MillerTrampoline, subscription.Registration.Context));
             millerSubscriptions.Add(handle, subscription);
         }
         catch
@@ -140,19 +140,28 @@ public sealed unsafe partial class Window
             throw;
         }
     }
-    private sealed class MillerSubscription
+    private sealed class MillerSubscription : CallbackLifetime.Registration
     {
         internal readonly Window Window;
         internal Action<EventKind, MillerItemEvent> Action;
         internal readonly ContentUpdate? Scope;
-        internal GCHandle Root;
-        internal MillerSubscription(Window window, Action<EventKind, MillerItemEvent> action, ContentUpdate? scope)
+        private readonly ulong handle;
+        internal CallbackLifetime.Registration Registration => this;
+        internal MillerSubscription(Window window, ulong handle, Action<EventKind, MillerItemEvent> action, ContentUpdate? scope)
+            : base(window.LifetimeFor(scope))
         {
             Window = window; Action = action;
             Scope = scope;
-            Root = GCHandle.Alloc(this, GCHandleType.Weak);
+            this.handle = handle;
+            try { Bind(this); } catch { Dispose(); throw; }
         }
-        internal void Free() { if (Root.IsAllocated) Root.Free(); }
+        protected override void Release()
+        {
+            if (Window.millerSubscriptions.TryGetValue(handle, out var current) && ReferenceEquals(current, this))
+                Window.millerSubscriptions.Remove(handle);
+            Action = null!;
+        }
+        internal void Free() => Dispose();
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int MillerTrampoline(nint context, Native.MillerEvent* value)
@@ -162,6 +171,8 @@ public sealed unsafe partial class Window
         {
             subscription = GCHandle.FromIntPtr(context).Target as MillerSubscription;
             if (subscription is null) return 8;
+            using var dispatch = subscription.Registration.Enter();
+            if (!dispatch.Active) return 0;
             if (subscription.Scope is { AcceptCallbacks: false }) return 0;
             using var content = subscription.Window.EnterContent(subscription.Scope);
             ++subscription.Window.callbacks;

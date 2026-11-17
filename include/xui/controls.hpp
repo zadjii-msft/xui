@@ -2,6 +2,7 @@
 #include "xui/animation.hpp"
 
 #include "xui/core.hpp"
+#include "xui/callback.hpp"
 #include "xui/theme.hpp"
 #include "xui/styling.hpp"
 #include "xui/control_styling.hpp"
@@ -122,6 +123,7 @@ protected:
     StyleStateMask control_style_state_bits() const override;
 private:
     friend class Window;
+    friend struct detail::CompositionAccess;
     ControlRole role_;
     VisualStyle visual_style_{VisualStyle::classic};
     std::wstring name_;
@@ -134,7 +136,7 @@ private:
     float presentation_font_size_{};
     std::shared_ptr<const StyleFontFamily> presentation_font_family_;
     std::function<ContextMenuContent()> menu_;
-    std::function<void()> focus_;
+    detail::Callback<void()> focus_;
     TextMeasurer measurer_;
     Size text_size_{};
     bool text_dirty_{true};
@@ -199,7 +201,7 @@ class Button : public Control {
 public:
     explicit Button(std::wstring text) : Control(ControlRole::button, std::move(text), {240, 40}) { set_auto_size(true); }
     void on_click(std::function<void()> callback) { click_ = std::move(callback); }
-    const std::function<void()>& click_callback() const { return click_; }
+    const detail::Callback<void()>& click_callback() const { return click_; }
     ButtonBehavior behavior() const { return behavior_; }
     void set_behavior(ButtonBehavior value);
     ButtonAppearance appearance() const { return appearance_; }
@@ -235,6 +237,7 @@ public:
         return icon_ == ButtonIcon::none || !auto_size() ? Control::measure(available) : constrain({size, size}, available);
     }
 private:
+    friend struct detail::CompositionAccess;
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::button; }
     StyleStateMask control_style_state_bits() const override {
         return Control::control_style_state_bits() | (checked_ ? style_states::checked : 0);
@@ -248,9 +251,9 @@ private:
     bool checked_{};
     bool vertical_text_{};
     unsigned repeat_delay_{400}, repeat_interval_{80};
-    std::function<void(bool)> toggle_;
+    detail::Callback<void(bool)> toggle_;
     void activate() override;
-    std::function<void()> click_;
+    detail::Callback<void()> click_;
 };
 
 class ToggleButton final : public Button {
@@ -401,7 +404,7 @@ public:
     void set_maximum_length(std::size_t value);
     std::size_t maximum_length() const { return maximum_length_; }
     void on_change(std::function<void(const std::wstring&)> callback) { change_ = std::move(callback); }
-    const std::function<void(const std::wstring&)>& change_callback() const { return change_; }
+    const std::function<void(const std::wstring&)>& change_callback() const { return change_.observer(); }
     // Backend boundary: publish committed native text, not IME preedit text.
     void commit_text(std::wstring text);
     void set_search_style(bool value) { search_ = value; invalidate(Invalidation::layout); }
@@ -417,8 +420,8 @@ public:
     const std::wstring& shortcut_hint() const { return shortcut_; }
     void set_shortcut_hint(std::wstring value);
     void on_submit(std::function<void()> callback) { submit_ = std::move(callback); }
-    const std::function<void()>& submit_callback() const { return submit_; }
-    void submit() { if (submit_) { auto callback = submit_; callback(); } }
+    const std::function<void()>& submit_callback() const { return submit_.observer(); }
+    void submit() { submit_(); }
     void set_suggestions(std::shared_ptr<SuggestionSource> source) {
         suggestions_ = std::move(source); ++suggestion_revision_; invalidate(Invalidation::native);
     }
@@ -436,6 +439,7 @@ protected:
             (text_.empty() ? style_states::empty : 0);
     }
 private:
+    friend struct detail::CompositionAccess;
     void assign_text(std::wstring text);
     std::shared_ptr<SuggestionSource> suggestions_;
     std::wstring suggestion_context_;
@@ -446,8 +450,8 @@ private:
     bool search_{};
     bool caption_visible_{true};
     std::size_t maximum_length_{1024};
-    std::function<void()> submit_;
-    std::function<void(const std::wstring&)> change_;
+    detail::Callback<void()> submit_;
+    detail::Callback<void(const std::wstring&)> change_;
     Selection selection_;
     std::function<Selection()> read_selection_;
     std::function<void(Selection)> write_selection_;
@@ -513,6 +517,7 @@ public:
     std::optional<std::size_t> drop_indicator() const { return drop_indicator_; }
     void arrange(Rect bounds) override;
 private:
+    detail::CallbackScope composition_;
     std::optional<StyleTarget> control_style_target() const override { return StyleTarget::tab_strip; }
     void presentation_changed() override { settle(); }
     float tab_viewport_width() const;

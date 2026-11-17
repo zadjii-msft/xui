@@ -135,6 +135,15 @@ Text stays on one line unless the text contains an explicit line break.
 An ellipsis marks text that exceeds the available width. The accessible name retains the full text.
 
 Standard-control property setters do not call application action callbacks.
+Public observers on retained composite children do not replace their enclosing
+control's internal behavior. Observing or unsubscribing NumericInput's editor or
+step buttons, editable ComboBox's editor, navigation buttons or Miller children
+preserves parsing, stepping, navigation and focus coordination.
+Internal composition runs before the selected observer. Replacing/removing an
+observer during delivery affects the next event; the current event keeps its
+captured observer. A parent/path change can suppress a now-stale keyed-child
+notification. Callback errors still fail explicitly rather than silently dropping
+composition or reporting success.
 List selection operations call `on_selection_change`. View assignments call `on_view_change`.
 Both callbacks observe the updated model. Item focus does not invoke the selection callback.
 Pointer, keyboard, and UIA actions use the same activation behavior and enabled-state check.

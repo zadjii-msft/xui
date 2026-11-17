@@ -128,7 +128,7 @@ bool RangeInput::change_value(double value) {
     if (!changed && !preview_) return true;
     set_value(value);
     auto callback = change_;
-    if (changed && callback) callback(value);
+    if (changed && callback) std::move(callback)(value);
     return true;
 }
 bool RangeInput::move(RangeKey key) { return change_value(moved(value_, range_, key)); }
@@ -213,7 +213,7 @@ bool RadioGroup::select(std::uint64_t id) {
     if (selected_ == id) return true;
     set_selected(id);
     auto callback = change_;
-    if (callback) callback(id);
+    if (callback) std::move(callback)(id);
     return true;
 }
 bool RadioGroup::step(int delta) {
@@ -236,9 +236,8 @@ bool RadioGroup::type_ahead(std::wstring_view prefix) {
 }
 bool RadioGroup::accept() {
     if (!enabled() || !selected_) return false;
-    auto callback = accept_;
     const auto id = *selected_;
-    if (callback) callback(id);
+    accept_(id);
     return true;
 }
 float RadioGroup::effective_row_height() const {
@@ -489,14 +488,15 @@ ComboBox::ComboBox(std::wstring name, bool editable)
     if (editable) {
         editor_ = std::make_shared<TextInput>(name + L" text");
         editor_->set_caption_visible(false);
-        editor_->on_change([this](const auto& text) {
+        detail::CompositionAccess::change(*editor_, composition_, [this](const auto& text) {
+            const auto callback = edit_;
             invalidate_state();
-            auto callback = edit_; if (callback) callback(text);
+            if (callback) callback(text);
         });
         children_.push_back(editor_); adopt(editor_);
     }
 }
-ComboBox::~ComboBox() { if (editor_) editor_->on_change({}); }
+ComboBox::~ComboBox() { composition_.retire(); }
 StyleStateMask ComboBox::control_style_state_bits() const {
     const bool empty = editor_ ? editor_->text().empty() : !selected_;
     return Control::control_style_state_bits() | (popup_->is_open() ? style_states::open : 0) |
@@ -527,7 +527,7 @@ bool ComboBox::select(std::uint64_t id) {
     if (selected_ == id) return true;
     set_selected(id);
     auto callback = change_;
-    if (callback) callback(id);
+    if (callback) std::move(callback)(id);
     return true;
 }
 std::wstring ComboBox::selected_text() const {
@@ -590,14 +590,12 @@ NumericInput::NumericInput(std::wstring name)
       decrease_(std::make_shared<Button>(name + L" decrease")), increase_(std::make_shared<Button>(name + L" increase")),
       children_{editor_, decrease_, increase_} {
     editor_->set_caption_visible(false); editor_->set_maximum_length(128);
-    editor_->on_change([this](const auto& text) { commit_text(text); });
-    decrease_->on_click([this] { step(-1); }); increase_->on_click([this] { step(1); });
+    detail::CompositionAccess::change(*editor_, composition_, [this](const auto& text) { commit_text(text); });
+    detail::CompositionAccess::click(*decrease_, composition_, [this] { step(-1); }); detail::CompositionAccess::click(*increase_, composition_, [this] { step(1); });
     for (const auto& child : children_) adopt(child);
     format();
 }
-NumericInput::~NumericInput() {
-    editor_->on_change({}); decrease_->on_click({}); increase_->on_click({});
-}
+NumericInput::~NumericInput() { composition_.retire(); }
 StyleStateMask NumericInput::control_style_state_bits() const {
     return Control::control_style_state_bits() | (!valid_ ? style_states::invalid : 0) |
         (value_ == range_.minimum ? style_states::minimum : 0) |
@@ -633,7 +631,7 @@ bool NumericInput::change_value(double value) {
     const bool changed = value_ != value;
     set_value(value);
     auto callback = change_;
-    if (changed && callback) callback(value);
+    if (changed && callback) std::move(callback)(value);
     return true;
 }
 bool NumericInput::step(int direction) {
@@ -654,7 +652,7 @@ bool NumericInput::commit_text(const std::wstring& text) {
     const bool changed = value_ != value;
     value_ = value; invalidate_state();
     auto callback = change_;
-    if (changed && callback) callback(value);
+    if (changed && callback) std::move(callback)(value);
     return true;
 }
 void NumericInput::arrange(Rect value) {
@@ -724,7 +722,7 @@ void Expander::settle() {
 void Expander::activate() {
     set_expanded(!expanded_);
     auto callback = change_;
-    if (callback) callback(expanded_);
+    if (callback) std::move(callback)(expanded_);
 }
 Size Expander::measure(Size available) {
     if (!duration_ || !body_presented()) return measure_state(available, expanded_);

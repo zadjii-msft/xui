@@ -338,8 +338,8 @@ Writing this plan does not complete any runtime finding.
 | 1 | `baseline-gates` | Verified merged: [#58](https://github.com/zadjii-msft/xui/pull/58); accepted `dce6ae447cc566816b32653fe3dd43de5fb9432a`, squash `8fdc2269a065837737b1dc5dcc0962a574ce10cd`; recorded desktop/timing limits remain unresolved | 0 | Establishes evidence and ordinary PR protection for every later stage |
 | 2 | `child-contract` | Verified merged: [#59](https://github.com/zadjii-msft/xui/pull/59); accepted `38f377f4cea2e4632421c4871616dd54501045b4`, squash `a3f112c9293d41998276f3e97e03e6f1f4b1ffd2`; recorded timing/native limits remain unresolved | 1 | Finding 3: owned children and separate traversal policies |
 | 3 | `host-boundaries` | 3a merged; remaining families merged in [#61](https://github.com/zadjii-msft/xui/pull/61), head `993bdcd7`, squash `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b`; [recorded limits](stage3-host-boundaries.md) remain | 2 | Finding 1: family peers and family-specific peer/UIA state |
-| 4 | `dirty-work` | Implemented directly per November 3 request; [#62](https://github.com/zadjii-msft/xui/pull/62) open for review; [source map and evidence](stage4-targeted-invalidation.md) | Merged #61, `c0173871` | Finding 2: originating identity and targeted ordered work |
-| 5 | `callback-ownership` | Not started | 4 | Finding 4: composition/observation separation and scoped retirement |
+| 4 | `dirty-work` | Merged [#62](https://github.com/zadjii-msft/xui/pull/62), accepted head `4f5a8016`, squash `de9ee24ea4664f0f6d0fcaf87f573383086244da`; [source map and evidence](stage4-targeted-invalidation.md) | Merged #61, `c0173871` | Finding 2: originating identity and targeted ordered work |
+| 5 | `callback-ownership` | Implemented directly after verified merged #62; [#63](https://github.com/zadjii-msft/xui/pull/63) open; functional checks pass; [final correction measurements](stage5-callback-correction-performance.md) retain 84 threshold statistics across 22 matrix phases plus six numeric-step statistics; performance acceptance remains blocked | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
 | 6 | `contract-metadata` | Not started | 5 | Finding 5: authoritative contracts, adapters, compiler/reload rules |
 | 7 | `legacy-file-list` | Not started | 6 | Finding 6: foundation isolation and shared algorithms |
 | 8 | `boundary-enforcement` | Not started | 7 | Finding 7: dependency enforcement and final evidence/source maps |
@@ -664,7 +664,7 @@ paint work, captured/pending dirty buffers, scoped family synchronization and
 conservative global geometry/visibility/theme handling are implemented directly.
 The [stage-4 companion](stage4-targeted-invalidation.md) records exact native work
 checks, reentrancy/lifetime coverage and separate fixed baseline comparisons.
-Only this stage is authorized; stage 5 and later remain untouched.
+Stage 5 was authorized after this PR merged. Stages 6-8 remain untouched.
 
 ### Stage 5: Callback ownership and scoped lifetime
 
@@ -680,6 +680,28 @@ Verify foreign contexts and managed roots release exactly once at the correct th
 without stale callbacks or release during an unsafe in-flight/native notification.
 Preserve failure statuses and application-post cancellation ownership.
 New registrations require no added family cleanup loop; allocation/retention and native identity satisfy the evidence policy.
+
+**Implementation:** separate scoped composition and public observation, independent
+ABI observers, unified native/managed registration retirement and in-flight leases
+are implemented directly. Final functional gates and seven native cases pass;
+the [stage-5 companion](stage5-callback-ownership.md) retains exact tests and all
+measurement blocks. **Performance acceptance remains blocked** by the final numeric
+step phase (+10.62% median wall / +10.20% median owning-thread CPU); aggregate
+improvement is not a waiver. The PR is for review, not accepted/merged evidence,
+and does not authorize stage 6.
+The subsequent [61-phase performance study](stage5-comprehensive-performance.md)
+retains 90 processes/1,098 timed rows and finds 161 threshold statistics across
+29 ordinary phases and two group sums. New allocation and real-host signals also
+block acceptance. Green correctness checks and narrower improvements are not waivers.
+
+The [final correction](stage5-callback-correction-performance.md), functional
+commit `4dea0022ff1b747bdaaa70bb0a3525c85308c077`, removes per-event callable
+copies, redundant Miller source work, dormant Miller registrations and extra
+managed cleanup allocations. All five final group wall sums improve, but
+84 screening statistics across 22 matrix phases remain; the separate final
+numeric step is +7.66% median wall / +8.51% owner CPU. Its 90 matrix processes
+and 18 narrow processes are retained independently of every earlier iteration.
+This final report does not accept or merge phase 5 or authorize phase 6.
 
 ### Stage 6: Authoritative contract metadata
 

@@ -308,9 +308,9 @@ InlineStatus::InlineStatus(std::wstring message)
     for (const auto& child : children_) adopt(child);
     action_->set_visible(false); dismiss_->set_visible(false);
     dismiss_->set_appearance(ButtonAppearance::subtle);
-    dismiss_->set_icon(ButtonIcon::close); dismiss_->on_click([this] { dismiss(); });
+    dismiss_->set_icon(ButtonIcon::close); detail::CompositionAccess::click(*dismiss_, composition_, [this] { dismiss(); });
 }
-InlineStatus::~InlineStatus() { dismiss_->on_click({}); }
+InlineStatus::~InlineStatus() { composition_.retire(); }
 StyleStateMask InlineStatus::control_style_state_bits() const {
     constexpr StyleStateMask states[]{style_states::information, style_states::success,
         style_states::warning, style_states::error};
@@ -334,7 +334,7 @@ void InlineStatus::dismiss() {
 }
 void InlineStatus::set_action(std::wstring label, std::function<void()> callback) {
     validate_text(label, 128);
-    action_->set_name(std::move(label)); action_->set_visible(bool(callback)); action_->on_click(std::move(callback));
+    action_->set_name(std::move(label)); action_->set_visible(bool(callback)); detail::CompositionAccess::click(*action_, composition_, std::move(callback));
 }
 void InlineStatus::arrange(Rect bounds) {
     Element::arrange(bounds);
@@ -352,7 +352,7 @@ ColorPicker::ColorPicker(std::wstring name) : Control(ControlRole::color_picker,
     for (std::size_t i = 0; i < 4; ++i) {
         channels_[i] = std::make_shared<NumericInput>(names[i]); channels_[i]->set_range({0, 255, 1, 16});
         children_.push_back(channels_[i]); adopt(channels_[i]);
-        channels_[i]->on_change([this, i](double value) {
+        detail::CompositionAccess::change(*channels_[i], composition_, [this, i](double value) {
             auto next = value_; const auto byte = static_cast<std::uint8_t>(std::lround(value));
             if (i == 0) next.red = byte; else if (i == 1) next.green = byte; else if (i == 2) next.blue = byte; else next.alpha = byte;
             if (!change_value(next)) sync();
@@ -360,10 +360,7 @@ ColorPicker::ColorPicker(std::wstring name) : Control(ControlRole::color_picker,
     }
     sync(); set_swatches({{0, 0, 0}, {255, 255, 255}, {220, 45, 45}, {40, 170, 80}, {45, 100, 230}});
 }
-ColorPicker::~ColorPicker() {
-    for (auto& channel : channels_) channel->on_change({});
-    for (std::size_t i = 4; i < children_.size(); ++i) std::static_pointer_cast<Button>(children_[i])->on_click({});
-}
+ColorPicker::~ColorPicker() { composition_.retire(); }
 StyleStateMask ColorPicker::control_style_state_bits() const {
     const bool invalid = std::any_of(channels_.begin(), channels_.end(), [](const auto& channel) { return !channel->valid(); });
     return (Control::control_style_state_bits() & style_states::disabled) | (invalid ? style_states::invalid : 0);
@@ -393,7 +390,7 @@ void ColorPicker::set_swatches(std::vector<RgbaColor> values) {
     if (values.size() > 16) throw std::length_error("At most 16 color swatches are supported");
     if (swatches_ == values) return;
     for (std::size_t i = 4; i < children_.size(); ++i) {
-        auto old = std::static_pointer_cast<Button>(children_[i]); old->on_click({}); old->set_visible(false);
+        auto old = std::static_pointer_cast<Button>(children_[i]); detail::CompositionAccess::click(*old, composition_, nullptr); old->set_visible(false);
     }
     swatches_ = std::move(values);
     for (std::size_t i = 0; i < swatches_.size(); ++i) {
@@ -405,7 +402,7 @@ void ColorPicker::set_swatches(std::vector<RgbaColor> values) {
         button->set_name(L"RGBA " + std::to_wstring(value.red) + L", " + std::to_wstring(value.green) +
             L", " + std::to_wstring(value.blue) + L", " + std::to_wstring(value.alpha));
         button->set_icon(ButtonIcon::none);
-        button->set_visible(true); button->on_click([this, value] { change_value(value); });
+        button->set_visible(true); detail::CompositionAccess::click(*button, composition_, [this, value] { change_value(value); });
     }
     invalidate(Invalidation::topology);
 }
@@ -583,9 +580,9 @@ ContentDialog::ContentDialog(std::wstring title, std::shared_ptr<Element> conten
     layout_ = std::make_shared<Layout>(heading, std::move(content), validation_, row);
     popup_ = std::make_shared<Popup>(layout_, std::move(title)); popup_->set_default_size({460, 360});
     popup_->set_dialog_surface(true);
-    primary_->on_click([this] { accept(); }); cancel_->on_click([this] { cancel(); });
+    detail::CompositionAccess::click(*primary_, composition_, [this] { accept(); }); detail::CompositionAccess::click(*cancel_, composition_, [this] { cancel(); });
 }
-ContentDialog::~ContentDialog() { primary_->on_click({}); cancel_->on_click({}); }
+ContentDialog::~ContentDialog() { composition_.retire(); }
 void ContentDialog::set_visual_style(VisualStyle style) {
     if (style != VisualStyle::classic && style != VisualStyle::winui) throw std::invalid_argument("Invalid visual style");
     layout_->set_style(style);

@@ -3,6 +3,25 @@
 This reference describes regression scope and measurement methods.
 Use [CONTRIBUTING](../../CONTRIBUTING.md#tests) for the build and test entry points.
 
+## Callback ownership
+
+The required headless/lifetime `xui_callback_ownership_tests` checks independent
+composition/observation, replacement, unsubscribe, reentrancy, parent destruction
+and stale Miller paths. `xui_control_style_expansion_tests` covers allocation-free
+warmed small/large observer delivery; the existing navigation allocation tests
+still require warmed CommandBar refresh/dispatch to remain bounded.
+`CallbackOwnershipTests` runs in managed `--headless`, including in-flight release,
+rollback across registration families, weak captures and idempotent retirement.
+`xui_callback_ownership_window_tests` checks actual EDIT NumericInput/ComboBox
+observation plus native callback close/failure without global input or clipboard use.
+`xui_callback_ownership_probe` has explicit `--measure` mode for identical public-API
+baseline/candidate action workloads. See [the stage-5 evidence](stage5-callback-ownership.md).
+The expanded `callback_performance_matrix`, `callback_abi_performance`, managed
+`--callback-performance` fixture and existing native probes are compared by
+`tests\callback-performance-study.py`. Its unit tests reject malformed/reordered
+work and resource/CPU failures. The [full study](stage5-comprehensive-performance.md)
+records all phase results and additional blockers, not a universal performance pass.
+
 ## Targeted invalidation
 
 `tests\dirty_work_tests.cpp` is a required headless/lifetime test for origin-safe
@@ -172,8 +191,9 @@ each invocation. It neither activates an interactive desktop nor proves desktop 
 The binding step runs its complete command sequence in a fresh PowerShell process on that station.
 
 The stage-2 inventory below contained **47 headless tests**. The current stage-3
-gate requires **51**, additionally covering family providers, lock retirement,
-native-field providers and the completed control-host partition:
+gate requires **53**, additionally covering family providers, lock retirement,
+native-field providers, the completed control-host partition, dirty work and
+scoped callback ownership:
 
 | Label | Exact selection (all names have the `xui_` prefix) |
 | --- | --- |

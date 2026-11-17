@@ -11,7 +11,7 @@ Breadcrumb::Breadcrumb(std::wstring name) : Control(ControlRole::content_view, s
     overflow_->set_icon(ButtonIcon::more);
     overflow_->set_appearance(ButtonAppearance::subtle);
 }
-Breadcrumb::~Breadcrumb() { state_->owner = nullptr; state_->navigate = {}; state_->button_invoked = {}; overflow_->on_click({}); }
+Breadcrumb::~Breadcrumb() { composition_.retire(); state_->owner = nullptr; state_->navigate = {}; state_->button_invoked = {}; }
 std::optional<ItemKey> Breadcrumb::current() const { return segments_.empty() ? std::nullopt : std::optional{segments_.back().key}; }
 std::shared_ptr<Button> Breadcrumb::segment_button(ItemKey key) const {
     const auto found = std::find_if(segments_.begin(), segments_.end(), [key](const auto& segment) { return segment.key == key; });
@@ -23,7 +23,9 @@ StyleStateMask Breadcrumb::control_style_state_bits() const {
 }
 void Breadcrumb::on_navigate(std::function<void(ItemKey)> callback) { state_->navigate = std::move(callback); }
 void Breadcrumb::set_button_invoked_handler(std::function<void(const Button&)> handler) { state_->button_invoked = std::move(handler); }
-void Breadcrumb::on_overflow(std::function<void()> callback) { overflow_->on_click(std::move(callback)); }
+void Breadcrumb::on_overflow(std::function<void()> callback) {
+    detail::CompositionAccess::click(*overflow_, composition_, std::move(callback));
+}
 void Breadcrumb::set_segments(std::vector<PathSegment> segments) {
     if (segments.size() > 64) throw std::length_error("Breadcrumb supports at most 64 segments");
     std::set<ItemKey> keys;
@@ -41,7 +43,7 @@ void Breadcrumb::set_segments(std::vector<PathSegment> segments) {
         button->set_automation_id(L"segment-" + std::to_wstring(segment.key.id) + L"-" + std::to_wstring(segment.key.version));
         button->set_help_text(i + 1 == segments.size() ? L"Current location" : L"Navigate to this location");
         std::weak_ptr<State> weak = state_;
-        button->on_click([weak, child = std::weak_ptr<Button>(button), key = segment.key] {
+        detail::CompositionAccess::click(*button, composition_, [weak, child = std::weak_ptr<Button>(button), key = segment.key] {
             const auto value = child.lock();
             if (!value || !value->enabled()) return;
             if (auto state = weak.lock()) {
@@ -51,6 +53,10 @@ void Breadcrumb::set_segments(std::vector<PathSegment> segments) {
                 const auto notify = state->button_invoked;
                 if (notify && state->owner && state->owner->segment_button(key) == value) notify(*value);
             }
+        }, [weak, child = std::weak_ptr<Button>(button), key = segment.key] {
+            const auto value = child.lock();
+            const auto state = weak.lock();
+            return value && state && state->owner && state->owner->segment_button(key) == value;
         });
         if (old == segments_.end()) adopt(button);
         children.push_back(button);
@@ -58,7 +64,7 @@ void Breadcrumb::set_segments(std::vector<PathSegment> segments) {
     for (std::size_t i = 1; i < children_.size(); ++i) {
         if (std::find(children.begin(), children.end(), children_[i]) != children.end()) continue;
         const auto retired = std::static_pointer_cast<Button>(children_[i]);
-        retired->on_click({}); retired->on_toggle({}); retired->set_enabled(false);
+        detail::CompositionAccess::click(*retired, composition_, nullptr); retired->set_enabled(false);
     }
     children_ = std::move(children); segments_ = std::move(segments); first_ = 0; invalidate(Invalidation::topology);
 }
@@ -109,7 +115,7 @@ NavigationPane::NavigationPane(std::wstring name) : Control(ControlRole::content
     status_ = std::make_shared<Label>(L""); status_->set_caption(true); content->add(status_);
     adopt(content); children_.push_back(content);
 }
-NavigationPane::~NavigationPane() { cancel(); items_->on_activate({}); }
+NavigationPane::~NavigationPane() { composition_.retire(); cancel(); }
 StyleStateMask NavigationPane::control_style_state_bits() const {
     return (Control::control_style_state_bits() & style_states::disabled) |
         (progress_->state() == ProgressState::indeterminate ? style_states::loading : 0) |
@@ -122,7 +128,13 @@ void NavigationPane::set_items(std::shared_ptr<const ItemsSource> source) {
     items_->set_items(std::move(source)); progress_->set_state(ProgressState::unknown); status_->set_text(L"");
     invalidate_control_style_state();
 }
-void NavigationPane::on_navigate(std::function<void(ItemKey)> callback) { items_->on_activate(std::move(callback)); }
+void NavigationPane::on_navigate(std::function<void(ItemKey)> callback) {
+    navigate_ = std::move(callback);
+    detail::CompositionAccess::activate(*items_, composition_, [this](ItemKey key) {
+        const auto callback = navigate_;
+        if (callback) callback(key);
+    });
+}
 NavigationQuery NavigationPane::request(std::wstring text) {
     if (text.size() > 1024) throw std::length_error("Navigation query exceeds 1024 code units");
     stop_.request_stop(); stop_ = std::stop_source{};
@@ -157,13 +169,15 @@ LocationPicker::LocationPicker(std::wstring name) {
     navigation_ = std::make_shared<NavigationPane>(L"Locations"); content->add(navigation_, 1);
     footer_ = std::make_shared<Label>(L"↑ ↓ Select   Enter Navigate   Esc Cancel"); footer_->set_caption(true); content->add(footer_);
     std::weak_ptr<NavigationPane> weak = navigation_;
-    editor_->on_change([weak](const std::wstring& text) { if (auto pane = weak.lock()) pane->request(text); });
-    editor_->on_submit([weak] { if (auto pane = weak.lock()) if (auto key = pane->items()->selection().focused()) pane->items()->activate_item(*key); });
+    detail::CompositionAccess::change(*editor_, composition_, [weak](const std::wstring& text) { if (auto pane = weak.lock()) pane->request(text); });
+    detail::CompositionAccess::submit(*editor_, composition_, [weak] {
+        if (auto pane = weak.lock()) if (auto key = pane->items()->selection().focused()) pane->items()->activate_item(*key);
+    });
     popup_ = std::make_shared<Popup>(content, std::move(name));
     popup_->set_preferred_size({420, 440});
     popup_->on_dismiss([weak](PopupDismissReason) { if (auto pane = weak.lock()) pane->cancel(); });
 }
-LocationPicker::~LocationPicker() { navigation_->cancel(); editor_->on_change({}); editor_->on_submit({}); }
+LocationPicker::~LocationPicker() { composition_.retire(); navigation_->cancel(); }
 ViewPicker::ViewPicker(std::shared_ptr<ItemsView> target) {
     if (!target) throw std::invalid_argument("View picker target is null");
     auto content = content_ = std::make_shared<Stack>(Axis::horizontal); content->set_default_spacing(8);
@@ -171,14 +185,14 @@ ViewPicker::ViewPicker(std::shared_ptr<ItemsView> target) {
     choices_ = std::make_shared<RadioGroup>(L"Presentation");
     choices_->set_items({{1, L"List"}, {2, L"Tiles"}, {3, L"Groups"}}, static_cast<std::uint64_t>(target->presentation()) + 1);
     std::weak_ptr<ItemsView> weak = target;
-    choices_->on_change([weak](std::uint64_t id) { if (auto items = weak.lock()) items->set_presentation(static_cast<ItemsPresentation>(id - 1)); });
+    detail::CompositionAccess::change(*choices_, composition_, [weak](std::uint64_t id) { if (auto items = weak.lock()) items->set_presentation(static_cast<ItemsPresentation>(id - 1)); });
     content->add(choices_, 1);
     size_ = std::make_shared<RangeInput>(L"Item size"); size_->set_orientation(Axis::vertical);
     size_->set_range({48, 160, 8, 32}); size_->set_value(std::clamp<double>(target->item_size().height, 48, 160));
     size_->set_fixed_size({48, 180});
-    size_->on_change([weak](double value) { if (auto items = weak.lock()) items->set_item_size({static_cast<float>(value * 3), static_cast<float>(value)}); });
+    detail::CompositionAccess::change(*size_, composition_, [weak](double value) { if (auto items = weak.lock()) items->set_item_size({static_cast<float>(value * 3), static_cast<float>(value)}); });
     content->add(size_); popup_ = std::make_shared<Popup>(content, L"View settings");
     popup_->set_preferred_size({280, 210});
 }
-ViewPicker::~ViewPicker() { choices_->on_change({}); size_->on_change({}); }
+ViewPicker::~ViewPicker() { composition_.retire(); }
 }

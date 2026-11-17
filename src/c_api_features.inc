@@ -3,7 +3,7 @@ void prepare_tree(const std::shared_ptr<Node>& n);
 void prepare_miller(const std::shared_ptr<Node>& n);
 bool dispatch_menu(const std::shared_ptr<Node>& node, uint32_t kind, uint64_t value = 0) {
     auto state = node->owner;
-    if (!node->menu_callback || state->closed || state->callback_failure) return false;
+    if (!node->callbacks_active || !node->menu_callback || state->closed || state->callback_failure) return false;
     ++state->callbacks;
     const xui_event event{sizeof(xui_event), kind, node->handle, value};
     xui_status status{};
@@ -23,23 +23,6 @@ template<class T> std::shared_ptr<T> resource(const std::shared_ptr<Node>& n, ui
     return std::static_pointer_cast<T>(n->resource);
 }
 uint64_t number_bits(double v) { return std::bit_cast<uint64_t>(v); }
-void wire_navigation_button_notifications(const std::shared_ptr<Node>& n) {
-    if (n->navigation_button_observer_installed) return;
-    std::weak_ptr<Node> weak = n;
-    auto notify = [weak](const xui::Button& invoked) {
-        if (const auto owner = weak.lock(); owner && !owner->owner->closed) {
-            const auto handle = event_target(owner->owner, &invoked);
-            if (handle) dispatch(get(handle), XUI_CLICK);
-        }
-    };
-    if (n->kind == XUI_COMMAND_BAR) as<xui::CommandBar>(n).set_button_invoked_handler(std::move(notify));
-    else if (n->kind == XUI_BREADCRUMB) as<xui::Breadcrumb>(n).set_button_invoked_handler(std::move(notify));
-    else {
-        require(n->kind == XUI_WINDOW && n->owner->window->titlebar(), XUI_WRONG_KIND, "Expected a custom title bar.");
-        n->owner->window->titlebar()->set_button_invoked_handler(std::move(notify));
-    }
-    n->navigation_button_observer_installed = true;
-}
 void wire_feature(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
     switch (n->kind) {
@@ -48,59 +31,30 @@ void wire_feature(const std::shared_ptr<Node>& n) {
     }); break;
     case XUI_SELECTOR_BAR: as<xui::SelectorBar>(n).on_change([weak](uint64_t id) { dispatch(weak, XUI_SELECTION, id); }); break;
     case XUI_RANGE_INPUT:
-        if (!n->feature_callbacks_captured) {
-            const auto& range = as<xui::RangeInput>(n);
-            n->prior_callbacks.capture(callbacks::Range{range.change_callback(), range.preview_callback(), range.cancel_callback()});
-            n->feature_callbacks_captured = true;
-        }
         as<xui::RangeInput>(n).on_preview([weak](double v) {
-            if (auto node = weak.lock())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Range>(); prior && prior->preview) prior->preview(v);
             dispatch(weak, XUI_PREVIEW, number_bits(v));
         });
         as<xui::RangeInput>(n).on_cancel([weak](double v) {
-            if (auto node = weak.lock())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Range>(); prior && prior->cancel) prior->cancel(v);
             dispatch(weak, XUI_CANCEL, number_bits(v));
         });
         as<xui::RangeInput>(n).on_change([weak](double v) {
-            if (auto node = weak.lock())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Range>(); prior && prior->change) prior->change(v);
             dispatch(weak, XUI_CHANGE, number_bits(v));
         });
         break;
     case XUI_NUMERIC_INPUT:
-        if (!n->feature_callbacks_captured) {
-            n->prior_callbacks.capture(as<xui::NumericInput>(n).change_callback());
-            n->feature_callbacks_captured = true;
-        }
         as<xui::NumericInput>(n).on_change([weak](double v) {
-            if (auto node = weak.lock())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Number>()) (*prior)(v);
             dispatch(weak, XUI_CHANGE, number_bits(v));
         });
         break;
     case XUI_RADIO_GROUP:
-        if (!n->feature_callbacks_captured) {
-            n->prior_callbacks.capture(as<xui::RadioGroup>(n).change_callback());
-            n->feature_callbacks_captured = true;
-        }
         as<xui::RadioGroup>(n).on_change([weak](uint64_t v) {
-            if (auto node = weak.lock())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Selection>()) (*prior)(v);
             dispatch(weak, XUI_SELECTION, v);
         });
         break;
     case XUI_COMBO_BOX: as<xui::ComboBox>(n).on_change([weak](uint64_t v) { dispatch(weak, XUI_SELECTION, v); }); break;
     case XUI_EXPANDER: as<xui::Expander>(n).on_change([weak](bool v) { dispatch(weak, XUI_CHANGE, v); }); break;
     case XUI_POPUP:
-        if (!n->feature_callbacks_captured) {
-            n->prior_callbacks.capture(as<xui::Popup>(n).dismiss_callback());
-            n->feature_callbacks_captured = true;
-        }
         as<xui::Popup>(n).on_dismiss([weak](xui::PopupDismissReason v) {
-            if (auto node = weak.lock())
-                if (const auto* prior = node->prior_callbacks.get<callbacks::Dismiss>()) (*prior)(v);
             dispatch(weak, XUI_DISMISS, static_cast<uint64_t>(v));
         });
         break;
@@ -117,7 +71,6 @@ void wire_feature(const std::shared_ptr<Node>& n) {
     case XUI_MEDIA_PLAYBACK: case XUI_WEB_CONTENT:
         feature<xui::RuntimeHost>(n).on_state([weak](xui::HostState state) { dispatch(weak, XUI_CHANGE, static_cast<uint64_t>(state)); }); break;
     case XUI_ITEMS_VIEW: case XUI_TREE_VIEW:
-        if (!n->miller_owner.expired()) break;
         feature<xui::VirtualCollection>(n).on_selection([weak] { dispatch(weak, XUI_SELECTION); });
         feature<xui::VirtualCollection>(n).on_activate([weak](xui::ItemKey key) { dispatch(weak, XUI_CLICK, key.id); });
         feature<xui::VirtualCollection>(n).on_action([weak](xui::ItemKey key) { dispatch(weak, XUI_ACTION, key.id); }); break;
@@ -370,7 +323,7 @@ xui_status XUI_CALL xui_window_on_icon_error(xui_handle window, xui_window_icon_
         if (!callback) { n->owner->window->on_icon_error({}); return; }
         n->owner->window->on_icon_error([weak = std::weak_ptr<Node>(n), callback, context](const std::wstring& error) {
             const auto node = weak.lock();
-            if (!node || node->owner->closed || node->owner->callback_failure) return;
+            if (!node || !node->callbacks_active || node->owner->closed || node->owner->callback_failure) return;
             const auto state = node->owner;
             const auto bytes = encode(error);
             ++state->callbacks;
@@ -882,7 +835,7 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
             case 6: e = titlebar->maximize(); kind = XUI_BUTTON; break;
             case 7: e = titlebar->close(); kind = XUI_BUTTON; break;
             }
-            if (index >= 5) wire_navigation_button_notifications(n);
+
             break;
         }
         case XUI_NAVIGATION_VIEW: {
@@ -1006,16 +959,8 @@ xui_status XUI_CALL xui_feature_child(xui_handle target, uint32_t index, xui_han
         get(*out)->content_scope = n->content_scope;
         const auto child = get(*out);
         child->attached = true;
-        child->navigation_owned_button = n->kind == XUI_WINDOW && index >= 5;
         n->children.push_back(*out);
-        if (n->kind == XUI_MILLER_COLUMNS) {
-            std::weak_ptr<Node> weak = n;
-            child->miller_owner = n;
-            child->prior_callbacks.capture(callbacks::Action{[weak, index] {
-                if (auto parent = weak.lock(); parent && index < as<xui::MillerColumns>(parent).columns().size())
-                    as<xui::MillerColumns>(parent).set_active_column(index);
-            }});
-        }
+
     });
 }
 xui_status XUI_CALL xui_breadcrumb_segment_button(xui_handle target, uint64_t id, uint64_t version, xui_handle* out) noexcept {
@@ -1024,13 +969,12 @@ xui_status XUI_CALL xui_breadcrumb_segment_button(xui_handle target, uint64_t id
         auto n = get(target, XUI_BREADCRUMB); editable(n->owner);
         const auto button = as<xui::Breadcrumb>(n).segment_button({id, version});
         require(button != nullptr, XUI_INVALID_ARGUMENT, "Breadcrumb segment key is absent.");
-        wire_navigation_button_notifications(n);
         for (auto h : n->children) if (get(h)->element == button) { *out = h; return; }
         n->children.reserve(n->children.size() + 1);
         const auto handle = insert(n->owner, XUI_BUTTON, button);
         const auto child = get(handle);
         child->content_scope = n->content_scope;
-        child->attached = true; child->navigation_owned_button = true;
+        child->attached = true;
         n->children.push_back(handle); *out = handle;
     });
 }
@@ -1041,13 +985,12 @@ xui_status XUI_CALL xui_command_bar_button(xui_handle target, uint64_t id, xui_h
         auto& bar = as<xui::CommandBar>(n);
         const auto button = bar.command_button(id);
         require(button != nullptr, XUI_INVALID_ARGUMENT, "Command button ID is absent.");
-        wire_navigation_button_notifications(n);
         for (auto h : n->children) if (get(h)->element == button) { *out = h; return; }
         n->children.reserve(n->children.size() + 1);
         const auto handle = insert(n->owner, XUI_BUTTON, button);
         const auto child = get(handle);
         child->content_scope = n->content_scope;
-        child->attached = true; child->navigation_owned_button = true;
+        child->attached = true;
         n->children.push_back(handle); *out = handle;
     });
 }
@@ -1269,6 +1212,7 @@ struct Request {
     RequestValue value;
 };
 void revoke(const std::shared_ptr<Node>& n) {
+    n->callbacks_active = false;
     auto& handles = n->owner->handles;
     handles.erase(std::remove(handles.begin(), handles.end(), n->handle), handles.end());
     std::lock_guard lock(registry_mutex); registry.erase(n->handle);
@@ -1292,7 +1236,7 @@ void prepare_miller(const std::shared_ptr<Node>& n) {
     std::weak_ptr<Node> weak = n;
     const auto send = [weak](uint32_t kind, size_t column, xui::ItemKey key) {
         auto node = weak.lock();
-        if (!node || node->owner->closed || node->owner->callback_failure) return;
+        if (!node || !node->callbacks_active || node->owner->closed || node->owner->callback_failure) return;
         auto state = node->owner;
         if (node->dispatching) {
             state->callback_failure = XUI_BUSY; state->window->close(); return;
@@ -1306,16 +1250,7 @@ void prepare_miller(const std::shared_ptr<Node>& n) {
             --state->callbacks; --node->dispatching;
             if (result) { state->callback_failure = result; state->window->close(); }
         }
-        // A managed handler can replace the path; never deliver a stale child action afterward.
-        auto& columns = as<xui::MillerColumns>(node);
-        if (state->closed || state->callback_failure || column >= columns.columns().size()) return;
-        const auto list = columns.column_list(column);
-        if (!list->source() || !list->source()->find(key) || list->selection().focused() != key) return;
-        const auto children = node->children;
-        for (auto handle : children) {
-            const auto child = get(handle);
-            if (child->element == list) { dispatch(child, kind, key.id); break; }
-        }
+
     };
     auto& columns = as<xui::MillerColumns>(n);
     columns.on_selection([send](size_t column, xui::ItemKey key) { send(XUI_SELECTION, column, key); });
@@ -1742,7 +1677,7 @@ xui_status XUI_CALL xui_web_evaluate(xui_handle target, xui_string script, xui_h
             web.evaluate(std::move(text), [weak](std::wstring value, std::wstring error_text) noexcept {
                 try {
                 auto request = weak.lock(); if (!request) return;
-                auto node = request->target.lock(); if (!node || node->owner->closed) return;
+                auto node = request->target.lock(); if (!node || !node->callbacks_active || node->owner->closed) return;
                 auto& result = std::get<WebResult>(request->value);
                 if (node->web_generation != result.generation || as<xui::WebContent>(node).revision() != result.revision) return;
                 result.failed = !error_text.empty();

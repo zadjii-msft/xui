@@ -70,7 +70,8 @@ public sealed class ContentUpdate : IDisposable
     internal bool AcceptCallbacks => !Retired && Failure is null;
     private readonly object postedGate = new();
     private readonly HashSet<Window.PostedAction> posts = [];
-    private GCHandle pickRoot;
+    internal CallbackLifetime.Registration? pickRoot;
+    internal readonly CallbackLifetime CallbackLifetime = new();
 
     /// <summary>Reports a registered node after a primary pointer gesture. Lifetime belongs to this scope.</summary>
     /// <remarks>Inspection observers run in window context so they can queue a replacement.</remarks>
@@ -103,17 +104,17 @@ public sealed class ContentUpdate : IDisposable
             target.Element.BelongsTo(Host.Window);
             native[i] = new() { Key = (uint)target.NodeId, Element = target.Element.Handle };
         }
-        bool allocated = !pickRoot.IsAllocated;
-        if (allocated) pickRoot = GCHandle.Alloc(this, GCHandleType.Weak);
+        bool allocated = pickRoot is null;
+        if (allocated) pickRoot = CallbackLifetime.Register(this, () => { pickRoot = null; });
         try
         {
             fixed (Native.ContentInspectionTarget* span = native)
                 Host.Window.Check(Native.ContentInspectionTargets(Handle, span, (uint)native.Length,
-                    &Window.ContentPickTrampoline, GCHandle.ToIntPtr(pickRoot)));
+                    &Window.ContentPickTrampoline, pickRoot!.Context));
         }
         catch
         {
-            if (allocated) pickRoot.Free();
+            if (allocated) pickRoot?.Dispose();
             throw;
         }
     }
@@ -185,6 +186,7 @@ public sealed class ContentUpdate : IDisposable
     {
         if (Retired) return;
         Retired = true;
+        CallbackLifetime.Dispose();
         Host.Window.EndContentBuild(this);
         Host.Window.RetireContent(this);
         lock (postedGate)
@@ -194,7 +196,6 @@ public sealed class ContentUpdate : IDisposable
         }
         CallbackFailed = null;
         Picked = null;
-        if (pickRoot.IsAllocated) pickRoot.Free();
         Failure = null;
     }
 
@@ -262,6 +263,7 @@ public sealed unsafe partial class Window
         }
     }
     internal ContentCall EnterContent(ContentUpdate? scope) => new(this, scope);
+    internal CallbackLifetime LifetimeFor(ContentUpdate? scope) => scope?.CallbackLifetime ?? callbackLifetime;
     internal bool PostContent(Action action, ContentUpdate scope) => PostCore(action, scope);
     internal int ContentError(ContentUpdate? scope, Exception error)
     {
@@ -277,6 +279,8 @@ public sealed unsafe partial class Window
         {
             scope = GCHandle.FromIntPtr(context).Target as ContentUpdate;
             if (scope is null) return 8;
+            using var dispatch = scope.pickRoot?.Enter() ?? default;
+            if (!dispatch.Active) return 0;
             if (!scope.AcceptCallbacks) return 0;
             var window = scope.Host.Window;
             using var content = window.EnterContent(null);
@@ -292,14 +296,6 @@ public sealed unsafe partial class Window
     }
     internal void RetireContent(ContentUpdate scope)
     {
-        foreach (var item in subscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
-        { subscriptions.Remove(item.Key); item.Value.Free(); }
-        foreach (var item in menuSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
-        { menuSubscriptions.Remove(item.Key); item.Value.Free(); }
-        foreach (var item in fileSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
-        { fileSubscriptions.Remove(item.Key); item.Value.Root.Free(); }
-        foreach (var item in millerSubscriptions.Where(p => ReferenceEquals(p.Value.Scope, scope)).ToArray())
-        { millerSubscriptions.Remove(item.Key); item.Value.Free(); }
         contentScopes.Remove(scope.Handle);
     }
 }

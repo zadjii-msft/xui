@@ -27,7 +27,7 @@ void BasicHostPeer::reset_text_layout() { text_layout.Reset(); }
 void BasicHostPeer::detach_owner() {
     control->set_text_measurer({});
     if (auto* label = dynamic_cast<Label*>(control.get())) label->set_wrapped_text_measurer({});
-    if (auto* combo = dynamic_cast<ComboBox*>(control.get())) combo->choices()->on_accept({});
+    composition.retire();
 }
 void BasicHostPeer::cancel_input() {
     if (auto* range = dynamic_cast<RangeInput*>(control.get())) range->cancel_drag();
@@ -69,7 +69,7 @@ void BasicHostPeer::open_combo() {
     const std::weak_ptr<ComboBox> weak = combo;
     const std::weak_ptr<ControlHostServices> owner =
         std::static_pointer_cast<ControlHostServices>(host.acquire_owner_lease());
-    combo->choices()->on_accept([owner, weak](std::uint64_t id) {
+    detail::CompositionAccess::accept(*combo->choices(), composition, [owner, weak](std::uint64_t id) {
         const auto value = weak.lock();
         const auto host = owner.lock();
         if (!host || !value || !value->popup()->is_open()) return;

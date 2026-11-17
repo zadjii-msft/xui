@@ -81,6 +81,7 @@ private:
     std::optional<CommandId> expanded_;
     std::function<void(CommandId)> submenu_, collapse_;
     std::function<void()> back_, accept_;
+    detail::CallbackScope composition_;
 };
 // One outstanding query. Completion belongs to the UI thread.
 class CommandSurface final {
@@ -117,6 +118,7 @@ private:
     std::wstring text_, error_;
     std::function<void(CommandQuery)> query_;
     std::function<bool()> current_;
+    detail::CallbackScope composition_;
 };
 class CommandBar final : public Control {
 public:
@@ -149,6 +151,7 @@ private:
     std::vector<CommandId> ids_;
     std::shared_ptr<Button> overflow_;
     std::size_t visible_{};
+    detail::CallbackScope composition_;
     std::uint64_t separators_{};
 };
 
