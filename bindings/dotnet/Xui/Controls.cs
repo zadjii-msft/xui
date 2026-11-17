@@ -68,6 +68,7 @@ public sealed class Stack : Element
 public abstract unsafe partial class Control : Element
 {
     private Action<UiEvent>? handlers;
+    private Action<UiEvent>? eventForwarder;
     private Action? focusEntered;
     public ulong Id => Handle;
     public bool Focused => Features.Get(this, 42).First != 0;
@@ -96,7 +97,7 @@ public abstract unsafe partial class Control : Element
     }
     public event Action<UiEvent> Event
     {
-        add { Window.SetSubscription(Handle, e => handlers?.Invoke(e)); handlers += value; }
+        add { Window.SetSubscription(Handle, eventForwarder ??= e => handlers?.Invoke(e)); handlers += value; }
         remove { Window.Guard(); handlers -= value; if (handlers is null) Window.SetSubscription(Handle, null); }
     }
 }
@@ -109,11 +110,12 @@ public sealed partial class Button : Control
     public bool VerticalText { get => Features.Get(this, 59).First != 0; set => Features.Set(this, 59, first: value ? 1u : 0u); }
     public Button SetVerticalText(bool value) { VerticalText = value; return this; }
     private Action? clicked;
+    private Action<UiEvent>? clickForwarder;
     private void OnEvent(UiEvent e) { if (e.Kind == EventKind.Click) clicked?.Invoke(); }
     public event Action Click
     {
-        add { Window.Guard(); if (clicked is null) Event += OnEvent; clicked += value; }
-        remove { Window.Guard(); clicked -= value; if (clicked is null) Event -= OnEvent; }
+        add { Window.Guard(); if (clicked is null) Event += clickForwarder ??= OnEvent; clicked += value; }
+        remove { Window.Guard(); clicked -= value; if (clicked is null) Event -= clickForwarder ??= OnEvent; }
     }
     public void Invoke() { Window.Guard(); Window.Check(Native.Invoke(Handle)); }
 }

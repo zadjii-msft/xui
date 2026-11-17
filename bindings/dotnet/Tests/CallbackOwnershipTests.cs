@@ -121,9 +121,32 @@ internal static class CallbackOwnershipTests
             reused.Click -= next;
         }
         Expect(newCalls == 33, "A released registration can be rebound repeatedly without stale cancellation");
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 1024; ++i)
+        {
+            reused.Click += next;
+            reused.Click -= next;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Expect(allocated == 0, $"Warmed subscription churn reuses adapters and released tokens: {allocated} bytes");
+
+        int first = 0, second = 0;
+        Action secondHandler = () => ++second;
+        Action? firstHandler = null;
+        firstHandler = () => { ++first; reused.Click -= firstHandler; };
+        reused.Click += firstHandler;
+        reused.Click += secondHandler;
+        reused.Invoke(); reused.Invoke();
+        reused.Click -= secondHandler;
+        Expect(first == 1 && second == 2, "Cached forwarding preserves multicast removal during delivery");
+        reused.Click -= secondHandler;
 
         var host = window.CreateContentHost();
         window.SetContent(window.Stack().Add(number).Add(host));
+        Button stale;
+        using (var candidate = host.BeginUpdate()) stale = window.Button("Never observed");
+        try { stale.Click -= secondHandler; throw new Exception("Expected stale handle rejection"); }
+        catch (XuiException error) { Expect(error.Status == 2, "Removing an uncached adapter still validates the native handle"); }
         var weak = Rollback(window, host);
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         Expect(!weak.IsAlive);

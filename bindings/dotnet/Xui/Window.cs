@@ -190,7 +190,7 @@ public sealed unsafe partial class Window : IDisposable
         if (action is null)
         {
             Check(Native.Subscribe(handle, null, 0));
-            if (subscriptions.Remove(handle, out var old)) old.Free();
+            if (subscriptions.Remove(handle, out var old)) old.FreeDetached();
             return;
         }
         if (subscriptions.TryGetValue(handle, out var current)) { current.Action = action; return; }
@@ -212,7 +212,7 @@ public sealed unsafe partial class Window : IDisposable
         if (action is null)
         {
             Check(Native.ContextMenuBind(handle, null, 0));
-            if (menuSubscriptions.Remove(handle, out var old)) old.Free();
+            if (menuSubscriptions.Remove(handle, out var old)) old.FreeDetached();
             return;
         }
         if (menuSubscriptions.TryGetValue(handle, out var current))
@@ -247,7 +247,7 @@ public sealed unsafe partial class Window : IDisposable
         internal Action<UiEvent> Action;
         internal ContentUpdate? Scope;
         private ulong handle;
-        private Dictionary<ulong, Subscription> entries;
+        private Dictionary<ulong, Subscription>? entries;
         internal CallbackLifetime.Registration Registration => this;
         internal Subscription(Window window, ulong handle, Action<UiEvent> action, ContentUpdate? scope,
             Dictionary<ulong, Subscription> entries) : base(window.LifetimeFor(scope))
@@ -259,7 +259,9 @@ public sealed unsafe partial class Window : IDisposable
         }
         protected override void Release()
         {
-            if (entries.TryGetValue(handle, out var current) && ReferenceEquals(current, this)) entries.Remove(handle);
+            if (entries is not null && entries.TryGetValue(handle, out var current) && ReferenceEquals(current, this))
+                entries.Remove(handle);
+            entries = null;
             Action = null!;
             Scope = null;
             if (!Window.callbackLifetime.Retired && Window.spareSubscription is null) Window.spareSubscription = this;
@@ -271,6 +273,11 @@ public sealed unsafe partial class Window : IDisposable
             Rebind(Window.LifetimeFor(scope), this);
         }
         internal void Free() => Dispose();
+        internal void FreeDetached()
+        {
+            entries = null;
+            Dispose();
+        }
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int Trampoline(nint context, Native.Event* value)

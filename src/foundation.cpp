@@ -127,8 +127,7 @@ bool RangeInput::change_value(double value) {
     const bool changed = value_ != value;
     if (!changed && !preview_) return true;
     set_value(value);
-    auto callback = change_;
-    if (changed && callback) std::move(callback)(value);
+    if (changed) change_(value);
     return true;
 }
 bool RangeInput::move(RangeKey key) { return change_value(moved(value_, range_, key)); }
@@ -212,8 +211,7 @@ bool RadioGroup::select(std::uint64_t id) {
     if (!enabled()) return false;
     if (selected_ == id) return true;
     set_selected(id);
-    auto callback = change_;
-    if (callback) std::move(callback)(id);
+    change_(id);
     return true;
 }
 bool RadioGroup::step(int delta) {
@@ -630,8 +628,7 @@ bool NumericInput::change_value(double value) {
     if (!enabled()) return false;
     const bool changed = value_ != value;
     set_value(value);
-    auto callback = change_;
-    if (changed && callback) std::move(callback)(value);
+    if (changed) change_(value);
     return true;
 }
 bool NumericInput::step(int direction) {
@@ -651,8 +648,7 @@ bool NumericInput::commit_text(const std::wstring& text) {
     if (!valid) return false;
     const bool changed = value_ != value;
     value_ = value; invalidate_state();
-    auto callback = change_;
-    if (changed && callback) std::move(callback)(value);
+    if (changed) change_(value);
     return true;
 }
 void NumericInput::arrange(Rect value) {

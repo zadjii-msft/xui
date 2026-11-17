@@ -471,7 +471,7 @@ PartStyleValues VirtualCollection::row_style_values(StylePart part, const Collec
 }
 void VirtualCollection::changed() {
     invalidate(Invalidation::state);
-    auto callback = change_; if (callback) std::move(callback)();
+    change_();
 }
 void VirtualCollection::set_selection(CollectionSelection value) { selection_ = std::move(value); invalidate(Invalidation::state); }
 void VirtualCollection::set_source(std::shared_ptr<const ItemsSource> value, std::shared_ptr<const CollectionIndex> full,

@@ -1178,6 +1178,32 @@ usage-weighted performance result.
 The [comprehensive report](docs/llm/stage5-comprehensive-performance.md) records
 the current non-green outcome and distinguishes observed signals from causal proof.
 
+#### Callback allocation attribution
+
+The optional ABI census compiles `src/c_api.cpp` into the probe itself so its
+ordinary C++ allocation hook includes registration work otherwise hidden inside
+`xui.dll`. It is not a DLL timing or complete heap/private-memory measurement.
+The managed census reports thread-local allocated bytes for lifetime objects,
+typed registrations, window construction, individual handler setup and disposal.
+Run both outside timing blocks:
+
+```powershell
+cmake --build $build --config Release --target xui_callback_registration_allocation_probe
+& "$build\Release\xui_headless_runner.exe" "$build\Release\xui_callback_registration_allocation_probe.exe"
+$library = [IO.Path]::GetFullPath("$build\census-library")
+$census = [IO.Path]::GetFullPath("$build\census-managed")
+dotnet build bindings\dotnet\Xui -c Release -o $library
+dotnet build tests\CallbackAllocationProbe.csproj -c Release -p:CensusLibrary="$library" -o $census
+Copy-Item "$library\Xui.Managed.dll","$build\Release\xui.dll","$build\Release\lsh_lib.dll" $census -Force
+& "$build\Release\xui_headless_runner.exe" "$census\Tests.exe"
+```
+
+For comparisons, use separate output directories and explicitly copy/hash the
+selected managed library after each build: changing a reference HintPath alone
+can leave a stale copy in the output. The managed probe uses the existing
+`Tests` friend-assembly identity solely to inspect internal registration storage.
+Neither probe changes production allocation paths or weak-root ownership.
+
 ### Collection-family host checks
 
 The ordinary gate includes `xui_family_accessibility_tests` and
