@@ -415,6 +415,9 @@ if(WIN32)
     endif()
     target_compile_options(xui PRIVATE /W4 /permissive- /utf-8 /EHsc)
     add_executable(xui_style_catalog bindings/native/style_catalog.cpp)
+    add_executable(xui_feature_catalog bindings/native/feature_catalog.cpp)
+    target_include_directories(xui_feature_catalog PRIVATE include)
+    target_compile_options(xui_feature_catalog PRIVATE /W4 /permissive- /utf-8 /EHsc)
     target_link_libraries(xui_style_catalog PRIVATE xui)
     target_compile_options(xui_style_catalog PRIVATE /W4 /permissive- /utf-8 /EHsc)
     if(BUILD_TESTING)
@@ -661,6 +664,17 @@ if(WIN32)
         xui_add_desktop_test(xui_abi_features_tests 120 xui_abi_features_tests)
         add_test(NAME xui_abi_features_headless_tests COMMAND xui_abi_features_tests --headless)
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME xui_feature_contract_parity
+            COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/bindings/generate_features.py"
+                --native-executable "$<TARGET_FILE:xui_feature_catalog>" --check)
+        add_test(NAME xui_feature_contract_tests
+            COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${PROJECT_SOURCE_DIR}/tests" -p test_feature_contracts.py)
+        set_tests_properties(xui_feature_contract_parity xui_feature_contract_tests PROPERTIES TIMEOUT 60 LABELS "headless;schema")
+        add_executable(xui_feature_contract_abi_tests tests/feature_contract_tests.cpp)
+        target_link_libraries(xui_feature_contract_abi_tests PRIVATE xui)
+        target_compile_options(xui_feature_contract_abi_tests PRIVATE /W4 /permissive- /utf-8 /EHsc)
+        add_test(NAME xui_feature_contract_abi_tests COMMAND xui_feature_contract_abi_tests)
+        set_tests_properties(xui_feature_contract_abi_tests PROPERTIES TIMEOUT 30 LABELS "headless;abi;schema")
         add_test(NAME xui_control_style_catalog_parity
             COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/bindings/generate_control_styles.py"
                 --native-executable "$<TARGET_FILE:xui_style_catalog>" --check)
@@ -938,7 +952,7 @@ if(WIN32)
         add_custom_target(xui_headless_tests DEPENDS ${xui_core_test_targets} xui_headless_runner
             xui_syntax_highlighting_tests xui_document_syntax_tests xui_explorer_tests
             xui_abi_tests xui_abi_c_test xui_abi_features_tests xui_document_editing_abi_tests
-            xui_style_catalog xui_image_tests xui_content_host_window_tests xui_family_accessibility_retirement_tests xui_family_accessibility_tests xui_control_host_tests xui_dirty_work_tests xui_callback_ownership_tests
+            xui_style_catalog xui_feature_catalog xui_feature_contract_abi_tests xui_image_tests xui_content_host_window_tests xui_family_accessibility_retirement_tests xui_family_accessibility_tests xui_control_host_tests xui_dirty_work_tests xui_callback_ownership_tests
             xui_native_field_accessibility_tests)
         get_property(xui_registered_tests DIRECTORY PROPERTY TESTS)
         foreach(test IN LISTS xui_registered_tests)

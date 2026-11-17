@@ -69,6 +69,7 @@ internal static partial class Program
         Assert(!swapChainCompilation.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error),
             string.Join("\n", swapChainCompilation.GetDiagnostics()));
         TestButtonIconContract();
+        TestControlContracts();
         TestMemberHandlerNames();
         TestPortableStyleCatalog();
         TestExecution();

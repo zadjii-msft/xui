@@ -339,8 +339,8 @@ Writing this plan does not complete any runtime finding.
 | 2 | `child-contract` | Verified merged: [#59](https://github.com/zadjii-msft/xui/pull/59); accepted `38f377f4cea2e4632421c4871616dd54501045b4`, squash `a3f112c9293d41998276f3e97e03e6f1f4b1ffd2`; recorded timing/native limits remain unresolved | 1 | Finding 3: owned children and separate traversal policies |
 | 3 | `host-boundaries` | 3a merged; remaining families merged in [#61](https://github.com/zadjii-msft/xui/pull/61), head `993bdcd7`, squash `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b`; [recorded limits](stage3-host-boundaries.md) remain | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Merged [#62](https://github.com/zadjii-msft/xui/pull/62), accepted head `4f5a8016`, squash `de9ee24ea4664f0f6d0fcaf87f573383086244da`; [source map and evidence](stage4-targeted-invalidation.md) | Merged #61, `c0173871` | Finding 2: originating identity and targeted ordered work |
-| 5 | `callback-ownership` | Implemented directly after verified merged #62; [#63](https://github.com/zadjii-msft/xui/pull/63) open; functional checks pass; [final correction measurements](stage5-callback-correction-performance.md) retain 84 threshold statistics across 22 matrix phases plus six numeric-step statistics; performance acceptance remains blocked | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
-| 6 | `contract-metadata` | Not started | 5 | Finding 5: authoritative contracts, adapters, compiler/reload rules |
+| 5 | `callback-ownership` | Verified merged [#63](https://github.com/zadjii-msft/xui/pull/63), head `233f042f`, squash `a459962c`; follow-up [#64](https://github.com/zadjii-msft/xui/pull/64), head `2581f410`, squash `65904462`. Historical performance flags below remain unresolved, not waived by merging. | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
+| 6 | `contract-metadata` | Implemented and verified locally on November 17, 2026 against merged `65904462`; not committed or merged. Correctness gates and the final scoped 15-workload performance comparison pass; evidence below. | Merged #63 and #64, `65904462` | Finding 5: authoritative contracts, adapters, compiler/reload rules |
 | 7 | `legacy-file-list` | Not started | 6 | Finding 6: foundation isolation and shared algorithms |
 | 8 | `boundary-enforcement` | Not started | 7 | Finding 7: dependency enforcement and final evidence/source maps |
 
@@ -664,7 +664,7 @@ paint work, captured/pending dirty buffers, scoped family synchronization and
 conservative global geometry/visibility/theme handling are implemented directly.
 The [stage-4 companion](stage4-targeted-invalidation.md) records exact native work
 checks, reentrancy/lifetime coverage and separate fixed baseline comparisons.
-Stage 5 was authorized after this PR merged. Stages 6-8 remain untouched.
+Stage 5 was authorized after this PR merged. At that handoff, stages 6-8 remained untouched.
 
 ### Stage 5: Callback ownership and scoped lifetime
 
@@ -685,10 +685,10 @@ New registrations require no added family cleanup loop; allocation/retention and
 ABI observers, unified native/managed registration retirement and in-flight leases
 are implemented directly. Final functional gates and seven native cases pass;
 the [stage-5 companion](stage5-callback-ownership.md) retains exact tests and all
-measurement blocks. **Performance acceptance remains blocked** by the final numeric
+measurement blocks. **The original performance acceptance remained blocked** by the final numeric
 step phase (+10.62% median wall / +10.20% median owning-thread CPU); aggregate
-improvement is not a waiver. The PR is for review, not accepted/merged evidence,
-and does not authorize stage 6.
+improvement is not a waiver. That report described a review candidate, not accepted/merged evidence,
+and did not authorize stage 6.
 The subsequent [61-phase performance study](stage5-comprehensive-performance.md)
 retains 90 processes/1,098 timed rows and finds 161 threshold statistics across
 29 ordinary phases and two group sums. New allocation and real-host signals also
@@ -701,7 +701,15 @@ managed cleanup allocations. All five final group wall sums improve, but
 84 screening statistics across 22 matrix phases remain; the separate final
 numeric step is +7.66% median wall / +8.51% owner CPU. Its 90 matrix processes
 and 18 narrow processes are retained independently of every earlier iteration.
-This final report does not accept or merge phase 5 or authorize phase 6.
+That report did not accept or merge phase 5 or authorize phase 6.
+
+**Merge verification, November 17, 2026:** GitHub reports #63 merged at
+`a459962c0ba95512674a857a59fc83b174d4c0e5` and its follow-up #64 merged at
+`6590446206507789861722529ed1dd796172397c`. Their accepted heads are
+`233f042f63003f929a75a272cf0282f524b5ec1f` and `2581f41055c8520ef7e84c42b9c5a7984f2106d7`.
+The owner requested the next phase in the current session after those merges.
+This corrects the stale open-PR ledger; it does not retroactively resolve the
+performance caveats in either merged report.
 
 ### Stage 6: Authoritative contract metadata
 
@@ -719,6 +727,93 @@ Compiler diagnostics retain source locations, and Designer reload preserves or i
 according to tested structural rules.
 Document unsupported language coverage explicitly without promising full parity.
 No runtime reflection or hot-path dictionary lookup is introduced.
+
+#### Stage 6 implementation and evidence: November 17, 2026
+
+Implemented in the existing checkout after fast-forwarding clean local `main` to
+`6590446206507789861722529ed1dd796172397c`. No child session, new branch, commit, push,
+or PR was created. Stage 7 must wait for this phase's review and merge.
+
+The [source map](xui-language-plan.md#authoritative-feature-and-compiler-contracts)
+describes the authoritative owners: C header identifiers/record layouts, symbolic feature metadata,
+native compile-time carrier/type adapters and direct construction validation, generated C#/Rust
+facades, and shared compiler/Designer/reload metadata. Coverage includes 45 feature constructors,
+59 generic feature properties, action target checks, 27 markup nodes, and 56 shared argument
+descriptions. Complex ownership, secret access, compound updates, style schemas, and event
+delivery implementations remain handwritten. No public controls, event semantics, IDs, or record
+layouts change, and no new markup availability is implied by native or style coverage.
+The existing generated C#/Rust FFI and typed facade contents remain unchanged.
+
+**Correctness:** 56/56 native headless tests pass, including the three new feature-contract
+tests. Python has 11 negative/parity tests; the generator has 45,932 assertions and the
+MSBuild integration fixture has 11. The managed framework suites pass, including 26 callback
+ownership assertions and 374 feature assertions. Rust passes 1 sys, 39 library, and 2 compile-fail
+tests. Designer source metadata passes 4,665 assertions; the real owned-window preview fixture
+passes 2,091, including its deliberate constructor failure, preserved previous content, node
+mapping, native identity, and retirement. The expected `FormatException` from its bad constructor
+is evidence of rollback testing, not an unexplained passing-over-error fallback.
+Generated drift checks deliberately corrupt every new generated output and reject without rewriting.
+All correctness work completed before the final timing block.
+
+**Performance protocol:** compare the exact merged `main` with this uncommitted candidate on
+Windows 10.0.26200, Ryzen 7 7840U (16 logical processors), MSVC x64 Release with `/GL` and full
+`/LTCG`, required LSH enabled, desktop-test registration disabled, and .NET 10-targeted compiler
+probes built by SDK `11.0.100-rc.2.26504.105`. Identical native probe source is compiled against
+each revision's headers/import library; the compiler probe is built against each generator DLL.
+The existing ABI probe source is unchanged. Binary and count hashes are checked before/after
+the run. Each of three groups has two warmup and seven recorded alternating pairs: 54 processes,
+270 timed rows, including warmups. Native work counts are calibrated from the initial baseline
+medians to approximately one second, rounded up to multiples of 32, then frozen for both sides.
+No competing build, test, or status probe was launched during the serial measured block.
+External interference is not proven absent.
+
+The final block has **no greater-than-5% median wall, CPU, or measured-allocation flags**.
+Every row below is from that block; negative values mean improvement.
+
+| Workload | Main wall median (ms) | Candidate wall median (ms) | Wall change | CPU change |
+| --- | ---: | ---: | ---: | ---: |
+| feature-number-set | 1006.63 | 998.46 | -0.81% | +0.00% |
+| feature-bool-set | 1012.75 | 1018.70 | +0.59% | +0.00% |
+| feature-range-get | 996.97 | 993.91 | -0.31% | +0.00% |
+| feature-range-set | 1046.04 | 1042.00 | -0.39% | -1.49% |
+| feature-composition-lifetime | 1047.81 | 1041.27 | -0.62% | +0.00% |
+| markup-parse | 2243.59 | 2300.62 | +2.54% | +0.00% |
+| markup-generate | 897.35 | 856.28 | -4.58% | -8.22% |
+| abi-observed-invoke | 980.94 | 972.38 | -0.87% | -1.59% |
+| abi-subscribe-replace | 1009.10 | 998.54 | -1.05% | -1.54% |
+| abi-unsubscribe-resubscribe | 992.93 | 1008.49 | +1.57% | +0.00% |
+| abi-range-value | 1029.04 | 1029.66 | +0.06% | +0.00% |
+| abi-miller-registration | 1025.32 | 1022.32 | -0.29% | +0.00% |
+| abi-content-rollback | 970.66 | 951.27 | -2.00% | -3.23% |
+| abi-content-commit-clear | 1044.86 | 1034.71 | -0.97% | +0.00% |
+| abi-window-retirement | 1029.31 | 1032.23 | +0.28% | +0.00% |
+
+CPU is owning-thread time for native/ABI probes and process CPU for the compiler probe.
+Compiler allocated bytes decrease by 0.71% for parsing and 1.43% for generation.
+The ABI probe returns to its exact six-handle baseline. The native DLL is 3,051,520 bytes
+versus 3,052,032 on main. Catalog export arrays are excluded from the runtime; cached compiler
+descriptors live in the generator process, not in generated applications.
+Native per-allocation/private-heap and end-to-end rendering/UIA latency are not measured by
+these probes. This is scoped acceptance against merged main, not a phase-4 comparison or a
+resolution of the previously merged phase-5 regressions.
+
+**Unsuccessful iterations are retained:** the first short-count block flagged range setting
+at +5.05% wall and construction CPU at +50% (31.25 versus 46.875 ms, one CPU tick).
+The longer fixed-count block removed the construction flag but confirmed range setting at
++5.89% wall / +7.58% CPU. Disassembly showed the extracted by-value constructor predicate
+changed loads/register allocation and shifted the following feature dispatch by 32 bytes.
+The final implementation instead generates the original direct validation expressions and
+keeps catalog export tables out of the runtime translation unit. Feature dispatch RVAs then
+matched main again. This is observed code-generation evidence, not proof of a universal
+alignment explanation. The entire 15-workload fixed-count block was repeated after the code
+correction; no favorable samples were selected from earlier blocks and no final samples were dropped.
+
+[Raw evidence](stage6-contract-metadata-evidence.json.gz) preserves all three blocks, logs,
+binary/count/source hashes, the frozen counts, code-generation diagnostics, and correctness outputs.
+Paths are normalized to workspace/baseline placeholders. Candidate source identity is the hash
+inventory rather than an invented commit ID. Reproduction commands are in
+[CONTRIBUTING](../../CONTRIBUTING.md#binding-generation-and-compatibility).
+Evidence archive SHA-256: `9586447682bcc903c4fa8479f9d4d0d61fd2873e3b0ce9b9b7acc35b6e14702e`.
 
 ### Stage 7: Legacy file-list isolation and shared algorithms
 
@@ -764,5 +859,6 @@ Keep commands in CONTRIBUTING and dated evidence in maintainer notes.
 The coordinator must verify the merge before creating the next implementation session.
 Any unresolved behavioral or performance requirement remains visible as blocked/unresolved, never a success-shaped fallback.
 
-At stage 0, evidence is limited to the source inspection and the separately attributed pristine correctness report above.
-Paired baseline/candidate measurements, runtime fixes, automation, dependency enforcement, and all later stages remain unimplemented.
+The stage-0 document originally contained only source inspection and the separately attributed
+pristine correctness report. The later ledger entries record subsequent implementation and measurements.
+Stage 6 is locally implemented but unmerged; stages 7 and 8 remain unimplemented.

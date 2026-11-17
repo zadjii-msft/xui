@@ -7,7 +7,8 @@ Use [CONTRIBUTING](../../CONTRIBUTING.md) for build and test commands.
 ## Compiler diagnostics
 
 The [public diagnostic guide](../specs/xui-language.md#compiler-diagnostics) describes messages for application authors.
-`Xui.Generator/Parser.cs` owns token expectations, declaration rules, control arguments, and child-block structure.
+`Xui.Generator/Parser.cs` owns token expectations, declaration rules, and child-block diagnostics.
+Supported arguments and child cardinality come from the generated contract described below.
 Its expectation helpers require authoring context; unexpected tokens and end of file must not produce a bare "Expected an identifier."
 Closing a block explicitly rejects a following semicolon at that semicolon's offset, naming the block that just ended.
 This preserves the grammar rather than accepting stray punctuation.
@@ -27,6 +28,37 @@ Keep recoverable declarations and hot-reload rejection behavior unchanged.
 It includes the extra-semicolon regression and verifies that the proposed correction compiles.
 `Designer.Tests` checks the actual preview message and column across all supported line endings.
 The existing source diagnostic fixtures retain exact C# expression mappings and UTF-16 columns.
+
+## Authoritative feature and compiler contracts
+
+`include/xui/xui.h` and `xui_features.h` own C identifiers and record layouts.
+`bindings/features.json` references their symbolic identifiers rather than repeating numeric IDs.
+It declares 45 feature constructors, all 59 generic feature-property carrier shapes and target types,
+action applicability, generated C#/Rust adapters, explicit language coverage, and 27 markup node contracts.
+Shared argument descriptions contain typed mutable setters or event adapters; construction, placement,
+and reference inputs are classified separately. Compound Grid/SelectorBar updates, style compilation,
+native ownership, secrets, and callback lifetimes remain handwritten.
+
+`bindings/contracts.py` validates these facts and their handwritten native dispatch seams.
+`generate_features.py` emits the existing C#/Rust facades plus `src/feature_contract.g.hpp`,
+`src/feature_creation.g.inc`, and `Xui.Generator/ControlContract.g.cs`.
+The native adapter uses compile-time masks/types and direct constructor checks, not a runtime registry.
+Export tables are compiled only into the catalog tool and test probe.
+The compiler uses cached arrays and switches; the generated application's update path has no metadata lookup.
+
+The parser, emitter, and reload shape all consume `ControlContract`.
+This includes event signatures, argument acceptance, fixed child counts, mutable setters,
+construction-only state rejection, and structural identity. Designer's parse-only model receives the
+same supported arguments and diagnostics. Changing a mutable expression preserves shape; changing
+construction inputs, placement, identity, node kinds, or children intentionally rebuilds.
+The shape encoding itself is internal; replacing an already-loaded generator version can require a
+one-time rebuild, as with other generator implementation changes.
+
+`bindings/native/feature_catalog.cpp` exports the compiled identifiers, masks, targets, constructor
+cardinality/modes, and coverage for read-only parity checks. Negative Python checks, the catalog-wide
+generator fixture, and actual ABI constructor/carrier tests are part of the ordinary framework gate.
+The [stage-6 ledger](architecture-review-2026-10-21.md#stage-6-authoritative-contract-metadata)
+records correctness, retained Designer preview evidence, the paired performance results, and limitations.
 
 ## Designer source map
 

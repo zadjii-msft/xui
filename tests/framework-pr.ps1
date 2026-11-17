@@ -45,6 +45,7 @@ try {
         foreach ($required in @('xui_core_tests', 'xui_control_tests', 'xui_owned_children_tests', 'xui_content_host_model_tests', 'xui_layout_performance_tests',
             'xui_performance_tests', 'xui_collections_tests', 'xui_document_editing_tests',
             'xui_abi_tests', 'xui_abi_c_test', 'xui_abi_features_headless_tests', 'xui_control_style_catalog_parity',
+            'xui_feature_contract_parity', 'xui_feature_contract_tests',
             'xui_row_image_performance_tests', 'xui_syntax_highlighting_tests',
             'xui_family_accessibility_tests', 'xui_family_accessibility_retirement_tests',
             'xui_native_field_accessibility_tests', 'xui_control_host_tests', 'xui_dirty_work_tests', 'xui_callback_ownership_tests')) {
@@ -73,10 +74,10 @@ try {
                 -Suite Bindings -BuildDirectory $build -Architecture $Architecture -OnPrivateDesktop }
             return
         }
-        foreach ($file in @('xui.dll', 'xui.lib', 'xui_style_catalog.exe', 'lsh_lib.dll')) {
+        foreach ($file in @('xui.dll', 'xui.lib', 'xui_style_catalog.exe', 'xui_feature_catalog.exe', 'lsh_lib.dll')) {
             if (!(Test-Path -LiteralPath (Join-Path $native $file))) { throw "Missing required native asset: $native\$file" }
         }
-        Invoke-Checked { python bindings\generate_features.py --check }
+        Invoke-Checked { python bindings\generate_features.py --native-executable "$native\xui_feature_catalog.exe" --check }
         Invoke-Checked { python bindings\generate_control_styles.py --native-executable "$native\xui_style_catalog.exe" --check }
         Invoke-Checked { python tests\framework-gates.py --native-executable "$native\xui_style_catalog.exe" }
         Invoke-Checked { dotnet run --project bindings\dotnet\GeneratorTests -c Release }
