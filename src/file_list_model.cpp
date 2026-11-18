@@ -1,4 +1,4 @@
-#include "xui/core.hpp"
+#include "xui/file_list_model.hpp"
 #include <algorithm>
 #include <cwctype>
 #include <limits>
@@ -109,102 +109,60 @@ std::optional<std::size_t> FilteredView::find(ItemId id) const noexcept {
     return static_cast<std::size_t>(found - indices_.begin());
 }
 
-ViewWorker::ViewWorker(Loader loader, std::function<void()> ready)
-    : loader_(std::move(loader)), ready_(std::move(ready)) {}
-ViewWorker::~ViewWorker() { request_stop(); join(); }
-void ViewWorker::start() {
-    std::lock_guard lock(mutex_);
-    if (thread_.joinable() || stopped_) throw std::logic_error("View worker can start only once");
-    thread_ = std::jthread([this](std::stop_token stop) { run(stop); });
+void FileListModel::set_items(std::shared_ptr<const std::vector<FileItem>> items) {
+    set_view(FilteredView::build(FileSnapshot::build(std::move(items)), view_->query()));
 }
 
-std::uint64_t ViewWorker::request(std::wstring query, bool refresh) {
-    std::lock_guard lock(mutex_);
-    if (stopped_) throw std::logic_error("View worker is stopped");
-    query_ = std::move(query);
-    if (refresh || source_generation_ == 0) ++source_generation_;
-    const auto generation = ++generation_;
-    busy_ = true;
-    changed_.notify_one();
-    return generation;
+void FileListModel::set_filter(std::wstring filter) {
+    set_view(FilteredView::build(view_->source(), std::move(filter)));
 }
 
-std::optional<ViewResult> ViewWorker::take_result() {
-    std::lock_guard lock(mutex_);
-    if (result_ && result_->generation != generation_) return {};
-    return std::exchange(result_, std::nullopt);
+void FileListModel::set_view(std::shared_ptr<const FilteredView> view) {
+    if (!view) throw std::invalid_argument("Filtered view must not be null");
+    view_ = std::move(view);
+    if (selected_ && !view_->source()->find(*selected_)) selected_.reset();
 }
 
-void ViewWorker::retire(std::shared_ptr<const FilteredView> view) {
-    std::lock_guard lock(mutex_);
-    retired_.push_back(std::move(view));
-    changed_.notify_one();
+const std::vector<RowIndex>& FileListModel::visible_indices() const { return view_->indices(); }
+std::shared_ptr<const std::vector<FileItem>> FileListModel::items() const { return view_->source()->items(); }
+std::optional<ItemId> FileListModel::selected_id() const { return selected_; }
+
+std::optional<std::size_t> FileListModel::selected_index() const {
+    return selected_ ? view_->find(*selected_) : std::nullopt;
 }
 
-void ViewWorker::request_stop() {
-    std::lock_guard lock(mutex_);
-    stopped_ = true;
-    thread_.request_stop();
-    changed_.notify_all();
-}
-void ViewWorker::join() {
-    if (thread_.joinable()) thread_.join();
-    busy_ = false;
+const FileItem* FileListModel::selected_item() const {
+    if (selected_)
+        if (const auto index = view_->source()->find(*selected_)) return &(*items())[*index];
+    return nullptr;
 }
 
-void ViewWorker::run(std::stop_token stop) {
-    std::uint64_t processed{}, loaded{};
-    SourceResult source;
-    for (;;) {
-        if (stop.stop_requested()) return;
-        std::uint64_t generation, source_generation;
-        std::wstring query;
-        std::vector<std::shared_ptr<const FilteredView>> garbage;
-        {
-            std::unique_lock lock(mutex_);
-            if (!changed_.wait(lock, stop, [&] { return generation_ != processed || !retired_.empty(); }))
-                return;
-            garbage.swap(retired_);
-            generation = generation_;
-            source_generation = source_generation_;
-            query = query_;
-            busy_ = generation != processed;
-        }
-        garbage.clear(); // Destruction of replaced collections stays off the UI thread.
-        if (generation == processed) continue;
-        const CancelCheck cancelled = [&] { return stop.stop_requested() || generation_ != generation; };
-        ViewResult result{generation, {}, {}};
-        try {
-            if (loaded != source_generation) {
-                const CancelCheck source_cancelled = [&] {
-                    return stop.stop_requested() || source_generation_ != source_generation;
-                };
-                auto replacement = loader_(source_cancelled);
-                if (source_cancelled()) continue;
-                if (!replacement.source && replacement.error.empty())
-                    throw std::runtime_error("Source loader returned no snapshot");
-                source = std::move(replacement);
-                loaded = source_generation;
-            }
-            if (cancelled()) continue;
-            if (source.source) result.view = FilteredView::build(source.source, std::move(query), cancelled);
-            result.error = source.error;
-        } catch (const std::exception& error) {
-            const std::string text(error.what());
-            result.error = L"View update failed: " + std::wstring(text.begin(), text.end());
-        }
-        std::optional<ViewResult> discarded;
-        {
-            std::lock_guard lock(mutex_);
-            processed = generation;
-            if (cancelled()) continue;
-            busy_ = false;
-            discarded = std::move(result_);
-            result_ = std::move(result);
-            if (ready_) ready_();
-        }
-        // An unread result can own the last reference to a large old source.
-        // Release it outside the request mutex, so typing cannot block on destruction.
+void FileListModel::select_index(std::size_t index) {
+    if (index < visible_indices().size()) selected_ = (*items())[visible_indices()[index]].id;
+}
+
+void FileListModel::clear_selection() { selected_.reset(); }
+
+void FileListModel::move_selection(int delta) {
+    const auto& visible = visible_indices();
+    if (delta == 0 || visible.empty()) return;
+    const auto current = selected_index();
+    if (!current) {
+        select_index(delta > 0 ? 0 : visible.size() - 1);
+        return;
+    }
+    if (delta > 0) {
+        const auto distance = static_cast<std::size_t>(delta);
+        select_index(*current + (std::min)(distance, visible.size() - 1 - *current));
+    } else {
+        const auto distance = static_cast<std::size_t>(-static_cast<std::int64_t>(delta));
+        select_index(*current - (std::min)(distance, *current));
     }
 }
+
+void FileListModel::select_first() { select_index(0); }
+void FileListModel::select_last() {
+    if (!visible_indices().empty()) select_index(visible_indices().size() - 1);
 }
+
+} // namespace xui

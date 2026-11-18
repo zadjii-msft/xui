@@ -340,8 +340,8 @@ Writing this plan does not complete any runtime finding.
 | 3 | `host-boundaries` | 3a merged; remaining families merged in [#61](https://github.com/zadjii-msft/xui/pull/61), head `993bdcd7`, squash `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b`; [recorded limits](stage3-host-boundaries.md) remain | 2 | Finding 1: family peers and family-specific peer/UIA state |
 | 4 | `dirty-work` | Merged [#62](https://github.com/zadjii-msft/xui/pull/62), accepted head `4f5a8016`, squash `de9ee24ea4664f0f6d0fcaf87f573383086244da`; [source map and evidence](stage4-targeted-invalidation.md) | Merged #61, `c0173871` | Finding 2: originating identity and targeted ordered work |
 | 5 | `callback-ownership` | Verified merged [#63](https://github.com/zadjii-msft/xui/pull/63), head `233f042f`, squash `a459962c`; follow-up [#64](https://github.com/zadjii-msft/xui/pull/64), head `2581f410`, squash `65904462`. Historical performance flags below remain unresolved, not waived by merging. | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
-| 6 | `contract-metadata` | In review: [#66](https://github.com/zadjii-msft/xui/pull/66), implementation `ec581948`. Verified on November 17, 2026 against merged `65904462`; not merged. Correctness gates and the final scoped 15-workload performance comparison pass; evidence below. | Merged #63 and #64, `65904462` | Finding 5: authoritative contracts, adapters, compiler/reload rules |
-| 7 | `legacy-file-list` | Not started | 6 | Finding 6: foundation isolation and shared algorithms |
+| 6 | `contract-metadata` | Verified merged [#66](https://github.com/zadjii-msft/xui/pull/66), accepted head `16256a05`, squash `abf17138486ffeaf4a3ddf5a22d97200b2f890a9`; correctness gates and scoped 15-workload performance evidence below. | Merged #63 and #64, `65904462` | Finding 5: authoritative contracts, adapters, compiler/reload rules |
+| 7 | `legacy-file-list` | Implemented locally November 18, 2026 after merged #66; uncommitted/unmerged. Scoped correctness and eight-workload paired performance pass; two broader desktop failures reproduce on merged main and remain recorded below. | Merged #66, `abf17138` | Finding 6: foundation isolation and shared algorithms |
 | 8 | `boundary-enforcement` | Not started | 7 | Finding 7: dependency enforcement and final evidence/source maps |
 
 ### Stage 0: Documentation roadmap
@@ -735,7 +735,9 @@ Implemented in the existing checkout after fast-forwarding clean local `main` to
 The measurements preceded publication. The implementation was subsequently committed as
 `ec581948b5f9d08ddc780db5bc5c6c7278f3edea` and published for review in
 [#66](https://github.com/zadjii-msft/xui/pull/66).
-Stage 7 must wait for this phase's review and merge.
+The owner subsequently requested the merge and phase 7. GitHub confirmed #66 merged at
+`abf17138486ffeaf4a3ddf5a22d97200b2f890a9` on November 18, 2026 at 03:27:45 UTC,
+after Documentation and Framework checks succeeded. Phase 7 starts from that merged baseline.
 
 The [source map](xui-language-plan.md#authoritative-feature-and-compiler-contracts)
 describes the authoritative owners: C header identifiers/record layouts, symbolic feature metadata,
@@ -832,6 +834,116 @@ Compare old/new allocations, work, cache/queue bounds, retained resources, and n
 Shared helpers actually remove duplication; intentionally separate algorithms have an explicit rationale.
 No forced shared inheritance chain or unnecessary compatibility layer remains.
 
+#### Stage 7 implementation and evidence: November 18, 2026
+
+The owner requested merging #66 and continuing phase 7 in the same session.
+GitHub confirmed merge `abf17138486ffeaf4a3ddf5a22d97200b2f890a9`, and the clean checkout
+was fast-forwarded to that main before this work. An interrupted investigation was resumed
+without a child session or a new branch. These phase-7 changes remain local and uncommitted.
+
+**Boundary:** file-specific IDs, snapshots, result records, and selection-model declarations
+move from `core.hpp` to `file_list_model.hpp`; standalone worker declarations move to
+`view_worker.hpp`. `core.cpp` loses the file-list model implementation, and `views.cpp`
+is replaced by `file_list_model.cpp` and `view_worker.cpp`.
+Those sources and `file_list.cpp` form `xui_file_list`, depending on generic `xui_core`,
+not the reverse. Only the legacy library carries the worker thread dependency.
+The relocated snapshot/model/worker method bodies were compared against merged main and
+are unchanged. Native libraries, standalone consumers, installation, NuGet/MSBuild, CMake
+imports, tests, and public include/link guidance are updated together, without compatibility shims.
+
+**Shared algorithms:** the [source map](architecture.md#shared-viewport-and-image-reconciliation)
+explains `collection_viewport.hpp` and `identity_lookup.hpp`.
+Uniform viewport bounds are shared by grid/collection models and their UIA providers;
+saturating index conversion is also used by the legacy viewport helper.
+The same bounded borrowed identity index now serves RowImages and legacy ListPeer.
+Legacy matching no longer builds a temporary wanted-row vector or rescans slots per row.
+Legacy single/hidden selection, versioned collection terms, variable-height/animated source
+geometry, decoder admission limits, failure delivery, and retention policies remain separate
+for their documented semantic reasons. No new runtime registry, per-row controls, I/O on the
+UI thread, synchronous worker joins, or shared control inheritance is introduced.
+
+**Correctness:** 59/59 native headless tests pass on a private desktop, including the new
+core-only link/header isolation, float/double viewport/identity, and legacy image tests.
+Existing large-source tests cover exact selection/focus, no interaction allocations,
+query-versus-refresh cancellation, stale completion rejection, errors/recovery, mailbox
+destruction outside locks, and background source retirement.
+The framework binding gate passes generated/compiler/MSBuild, managed, and Rust suites.
+Native Explorer, gallery, and image sample targets build. Three standalone package-config
+consumers (`Xui::Core`, `Xui::FileList`, `Xui::Windows`) build/link/run against the staged
+x64 libraries. The x64 package configuration was exercised; a complete dual-architecture
+NuGet release was not produced. Documentation-site tests pass (24).
+
+Real desktop `xui_collections_window_tests` and the complete `xui_image_tests` pass.
+The new `--file-list-only` thumbnail selector passes actual PNG/JPEG/alpha pixels, DPI,
+reload, deleted artwork/failure callbacks, tall-pane budgets, disabled-image/idle behavior,
+and blocked-decoder closure. It uses existing test bodies and does not change the full suite.
+
+**Preserved desktop limitations:** the broader `xui_thumbnail_tests` fails
+`Browser filtering cannot display a previous row's thumbnail`; `xui_window_tests` fails
+the first-page native composition-buffer growth assertion (4 to 26 peers, but buffer
+94,500 to 94,500). Both failures reproduce on the exact frozen `abf17138` main build,
+with the same assertions. Their causes are not established or fixed by this refactor.
+They remain unresolved baseline failures, not green full-desktop acceptance. No assertions,
+timeouts, pixel checks, or source/error safeguards were relaxed to get the focused tests through.
+
+**Final performance protocol:** baseline is merged `abf17138486ffeaf4a3ddf5a22d97200b2f890a9`.
+Both builds use Windows 10.0.26200 x64, MSVC 19.44.35217, Release `/O2 /Ob2 /MT /GL`,
+full `/LTCG`, required LSH, and desktop test registration enabled. Identical candidate probe
+sources are compiled against each revision's headers/static libraries; the baseline does not
+receive candidate library code. The optional split-library input is explicitly recorded.
+Every executable and native host build input is hashed. Each of three groups has two warmup
+and seven recorded alternating pairs: 54 processes and 144 timed rows including warmups.
+No other build/test/status probes were launched during the serial measured blocks.
+External desktop/process interference is not proven absent.
+
+The image workloads measure 1,048,576 legacy syncs; the 8/64/512-row image cases measure
+1,048,576 / 262,144 / 32,768 frames. Modern row-image timing excludes input preparation
+and identity assertions, and does not report isolated CPU. The native host protocol retains
+its existing 32,768 scroll / 8,192 selection / 8,192 source / 256 paint operations, exact
+source-work counters, callbacks, checksums, and native identity assertions.
+
+**All eight final workload medians remain below the greater-than-5% regression threshold.**
+Negative changes mean improvement. This is scoped acceptance against phase 6, not an
+application-wide speedup, a full-frame benchmark, or acceptance of older phase-5 regressions.
+
+| Workload | Main wall median (ms) | Candidate wall median (ms) | Wall change | Owning-thread CPU change |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy image reconciliation | 1049.14 | 720.69 | -31.31% | -31.34% |
+| Row images, 8 | 591.87 | 602.70 | +1.83% | Not isolated |
+| Row images, 64 | 1700.54 | 1682.19 | -1.08% | Not isolated |
+| Row images, 512 | 2168.43 | 2271.05 | +4.73% | Not isolated |
+| Native scroll synchronization | 1431.45 | 1403.38 | -1.96% | +0.00% |
+| Native selection publication | 695.47 | 682.23 | -1.90% | -4.44% |
+| Native source publication | 314.26 | 307.84 | -2.04% | +0.00% |
+| Native visible-row paint | 4247.97 | 4246.36 | -0.04% | -4.29% |
+
+Settled legacy reconciliation drops from 9,437,184 ordinary C++ allocations / 713,031,680
+cumulative requested bytes to zero over the fixed block (nine allocations per original sync).
+This is allocation traffic, not retained-memory savings. Modern row-image reconciliation
+remains at zero allocations in all three sizes. Native scroll/selection/source/paint allocation
+counts remain exactly 2,069,059 / 1,515,519 / 712,704 / 47,101.
+
+Both native versions retain four peers, five child HWNDs, one render target, two selection
+terms, and zero editor-scroll writes with 1,000,000 collection / 100,000 grid / 10,000 legacy
+rows. Final median process handles/GDI/USER are 1,067 / 17 / 12 in both; private bytes are
+41,984,000 main and 41,930,752 candidate. These sampled process figures are not a complete
+private-heap census. Image tests retain the 24-per-pane / window budget, 512 visible modern rows,
+48 deferred modern queue admission, and process-wide decoder/cache budgets.
+
+An earlier complete block also passed but is retained separately, not pooled or selected
+per workload. The final block followed a self-contained-header include fix and final sample
+builds, using fresh frozen probe binaries and the same work counts. The earlier 512-row result
+was -5.81%; the final +4.73% result above is not replaced by that more favorable observation.
+No final samples were dropped or rerun selectively.
+
+[Raw evidence](stage7-file-list-evidence.json.gz) contains both blocks, all samples/logs,
+input/source hashes, compiler/link responses, build and correctness logs, the two reproduced
+baseline failures, and package consumer sources. Paths are normalized to workspace/baseline
+placeholders. Source hashes identify the uncommitted candidate; no commit is invented.
+Commands are in [CONTRIBUTING](../../CONTRIBUTING.md#collection-family-host-checks).
+Evidence archive SHA-256: `308c0ecd098be6cb51a1cce9dde7277db1c5d000213708ee27d9e778d18e966f`.
+Phase 8 remains unimplemented and should follow review and merge of this phase.
+
 ### Stage 8: Boundary enforcement and final evidence
 
 **Scope:** enforce the boundaries established by earlier stages in build/test dependency rules and ordinary PR checks.
@@ -864,4 +976,4 @@ Any unresolved behavioral or performance requirement remains visible as blocked/
 
 The stage-0 document originally contained only source inspection and the separately attributed
 pristine correctness report. The later ledger entries record subsequent implementation and measurements.
-Stage 6 is in review but unmerged; stages 7 and 8 remain unimplemented.
+Stage 6 is merged. Stage 7 is implemented locally but unmerged; stage 8 remains unimplemented.

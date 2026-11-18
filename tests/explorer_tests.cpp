@@ -3,6 +3,7 @@
 #include "../demo/shell_dispatch.hpp"
 #include "xui/controls.hpp"
 #include "xui/file_list.hpp"
+#include "xui/view_worker.hpp"
 #include <windows.h>
 #include <chrono>
 #include <fstream>

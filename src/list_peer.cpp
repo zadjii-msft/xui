@@ -2,6 +2,9 @@
 #include "platform.hpp"
 #include "wheel.hpp"
 #include "context_menu.hpp"
+#include "identity_lookup.hpp"
+#include <array>
+#include <tuple>
 #include <UIAutomation.h>
 #include <windowsx.h>
 
@@ -43,32 +46,39 @@ bool ListPeer::sync_thumbnails(bool shown, Rect clip, const std::shared_ptr<Task
     const auto limit = std::min<std::size_t>(24, remaining);
     const auto range = thumbnail_range(clip);
     const auto& model = list_->model();
-    std::vector<const FileItem*> wanted;
-    for (auto row = range.begin; row < range.end && wanted.size() < limit; ++row) {
-        const auto& item = (*model.items())[model.visible_indices()[row]];
-        wanted.push_back(&item);
+    struct Wanted {
+        const FileItem* item{};
+        Thumbnail* slot{};
+        auto identity() const { return std::tuple{item->id, std::wstring_view{item->path}}; }
+    };
+    std::array<Wanted, 24> wanted;
+    std::size_t count{};
+    const auto items = model.items();
+    for (auto row = range.begin; row < range.end && count < limit; ++row) {
+        const auto& item = (*items)[model.visible_indices()[row]];
+        wanted[count++] = {&item, nullptr};
     }
+    const detail::IdentityLookup<Wanted, 24> lookup(std::span{wanted}.first(count));
     const auto removed = std::erase_if(thumbnails_, [&](const auto& slot) {
-        return std::none_of(wanted.begin(), wanted.end(), [&](const auto* item) {
-            return slot->id == item->id && slot->path == item->path;
-        });
+        const auto match = lookup.find(std::tuple{slot->id, std::wstring_view{slot->path}});
+        if (!match) return true;
+        match->slot = slot.get();
+        return false;
     });
     bool changed = removed != 0;
     std::vector<std::pair<ItemId, std::wstring>> errors;
-    for (const auto* item : wanted) {
-        auto found = std::find_if(thumbnails_.begin(), thumbnails_.end(), [&](const auto& slot) {
-            return slot->id == item->id && slot->path == item->path;
-        });
-        if (found == thumbnails_.end()) {
+    for (auto& match : std::span{wanted}.first(count)) {
+        const auto* item = match.item;
+        if (!match.slot) {
             auto slot = std::make_unique<Thumbnail>();
             slot->id = item->id;
             slot->path = item->path;
             slot->request = request_image(slot->path, {pixels, pixels}, wake,
                 thumbnail_kind(item->path, item->directory));
             thumbnails_.push_back(std::move(slot));
-            found = std::prev(thumbnails_.end());
+            match.slot = thumbnails_.back().get();
         }
-        auto& slot = **found;
+        auto& slot = *match.slot;
         if (auto request = slot.request) {
             std::lock_guard lock(request->mutex);
             if (request->done && !request->cancelled) {

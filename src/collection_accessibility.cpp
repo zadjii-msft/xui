@@ -1,4 +1,5 @@
 #include "collection_accessibility.hpp"
+#include "collection_viewport.hpp"
 #include <UIAutomation.h>
 #include <algorithm>
 #include <cmath>
@@ -155,11 +156,14 @@ public:
             std::vector<std::size_t> presented;
             if (s.collection_presentation)
                 presented = s.collection_presentation->visible(s.collection_offset, s.collection_height);
+            const auto uniform = !s.collection_presentation && s.collection_columns != 1
+                ? detail::uniform_viewport(s.collection->size(), s.collection_item_height,
+                    s.collection_offset, s.collection_height, s.collection_columns) : VisibleRange{};
             const auto first = s.collection_presentation ? 0 : s.collection_columns == 1 ? s.collection->row_at(s.collection_offset, s.collection_item_height) :
-                std::min(s.collection->size(), static_cast<std::size_t>(s.collection_offset / s.collection_item_height) * s.collection_columns);
+                uniform.begin;
             const auto end = s.collection_presentation ? 0 : std::min(s.collection->size(), s.collection_columns == 1 ?
                 s.collection->row_at(s.collection_offset + s.collection_height, s.collection_item_height) + 1 :
-                first + (static_cast<std::size_t>(std::ceil(s.collection_height / s.collection_item_height)) + 1) * s.collection_columns);
+                uniform.end);
             const auto realize = [&](std::size_t i) {
                 realized.insert(i);
                 if (s.role == ControlRole::tree_view) {

@@ -783,7 +783,8 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "shell_cpu_peak=" << s.cpu_peak << " shell_gpu_peak=" << s.gpu_peak << '\n';
             return 0;
         }
-        if (argc == 3) {
+        const bool file_list_only = argc == 3 && std::wstring_view(argv[2]) == L"--file-list-only";
+        if (argc == 3 && !file_list_only) {
             const auto count = std::stoul(argv[2]);
             check(count == 100 || count == 1000, "Use the generated 100 or 1000 image folder");
             browser(directory / std::to_wstring(count), count);
@@ -795,8 +796,10 @@ int wmain(int argc, wchar_t** argv) {
         image_fixture::png(directory / L"\u753b\u50cf" / L"standalone.png", 64, 64, 0xffa040a0);
         CoUninitialize();
         public_list(directory / L"\u753b\u50cf");
-        browser(directory / L"100", 100);
-        browser(directory / L"1000", 1000);
+        if (!file_list_only) {
+            browser(directory / L"100", 100);
+            browser(directory / L"1000", 1000);
+        }
         tall_list(directory / L"100");
         close_blocked(directory / L"100");
         return 0;

@@ -1,4 +1,5 @@
 #include "grid_accessibility.hpp"
+#include "collection_viewport.hpp"
 #include <UIAutomation.h>
 #include <algorithm>
 #include <cmath>
@@ -202,8 +203,8 @@ public:
         *value = nullptr;
         return with([&](const auto& s) {
             const auto count = s.grid ? s.grid->size() : 0;
-            const auto first = static_cast<std::size_t>(std::min(double(count), s.grid_y / s.grid_geometry.row_height));
-            const auto end = first + static_cast<std::size_t>(std::min(double(count - first), std::ceil(s.grid_height / s.grid_geometry.row_height) + 1));
+            const auto range = detail::uniform_viewport(count, double(s.grid_geometry.row_height), s.grid_y, s.grid_height);
+            const auto first = range.begin, end = range.end;
             if (direction == NavigateDirection_Parent && kind_ != root) {
                 if (kind_ == cell) *value = make(row, key_);
                 else if (kind_ == header_filter || kind_ == header_check) *value = make(header, {}, column_);

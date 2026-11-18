@@ -4,6 +4,7 @@
 #include "xui/controls.hpp"
 #include "xui/theme.hpp"
 #include "xui/file_list.hpp"
+#include "xui/view_worker.hpp"
 #include "xui/foundation.hpp"
 #include "xui/file_transfer.hpp"
 #include "xui/file_dialog.hpp"

@@ -1,3 +1,4 @@
+#include "xui/view_worker.hpp"
 #pragma once
 #include "xui/application.hpp"
 #include "platform.hpp"

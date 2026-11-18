@@ -1,5 +1,5 @@
 #pragma once
-#include "xui/core.hpp"
+#include "xui/file_list_model.hpp"
 #include <functional>
 
 namespace xui::explorer {

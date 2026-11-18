@@ -42,7 +42,8 @@ try {
         $inventory | Set-Content (Join-Path $build 'headless-inventory.json') -Encoding utf8
         $tests = ($inventory | ConvertFrom-Json).tests
         $names = @($tests | ForEach-Object { $_.name })
-        foreach ($required in @('xui_core_tests', 'xui_control_tests', 'xui_owned_children_tests', 'xui_content_host_model_tests', 'xui_layout_performance_tests',
+        foreach ($required in @('xui_core_tests', 'xui_core_isolation_tests', 'xui_collection_algorithm_tests', 'xui_file_list_image_tests',
+            'xui_control_tests', 'xui_owned_children_tests', 'xui_content_host_model_tests', 'xui_layout_performance_tests',
             'xui_performance_tests', 'xui_collections_tests', 'xui_document_editing_tests',
             'xui_abi_tests', 'xui_abi_c_test', 'xui_abi_features_headless_tests', 'xui_control_style_catalog_parity',
             'xui_feature_contract_parity', 'xui_feature_contract_tests',

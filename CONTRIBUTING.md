@@ -1206,6 +1206,62 @@ Neither probe changes production allocation paths or weak-root ownership.
 
 ### Collection-family host checks
 
+The legacy file snapshot/model/worker implementation is in the `xui_file_list` library.
+Model-only consumers include `xui\file_list_model.hpp`; standalone worker users include
+`xui\view_worker.hpp`. Link `xui_file_list` rather than expecting those symbols in `xui_core`.
+`xui_windows` and the native package targets carry the dependency automatically.
+Keep the generic-header isolation test linked only to `xui_core`.
+
+Build and run the focused phase-7 coverage:
+
+```powershell
+cmake --build $build --config Release --target xui_headless_tests xui_collections_window_tests xui_thumbnail_tests xui_row_image_probe
+ctest --test-dir $build -C Release -L "^headless$" --no-tests=error --output-on-failure -j 1
+ctest --test-dir $build -C Release -R "^xui_(collections_window|file_list_thumbnail_window)_tests$" --no-tests=error --output-on-failure -j 1
+& ".\$build\Release\xui_image_tests.exe" "$build\collection-image-fixtures"
+```
+
+The desktop tests need `XUI_DESKTOP_TESTS=ON` and an unlocked desktop.
+The focused thumbnail selector runs actual FileList pixels, DPI/reload, tall-viewport budgets,
+failed images, and blocked-decoder closure, without the separate Explorer browser fixtures:
+`xui_thumbnail_tests.exe <artifact-directory> --file-list-only`.
+It does not replace the full thumbnail test or waive its failures.
+The new headless `xui_file_list_image_tests` covers allocation-free settled reconciliation,
+filter/scroll/source replacement, window budgets, once-only errors, reentrant replacement,
+and release. `xui_collection_algorithm_tests` checks the borrowed identity index and
+the float/double uniform viewport policy, including saturating arithmetic.
+
+For paired image measurements, compile the same candidate probe sources
+(`tests\file_list_image_tests.cpp` and `tests\row_image_probe.cpp`) against each revision's
+`include` and private `src` directories. Use MSVC Release `/O2 /Ob2 /MT /GL /LTCG`, matching
+the libraries; do not measure a Debug or non-IPO probe against Release libraries.
+For example, repeat for each `$revisionSource`, `$nativeLibraries`, and separate `$probeOutput`:
+
+```powershell
+$libraries = @("$nativeLibraries\xui_windows.lib", "$nativeLibraries\xui_core.lib")
+if (Test-Path "$nativeLibraries\xui_file_list.lib") { $libraries += "$nativeLibraries\xui_file_list.lib" }
+$systemLibraries = @("psapi.lib", "d2d1.lib", "dxguid.lib", "dwrite.lib", "dwmapi.lib", "dcomp.lib",
+    "uiautomationcore.lib", "ole32.lib", "oleaut32.lib", "comctl32.lib", "shell32.lib", "user32.lib",
+    "gdi32.lib", "windowscodecs.lib", "uxtheme.lib", "mfuuid.lib", "runtimeobject.lib")
+foreach ($probe in @("file_list_image_tests", "row_image_probe")) {
+    cl /nologo /std:c++20 /O2 /Ob2 /MT /GL /EHsc /GR /W4 /utf-8 /permissive- `
+        /DWIN32 /D_WINDOWS /DNDEBUG /DUNICODE /D_UNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN /D_WIN32_WINNT=0x0A00 `
+        /I "$revisionSource\include" /I "$revisionSource\src" "tests\$probe.cpp" `
+        /Fo"$probeOutput\$probe.obj" /Fe"$probeOutput\$probe.exe" `
+        /link /LTCG /OPT:REF /OPT:ICF $libraries $systemLibraries
+}
+python tests\measure-collection-refactor.py --baseline $baselineProbes --candidate $candidateProbes `
+    --baseline-commit $baselineCommit --output $newEvidenceDirectory
+```
+
+The runner uses two warmup and seven recorded alternating pairs, validates equal work,
+hashes executables, retains every log/sample, and reports a nonzero result for any
+greater-than-5% median timing/allocation regression. Legacy reconciliation measures real settled
+decoded slots; the 8/64/512-row probe uses resident pixels and measures only reconciliation,
+excluding input preparation and identity assertions. Run serially with no concurrent build/test work.
+The native host comparison below additionally checks work counters, native identity and resource bounds.
+Its build step supports both pre-isolation and split-library baselines and records the actual libraries.
+
 The ordinary gate includes `xui_family_accessibility_tests` and
 `xui_family_accessibility_retirement_tests`: typed retained-provider/token/role contracts
 and ten source/full-source/nonempty-selection release cases. The retirement test uses
