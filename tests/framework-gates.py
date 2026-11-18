@@ -24,7 +24,7 @@ def run(tree, script, *arguments, succeeds):
 
 with tempfile.TemporaryDirectory(prefix="xui-contract-gates-") as directory:
     tree = Path(directory)
-    for name in ("include", "bindings"):
+    for name in ("include", "bindings", "src"):
         shutil.copytree(root / name, tree / name, ignore=shutil.ignore_patterns(
             "bin", "obj", "target", ".git", "node_modules"))
     outputs = [
@@ -32,6 +32,7 @@ with tempfile.TemporaryDirectory(prefix="xui-contract-gates-") as directory:
         ("generate_features.py", "dotnet/Xui/Features.g.cs"),
         ("generate_features.py", "rust/xui-sys/src/features.rs"),
         ("generate_features.py", "rust/xui/src/features_generated.rs"),
+        ("generate_features.py", "dotnet/Xui.Generator/ControlContract.g.cs"),
         ("generate_control_styles.py", "dotnet/Xui/ControlStyleCatalog.g.cs"),
         ("generate_control_styles.py", "rust/xui/src/control_style_catalog.g.rs"),
     ]
@@ -45,6 +46,15 @@ with tempfile.TemporaryDirectory(prefix="xui-contract-gates-") as directory:
         result = run(tree, script, succeeds=False)
         if "stale" not in result.stderr or path.read_bytes() != drift:
             raise AssertionError(f"Check must report drift without rewriting {name}")
+        path.write_bytes(original)
+    for name in ("feature_contract.g.hpp", "feature_creation.g.inc"):
+        path = tree / "src" / name
+        original = path.read_bytes()
+        drift = original + b"\n// intentional drift\n"
+        path.write_bytes(drift)
+        result = run(tree, "generate_features.py", succeeds=False)
+        if "stale" not in result.stderr or path.read_bytes() != drift:
+            raise AssertionError("Native feature drift must fail without rewriting")
         path.write_bytes(original)
     run(tree, "generate_control_styles.py", "--native-executable", str(exporter), succeeds=True)
     run(tree, "generate_control_styles.py", "--native-executable", str(tree / "missing.exe"), succeeds=False)

@@ -218,41 +218,16 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             throw new ParseError($"Visual tooling supports at most {maximumDepth} nested controls. Flatten this hierarchy by removing unnecessary container layers.", Offset);
         int start = Offset;
         string kind = Identifier(parent is null ? "a root control name inside 'view'" : $"a child control name inside '{parent}'");
-        string[] allowed = kind switch
-        {
-            "VStack" or "HStack" => ["spacing", "padding"],
-            "Text" => ["value"],
-            "Button" => ["value", "click", "icon", "verticalText"],
-            "Toggle" or "ToggleSwitch" => ["value", "checked", "change"],
-            "ToggleButton" => ["value", "checked", "change", "icon"],
-            "CheckBox" => ["value", "checkState", "threeState", "change"],
-            "HyperlinkButton" => ["value", "click", "icon"],
-            "SelectorBar" => ["value", "items", "selected", "change"],
-            "InfoBadge" => ["value", "count", "icon"],
-            "MenuBar" => ["value", "commands", "invoke", "pin"],
-            "TextInput" => ["value", "name", "text", "change", "submit", "captionVisible", "placeholder"],
-            "Grid" => ["value", "rows", "columns"],
-            "DataGrid" => ["value", "columns"],
-            "RangeInput" => ["value", "range", "currentValue", "orientation", "reversed", "change"],
-            "Progress" or "ProgressRing" => ["value", "range", "currentValue", "progressState"],
-            "NavigationView" => ["value", "headerVisible", "searchId", "searchHelp", "duration"],
-            "ItemsView" or "ScrollView" or "SwapChainPanel" => ["value"],
-            "Reveal" => ["value", "open", "duration", "layout", "direction"],
-            "Popup" => ["value", "placement", "windowBackground"],
-            "SplitView" => ["value", "secondVisible", "duration"],
-            "AdaptiveLayout" => ["value", "presentation", "navigationSide", "navigationExtent", "navigationOpen", "dismissOnFocusOutside", "breakpoint", "compactNavigation"],
-            "Content" => ["value"],
-            _ => throw new ParseError($"Control '{kind}' is not supported in .xui. Use a supported control such as Text, Button, VStack, or HStack; see docs/specs/xui-language.md for the complete list.", start)
-        };
+        string[] allowed = ControlContract.Arguments(kind) ??
+            throw new ParseError($"Control '{kind}' is not supported in .xui. Use a supported control such as Text, Button, VStack, or HStack; see docs/specs/xui-language.md for the complete list.", start);
         string styleTarget = StyleCompiler.TargetName(kind);
         if (kind == "Content")
             allowed = [.. allowed, "style", .. StyleCompiler.LocalProperties];
         else if (StyleCatalog.TargetExists(styleTarget))
             allowed = [.. allowed, "style", .. StyleCompiler.AllowedProperties(styleTarget, "root")];
-        bool stack = kind is "VStack" or "HStack";
-        bool container = stack || kind is "Grid" or "ScrollView" or "Popup" or "SplitView" or "Reveal" or "AdaptiveLayout";
-        allowed = [.. allowed, "size", "preferredSize", "ref", "row", "column", "rowSpan", "columnSpan", "flex"];
-        if (!stack && kind is not ("Content" or "Grid" or "AdaptiveLayout")) allowed = [.. allowed, "id", "enabled", "visible", "help"];
+        bool stack = ControlContract.Stack(kind);
+        bool container = ControlContract.Children(kind) != 0;
+        var events = ControlContract.Events(kind);
         var arguments = new Dictionary<string, Expression>(StringComparer.Ordinal);
         var authoredArguments = new List<XuiSourceArgument>();
         Expect("(", $"after control name '{kind}'", $"Write '{kind}(...)' before its {(container ? "child block" : "terminating ';'")}.");
@@ -294,7 +269,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             if (expression.IsMissing)
                 throw new ParseError($"Missing value for {(positional ? "the first argument" : $"argument '{key}'")} on {kind}; found {Found}. Supply a C# expression before the next ',' or ')'.", Offset);
             Check(expression, expressionStart, $"expression for {(positional ? "the first argument" : $"argument '{key}'")} on {kind}");
-            if (key is "click" or "change" or "submit" or "ref" && expression is not IdentifierNameSyntax)
+            if ((key == "ref" || events.Any(e => e.Name == key && e.Identifier)) && expression is not IdentifierNameSyntax)
                 throw new ParseError($"Argument '{key}' on {kind} requires a single identifier, not {DiagnosticText.Quote(expression.ToString())}. " +
                     (key == "ref" ? "Use 'ref: ControlName' to declare a typed control reference." : $"Use '{key}: HandlerName' without parentheses or a lambda."), expressionStart + expression.SpanStart);
             arguments.Add(key, new(expression.ToString(), expressionStart + expression.SpanStart));
@@ -331,7 +306,7 @@ internal sealed partial class Parser(string text, CancellationToken cancellation
             }
             bodySpan = new(bodyStart, Offset - bodyStart);
             CloseBlock($"the child block of '{kind}'");
-            int required = kind is "ScrollView" or "Popup" or "Reveal" ? 1 : kind is "SplitView" or "AdaptiveLayout" ? 2 : -1;
+            int required = ControlContract.Children(kind);
             if (required >= 0 && children.Count != required)
                 throw new ParseError($"{kind} requires exactly {required} direct child control{(required == 1 ? "" : "s")}, but found {children.Count}. " +
                     (children.Count > required ? "Wrap sibling controls in a VStack or HStack to group them into the required number of children." : "Add the missing child controls inside its '{ ... }' block."), start);

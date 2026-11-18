@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="..\Xui\ControlStyleCatalog.g.cs" Link="ControlStyleCatalog.g.cs" />
     <EmbeddedResource Include="..\..\control_style_catalog.json" LogicalName="GeneratorTests.StyleCatalog.json" />
+    <EmbeddedResource Include="..\..\features.json" LogicalName="GeneratorTests.Features.json" />
     <EmbeddedResource Include="Fixtures\Composition.xui" />
     <EmbeddedResource Include="Fixtures\Styling.xui" />
     <ProjectReference Include="..\Xui.Generator\Xui.Generator.csproj" />

@@ -111,13 +111,7 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
     }
     private void Unmap() => Line("#line default");
     private static string Literal(string value) => SymbolDisplay.FormatLiteral(value, true);
-    private static string Type(Node node) => node.Kind switch
-    {
-        "VStack" or "HStack" => "Stack",
-        "Text" => "Label",
-        "Content" => "Element",
-        _ => node.Kind
-    };
+    private static string Type(Node node) => ControlContract.Type(node.Kind);
     private string[] Dependencies(Expression value)
     {
         var expression = SyntaxFactory.ParseExpression(value.Text);
@@ -165,72 +159,23 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 Errors.Add(new ParseError($"Value {DiagnosticText.Quote(placement.Text)} for '{key}' on {node.Kind} is invalid. " +
                     $"Use an integer {(key.EndsWith("Span") ? "of at least 1" : "of at least 0")}; Grid row and column indices start at 0, and spans count occupied cells.", placement.Offset));
         }
-        if (node.Kind is "VStack" or "HStack")
+        if (node.Kind == "TextInput" && !node.Arguments.ContainsKey("name"))
+            node.Arguments["name"] = node.Arguments["value"];
+        foreach (string key in ControlContract.Construction(node.Kind))
         {
-            if (node.Arguments.ContainsKey("spacing")) Bind("spacing", "float", "Spacing({0})", "0");
-            if (node.Arguments.ContainsKey("padding")) Bind("padding", "float", "Padding({0})", "0");
+            if (!node.Arguments.TryGetValue(key, out var value) || Dependencies(value).Length == 0) continue;
+            Errors.Add(new ParseError(key == "value"
+                ? $"{node.Kind}'s first positional argument cannot depend on state. This constructor input is fixed for the component lifetime; use a literal or a state-free constructor parameter expression."
+                : $"Argument '{key}' on {node.Kind} is evaluated only during construction and cannot depend on component state. Use a state-free NumericRange expression; bind changing values through 'currentValue' instead.",
+                value.Offset));
         }
-        else if (node.Kind is not ("Content" or "Grid" or "AdaptiveLayout"))
+        if (node.Kind == "InfoBadge" && node.Arguments.ContainsKey("count") && node.Arguments.ContainsKey("icon"))
+            throw new ParseError("InfoBadge has both 'count' and 'icon' arguments. Choose one presentation and remove the other argument; omit both for a dot badge.", node.Arguments["icon"].Offset);
+        foreach (var binding in ControlContract.Bindings(node.Kind))
         {
-            if (node.Kind != "TextInput")
-                Bind("value", "string", node.Kind is "Text" or "Button" or "Toggle" or "ToggleSwitch" or "ToggleButton" or "CheckBox" or "HyperlinkButton" ? "Text = {0}" : "Name = {0}", "\"\"");
-            else
-            {
-                // Other controls alias Name and Text; only TextInput has a separate name.
-                if (!node.Arguments.ContainsKey("name")) node.Arguments["name"] = node.Arguments["value"];
-                Bind("name", "string", "Name = {0}", "\"\"");
-            }
-            if (node.Arguments.ContainsKey("id")) Bind("id", "string", "AutomationId = {0}", "\"\"");
-            if (node.Arguments.ContainsKey("enabled")) Bind("enabled", "bool", "Enabled = {0}", "true");
-            if (node.Kind is "Toggle" or "ToggleSwitch" or "ToggleButton" && node.Arguments.ContainsKey("checked")) Bind("checked", "bool", "Checked = {0}", "false");
-            if (node.Kind == "TextInput" && node.Arguments.ContainsKey("text")) Bind("text", "string", "Text = {0}", "\"\"");
-            if (node.Arguments.ContainsKey("visible"))
-                Bind("visible", "bool", $"global::Xui.ControlFeatures.Visible(__xuiN{index}, {{0}})", "true", staticCall: true);
-            if (node.Arguments.ContainsKey("help"))
-                Bind("help", "string", $"global::Xui.ControlFeatures.Help(__xuiN{index}, {{0}})", "\"\"", staticCall: true);
-        }
-        else if (Dependencies(node.Arguments["value"]).Length != 0)
-            Errors.Add(new ParseError($"{node.Kind}'s first positional argument cannot depend on state. This constructor input is fixed for the component lifetime; use a literal or a state-free constructor parameter expression.", node.Arguments["value"].Offset));
-        if (node.Kind is "RangeInput" or "Progress" or "ProgressRing")
-        {
-            if (node.Arguments.TryGetValue("range", out var range) && Dependencies(range).Length != 0)
-                Errors.Add(new ParseError($"Argument 'range' on {node.Kind} is evaluated only during construction and cannot depend on component state. Use a state-free NumericRange expression; bind changing values through 'currentValue' instead.", range.Offset));
-            if (node.Arguments.ContainsKey("currentValue")) Bind("currentValue", "double", "SetValue({0})", "0");
-            if (node.Arguments.ContainsKey("orientation")) Bind("orientation", "global::Xui.Axis", "SetOrientation({0})", "default");
-            if (node.Arguments.ContainsKey("reversed")) Bind("reversed", "bool", "SetReversed({0})", "false");
-            if (node.Arguments.ContainsKey("progressState")) Bind("progressState", "global::Xui.ProgressState", "SetState({0})", "default");
-        }
-        if (node.Kind == "Reveal")
-        {
-            if (node.Arguments.ContainsKey("duration")) Bind("duration", "uint", "SetDuration({0})", "0");
-            if (node.Arguments.ContainsKey("layout")) Bind("layout", "global::Xui.RevealLayout", "SetLayout({0})", "default");
-            if (node.Arguments.ContainsKey("direction")) Bind("direction", "global::Xui.RevealDirection", "SetDirection({0})", "default");
-            if (node.Arguments.ContainsKey("open")) Bind("open", "bool", "SetOpen({0})", "false");
-        }
-        if (node.Kind == "SplitView" && node.Arguments.ContainsKey("duration"))
-            Bind("duration", "uint", "SetTransitionDuration({0})", "0");
-        if (node.Kind == "Button" && node.Arguments.ContainsKey("verticalText"))
-            Bind("verticalText", "bool", "SetVerticalText({0})", "false");
-        if (node.Kind == "AdaptiveLayout")
-        {
-            if (node.Arguments.ContainsKey("presentation")) Bind("presentation", "global::Xui.AdaptivePresentation", "SetPresentation({0})", "default");
-            if (node.Arguments.ContainsKey("navigationSide")) Bind("navigationSide", "global::Xui.NavigationSide", "SetNavigationSide({0})", "default");
-            if (node.Arguments.ContainsKey("navigationExtent")) Bind("navigationExtent", "double", "SetNavigationExtent({0})", "220");
-            if (node.Arguments.ContainsKey("navigationOpen")) Bind("navigationOpen", "bool", "SetNavigationOpen({0})", "true");
-            if (node.Arguments.ContainsKey("dismissOnFocusOutside")) Bind("dismissOnFocusOutside", "bool", "SetDismissOnFocusOutside({0})", "false");
-            if (node.Arguments.ContainsKey("breakpoint")) Bind("breakpoint", "double", "SetBreakpoint({0})", "640");
-            if (node.Arguments.ContainsKey("compactNavigation")) Bind("compactNavigation", "global::Xui.CompactNavigation", "SetCompactNavigation({0})", "default");
-        }
-        if (node.Kind == "CheckBox")
-        {
-            if (node.Arguments.ContainsKey("threeState")) Bind("threeState", "bool", "SetThreeState({0})", "false");
-            if (node.Arguments.ContainsKey("checkState")) Bind("checkState", "global::Xui.CheckState", "SetState({0})", "default");
-        }
-        if (node.Kind == "InfoBadge")
-        {
-            if (node.Arguments.ContainsKey("count") && node.Arguments.ContainsKey("icon"))
-                throw new ParseError("InfoBadge has both 'count' and 'icon' arguments. Choose one presentation and remove the other argument; omit both for a dot badge.", node.Arguments["icon"].Offset);
-            if (node.Arguments.ContainsKey("count")) Bind("count", "uint", "SetCount({0})", "0");
+            if (!binding.Always && !node.Arguments.ContainsKey(binding.Name)) continue;
+            bool staticCall = binding.Setter.Contains("{node}", StringComparison.Ordinal);
+            Bind(binding.Name, binding.Type, binding.Setter.Replace("{node}", $"__xuiN{index}"), binding.Default, staticCall);
         }
         if (node.Kind == "SelectorBar")
         {
@@ -244,19 +189,6 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
             }
             else if (node.Arguments.ContainsKey("selected")) Bind("selected", "ulong", "SetSelected({0})", "0");
         }
-        if (node.Kind == "MenuBar" && node.Arguments.ContainsKey("commands"))
-            Bind("commands", "global::Xui.Command[]", "SetCommands({0})", "[]");
-        foreach (var option in new[]
-        {
-            ("icon", "global::Xui.ButtonIcon", "SetIcon({0})"),
-            ("captionVisible", "bool", "SetCaptionVisible({0})"),
-            ("placeholder", "string", "SetPlaceholder({0})"),
-            ("headerVisible", "bool", "SetHeaderVisible({0})"),
-            ("secondVisible", "bool", "SetSecondVisible({0})"),
-            ("placement", "global::Xui.PopupPlacement", "SetPlacement({0})"),
-            ("windowBackground", "bool", "SetWindowBackground({0})")
-        })
-            if (node.Arguments.ContainsKey(option.Item1)) Bind(option.Item1, option.Item2, option.Item3, "default");
         var styleValue = node.Arguments.GetValueOrDefault("style");
         string styleTarget = node.Kind == "Content" && styleValue is not null ? styling.ReferenceTarget(styleValue) : StyleCompiler.TargetName(node.Kind);
         if (node.Kind == "Content" && styleValue is null) {
@@ -294,33 +226,12 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
                 new($"({rows.Text}, {columns.Text})", rows.Offset),
                 Dependencies(rows).Concat(Dependencies(columns)).Distinct().ToArray(), [rows, columns]));
         }
-        if (node.Kind == "DataGrid" && node.Arguments.ContainsKey("columns"))
-            Bind("columns", "global::Xui.GridColumn[]", "SetColumns({0})", "[]");
-        if (node.Kind == "NavigationView")
-        {
-            if (node.Arguments.ContainsKey("duration"))
-                Bind("duration", "uint", "SetDuration({0})", "0");
-            if (node.Arguments.ContainsKey("searchId"))
-                Bind("searchId", "string", "Search.AutomationId = {0}", "\"\"");
-            if (node.Arguments.ContainsKey("searchHelp"))
-                Bind("searchHelp", "string", $"global::Xui.ControlFeatures.Help(__xuiN{index}.Search, {{0}})", "\"\"", staticCall: true);
-        }
-        if (node.Arguments.ContainsKey("size"))
-            Bind("size", "(float Width, float Height)",
-                $"global::Xui.ElementExtensions.FixedSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
-        if (node.Arguments.ContainsKey("preferredSize"))
-            Bind("preferredSize", "(float Width, float Height)",
-                $"global::Xui.ElementExtensions.PreferredSize(__xuiN{index}, {{0}}.Width, {{0}}.Height)", "(0, 0)", staticCall: true);
         foreach (var child in node.Children) Collect(child, node);
     }
     private static string Part(string value) => value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + value;
-    private string Shape(Node node) => Part(node.Kind) + Part(node.Arguments.GetValueOrDefault("id")?.Text ?? "") +
-        Part(node.Arguments.GetValueOrDefault("searchId")?.Text ?? "") +
-        Part(string.Join(",", node.Arguments.Keys.Order())) +
-        string.Concat(new[] { "ref", "row", "column", "rowSpan", "columnSpan", "flex" }
+    private string Shape(Node node) => Part(node.Kind) + Part(string.Join(",", node.Arguments.Keys.Order())) +
+        string.Concat(ControlContract.Structural(node.Kind)
             .Select(key => Part(node.Arguments.GetValueOrDefault(key)?.Text ?? ""))) +
-        Part(node.Kind is "Content" or "Grid" or "AdaptiveLayout" ? node.Arguments["value"].Text : "") +
-        (node.Kind is "RangeInput" or "Progress" or "ProgressRing" ? Part(node.Arguments.GetValueOrDefault("range")?.Text ?? "") : "") +
         Part(string.Concat(node.Children.Select(child => Part(Shape(child)))));
 
     internal string Emit()
@@ -514,13 +425,11 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         for (int i = 0; i < nodes.Count; i++)
         {
             var node = nodes[i];
-            foreach (string key in new[] { "click", "change", "submit", "invoke", "pin" })
+            foreach (var contract in ControlContract.Events(node.Kind))
             {
+                string key = contract.Name;
                 if (!node.Arguments.ContainsKey(key)) continue;
-                var eventName = key switch { "click" => "Click", "change" => "Changed", "invoke" => "Invoked", "pin" => "Pinned", _ => "Submitted" };
-                if (node.Kind == "RangeInput" && key == "change")
-                    Line($"__xuiN{i}.OnChange(__xuiEvent{i}_{key});");
-                else Line($"__xuiN{i}.{eventName} += __xuiEvent{i}_{key};");
+                Line($"__xuiN{i}." + contract.Subscribe.Replace("{0}", $"__xuiEvent{i}_{key}") + ";");
             }
         }
         if (component.Root.Kind is "VStack" or "HStack") Line("if (attach) window.SetContent(__xuiN0);");
@@ -573,17 +482,11 @@ internal sealed class Emitter(Component component, string path, SourceText sourc
         }
         for (int i = 0; i < nodes.Count; i++)
         {
-            foreach (string key in new[] { "click", "change", "submit", "invoke", "pin" })
+            foreach (var contract in ControlContract.Events(nodes[i].Kind))
             {
+                string key = contract.Name;
                 if (!nodes[i].Arguments.TryGetValue(key, out var handler)) continue;
-                string arg = key == "change" ? nodes[i].Kind switch
-                {
-                    "Toggle" or "ToggleSwitch" or "ToggleButton" => "bool __xuiValue",
-                    "CheckBox" => "global::Xui.CheckState __xuiValue",
-                    "SelectorBar" => "ulong __xuiValue",
-                    "RangeInput" => "double __xuiValue",
-                    _ => "string __xuiValue"
-                } : key is "invoke" or "pin" ? "ulong __xuiValue" : "";
+                string arg = contract.Type.Length == 0 ? "" : contract.Type + " __xuiValue";
                 Line($"private void __xuiEvent{i}_{key}({arg})");
                 Line("{");
                 Map(handler);

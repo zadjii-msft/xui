@@ -1,3 +1,4 @@
+#include "feature_contract.g.hpp"
 namespace {
 void prepare_tree(const std::shared_ptr<Node>& n);
 void prepare_miller(const std::shared_ptr<Node>& n);
@@ -421,12 +422,7 @@ xui_status XUI_CALL xui_feature_create(xui_handle window, uint32_t kind, const x
         require(!o->reserved, XUI_INVALID_ARGUMENT, "Reserved fields must be zero.");
         auto n = get(window, XUI_WINDOW); topology(n->owner);
         auto name = decode(o->name);
-        const bool one = kind == XUI_EXPANDER || kind == XUI_POPUP || kind == XUI_CONTENT_DIALOG;
-        const bool two = kind == XUI_ADAPTIVE_LAYOUT || kind == XUI_SPLIT_VIEW;
-        require((one || two || kind == XUI_VIEW_PICKER) == bool(o->content) && two == bool(o->second), XUI_INVALID_ARGUMENT, "Invalid composition children.");
-        require(((kind == XUI_COMBO_BOX || kind == XUI_COMMAND_SURFACE) && o->mode <= 1) ||
-            (kind == XUI_DATE_TIME_PICKER && o->mode <= 2) || !o->mode,
-            XUI_INVALID_ARGUMENT, "Invalid creation mode.");
+#include "feature_creation.g.inc"
         std::shared_ptr<Node> c, s;
         if (o->content) {
             c = get(o->content); same(n, c);
@@ -518,113 +514,113 @@ xui_status XUI_CALL xui_feature_set(xui_handle target, uint32_t property, const 
         auto n = get(target); editable(n->owner);
         switch (property) {
         case XUI_F_RANGE: {
-            fields(v, 15); xui::NumericRange range{v.a, v.b, v.c, v.d}; range.validate();
+            fields(v, xui::feature_contract::fields<XUI_F_RANGE>); xui::NumericRange range{v.a, v.b, v.c, v.d}; range.validate();
             if (n->kind == XUI_RANGE_INPUT) as<xui::RangeInput>(n).set_range(range);
             else if (n->kind == XUI_NUMERIC_INPUT) as<xui::NumericInput>(n).set_range(range);
-            else feature<xui::Progress>(n).set_range(v.a, v.b);
+            else feature<xui::feature_contract::SetTarget<XUI_F_RANGE>>(n).set_range(v.a, v.b);
             break;
         }
         case XUI_F_VALUE:
-            fields(v, 1);
+            fields(v, xui::feature_contract::fields<XUI_F_VALUE>);
             if (n->kind == XUI_RANGE_INPUT) as<xui::RangeInput>(n).set_value(v.a);
             else if (n->kind == XUI_NUMERIC_INPUT) as<xui::NumericInput>(n).set_value(v.a);
             else if (n->kind == XUI_HISTORY_CHART) as<xui::HistoryChart>(n).append(v.a);
-            else feature<xui::Progress>(n).set_value(v.a);
+            else feature<xui::feature_contract::SetTarget<XUI_F_VALUE>>(n).set_value(v.a);
             break;
-        case XUI_F_ORIENTATION: fields(v, 16); limit(v.first, 1); feature<xui::RangeInput>(n).set_orientation(static_cast<xui::Axis>(v.first)); break;
-        case XUI_F_REVERSED: fields(v, 16); limit(v.first, 1); feature<xui::RangeInput>(n).set_reversed(v.first != 0); break;
+        case XUI_F_ORIENTATION: fields(v, xui::feature_contract::fields<XUI_F_ORIENTATION>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_ORIENTATION>>(n).set_orientation(static_cast<xui::Axis>(v.first)); break;
+        case XUI_F_REVERSED: fields(v, xui::feature_contract::fields<XUI_F_REVERSED>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_REVERSED>>(n).set_reversed(v.first != 0); break;
         case XUI_F_EXPANDED:
-            fields(v, 16); limit(v.first, 1);
+            fields(v, xui::feature_contract::fields<XUI_F_EXPANDED>); limit(v.first, 1);
             if (n->kind == XUI_NAVIGATION_VIEW) as<xui::NavigationView>(n).set_expanded(v.first != 0);
-            else feature<xui::Expander>(n).set_expanded(v.first != 0);
+            else feature<xui::feature_contract::SetTarget<XUI_F_EXPANDED>>(n).set_expanded(v.first != 0);
             break;
-        case XUI_F_PROGRESS_STATE: fields(v, 16); limit(v.first, 4); feature<xui::Progress>(n).set_state(static_cast<xui::ProgressState>(v.first)); break;
+        case XUI_F_PROGRESS_STATE: fields(v, xui::feature_contract::fields<XUI_F_PROGRESS_STATE>); limit(v.first, 4); feature<xui::feature_contract::SetTarget<XUI_F_PROGRESS_STATE>>(n).set_state(static_cast<xui::ProgressState>(v.first)); break;
         case XUI_F_PROGRESS_CAPACITY:
-            fields(v, 67);
+            fields(v, xui::feature_contract::fields<XUI_F_PROGRESS_CAPACITY>);
             require(v.b > 0 && v.a >= 0 && v.a <= v.b, XUI_INVALID_ARGUMENT, "Capacity requires 0 <= used <= total and positive total.");
-            feature<xui::Progress>(n).set_capacity(v.a, v.b, decode(v.text));
+            feature<xui::feature_contract::SetTarget<XUI_F_PROGRESS_CAPACITY>>(n).set_capacity(v.a, v.b, decode(v.text));
             break;
-        case XUI_F_CHECKED: fields(v, 16); limit(v.first, 1); feature<xui::Toggle>(n).set_checked(v.first != 0); break;
-        case XUI_F_CHECK_STATE: fields(v, 16); limit(v.first, 2); feature<xui::CheckBox>(n).set_state(static_cast<xui::CheckState>(v.first)); break;
-        case XUI_F_THREE_STATE: fields(v, 16); limit(v.first, 1); feature<xui::CheckBox>(n).set_three_state(v.first != 0); break;
+        case XUI_F_CHECKED: fields(v, xui::feature_contract::fields<XUI_F_CHECKED>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_CHECKED>>(n).set_checked(v.first != 0); break;
+        case XUI_F_CHECK_STATE: fields(v, xui::feature_contract::fields<XUI_F_CHECK_STATE>); limit(v.first, 2); feature<xui::feature_contract::SetTarget<XUI_F_CHECK_STATE>>(n).set_state(static_cast<xui::CheckState>(v.first)); break;
+        case XUI_F_THREE_STATE: fields(v, xui::feature_contract::fields<XUI_F_THREE_STATE>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_THREE_STATE>>(n).set_three_state(v.first != 0); break;
         case XUI_F_SELECTED:
-            fields(v, 16);
-            try { feature<xui::SelectorBar>(n).set_selected(v.first); }
+            fields(v, xui::feature_contract::fields<XUI_F_SELECTED>);
+            try { feature<xui::feature_contract::SetTarget<XUI_F_SELECTED>>(n).set_selected(v.first); }
             catch (const std::invalid_argument&) { throw Failure{XUI_INVALID_ARGUMENT, "Selected item must exist and be enabled."}; }
             break;
-        case XUI_F_BADGE_COUNT: fields(v, 16); limit(v.first, UINT32_MAX); feature<xui::InfoBadge>(n).set_count(static_cast<uint32_t>(v.first)); break;
-        case XUI_F_BADGE_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::open)); feature<xui::InfoBadge>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
-        case XUI_F_HELP: fields(v, 64); control(n).set_help_text(decode(v.text)); break;
-        case XUI_F_TOOLTIP_DELAY: fields(v, 16); limit(v.first, 60000); control(n).set_tooltip_delay(static_cast<unsigned>(v.first)); break;
-        case XUI_F_BUTTON_BEHAVIOR: fields(v, 16); limit(v.first, 3); feature<xui::Button>(n).set_behavior(static_cast<xui::ButtonBehavior>(v.first)); break;
-        case XUI_F_BUTTON_ICON: fields(v, 16); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::pin_filled)); feature<xui::Button>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
-        case XUI_F_VERTICAL_TEXT: fields(v, 16); limit(v.first, 1); require(n->kind == XUI_BUTTON, XUI_WRONG_KIND, "Vertical text requires a Button."); as<xui::Button>(n).set_vertical_text(v.first != 0); break;
-        case XUI_F_BUTTON_CHECKED: fields(v, 16); limit(v.first, 1); feature<xui::Button>(n).set_checked(v.first != 0); break;
-        case XUI_F_REPEAT_TIMING: fields(v, 48); limit(v.first, 60000); limit(v.second, 60000); feature<xui::Button>(n).set_repeat_timing(static_cast<unsigned>(v.first), static_cast<unsigned>(v.second)); break;
-        case XUI_F_DOCUMENT_TEXT: fields(v, 64); feature<xui::DocumentText>(n).set_text(decode(v.text)); break;
-        case XUI_F_READ_ONLY: fields(v, 16); limit(v.first, 1); feature<xui::DocumentText>(n).set_read_only(v.first != 0); break;
+        case XUI_F_BADGE_COUNT: fields(v, xui::feature_contract::fields<XUI_F_BADGE_COUNT>); limit(v.first, UINT32_MAX); feature<xui::feature_contract::SetTarget<XUI_F_BADGE_COUNT>>(n).set_count(static_cast<uint32_t>(v.first)); break;
+        case XUI_F_BADGE_ICON: fields(v, xui::feature_contract::fields<XUI_F_BADGE_ICON>); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::open)); feature<xui::feature_contract::SetTarget<XUI_F_BADGE_ICON>>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
+        case XUI_F_HELP: fields(v, xui::feature_contract::fields<XUI_F_HELP>); control(n).set_help_text(decode(v.text)); break;
+        case XUI_F_TOOLTIP_DELAY: fields(v, xui::feature_contract::fields<XUI_F_TOOLTIP_DELAY>); limit(v.first, 60000); control(n).set_tooltip_delay(static_cast<unsigned>(v.first)); break;
+        case XUI_F_BUTTON_BEHAVIOR: fields(v, xui::feature_contract::fields<XUI_F_BUTTON_BEHAVIOR>); limit(v.first, 3); feature<xui::feature_contract::SetTarget<XUI_F_BUTTON_BEHAVIOR>>(n).set_behavior(static_cast<xui::ButtonBehavior>(v.first)); break;
+        case XUI_F_BUTTON_ICON: fields(v, xui::feature_contract::fields<XUI_F_BUTTON_ICON>); limit(v.first, static_cast<uint64_t>(xui::ButtonIcon::pin_filled)); feature<xui::feature_contract::SetTarget<XUI_F_BUTTON_ICON>>(n).set_icon(static_cast<xui::ButtonIcon>(v.first)); break;
+        case XUI_F_VERTICAL_TEXT: fields(v, xui::feature_contract::fields<XUI_F_VERTICAL_TEXT>); limit(v.first, 1); require(n->kind == XUI_BUTTON, XUI_WRONG_KIND, "Vertical text requires a Button."); as<xui::Button>(n).set_vertical_text(v.first != 0); break;
+        case XUI_F_BUTTON_CHECKED: fields(v, xui::feature_contract::fields<XUI_F_BUTTON_CHECKED>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_BUTTON_CHECKED>>(n).set_checked(v.first != 0); break;
+        case XUI_F_REPEAT_TIMING: fields(v, xui::feature_contract::fields<XUI_F_REPEAT_TIMING>); limit(v.first, 60000); limit(v.second, 60000); feature<xui::feature_contract::SetTarget<XUI_F_REPEAT_TIMING>>(n).set_repeat_timing(static_cast<unsigned>(v.first), static_cast<unsigned>(v.second)); break;
+        case XUI_F_DOCUMENT_TEXT: fields(v, xui::feature_contract::fields<XUI_F_DOCUMENT_TEXT>); feature<xui::feature_contract::SetTarget<XUI_F_DOCUMENT_TEXT>>(n).set_text(decode(v.text)); break;
+        case XUI_F_READ_ONLY: fields(v, xui::feature_contract::fields<XUI_F_READ_ONLY>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_READ_ONLY>>(n).set_read_only(v.first != 0); break;
         case XUI_F_MAXIMUM_LENGTH:
-            fields(v, 16);
+            fields(v, xui::feature_contract::fields<XUI_F_MAXIMUM_LENGTH>);
             if (n->kind == XUI_PASSWORD_INPUT) { limit(v.first, 4096); as<xui::PasswordInput>(n).set_maximum_length(v.first); }
-            else { limit(v.first, 1048576); feature<xui::DocumentText>(n).set_maximum_length(v.first); } break;
+            else { limit(v.first, 1048576); feature<xui::feature_contract::SetTarget<XUI_F_MAXIMUM_LENGTH>>(n).set_maximum_length(v.first); } break;
         case XUI_F_TEXT_SELECTION: {
-            fields(v, 48); auto& doc = feature<xui::DocumentText>(n);
+            fields(v, xui::feature_contract::fields<XUI_F_TEXT_SELECTION>); auto& doc = feature<xui::feature_contract::SetTarget<XUI_F_TEXT_SELECTION>>(n);
             selection_boundary(doc.text(), v.first); selection_boundary(doc.text(), v.second);
             require(v.first <= v.second, XUI_INVALID_ARGUMENT, "Selection start exceeds its end.");
             doc.set_selection({static_cast<size_t>(v.first), static_cast<size_t>(v.second)}); break;
         }
         case XUI_F_PASSWORD: {
-            fields(v, 64); auto& p = feature<xui::PasswordInput>(n);
+            fields(v, xui::feature_contract::fields<XUI_F_PASSWORD>); auto& p = feature<xui::feature_contract::SetTarget<XUI_F_PASSWORD>>(n);
             auto secret = decode(v.text);
             struct Erase { std::wstring& value; ~Erase() { if (!value.empty()) SecureZeroMemory(value.data(), value.size() * sizeof(wchar_t)); } } erase{secret};
             require(secret.size() <= p.maximum_length(), XUI_INVALID_ARGUMENT, "Password exceeds its limit.");
             p.set_password(secret); break;
         }
-        case XUI_F_PASSWORD_REVEAL: fields(v, 16); limit(v.first, 1); feature<xui::PasswordInput>(n).set_reveal_policy(v.first ? xui::PasswordRevealPolicy::explicit_request : xui::PasswordRevealPolicy::never); break;
+        case XUI_F_PASSWORD_REVEAL: fields(v, xui::feature_contract::fields<XUI_F_PASSWORD_REVEAL>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_PASSWORD_REVEAL>>(n).set_reveal_policy(v.first ? xui::PasswordRevealPolicy::explicit_request : xui::PasswordRevealPolicy::never); break;
         case XUI_F_DATE: {
-            fields(v, 48); limit(v.first, 99991231); limit(v.second, 235959);
+            fields(v, xui::feature_contract::fields<XUI_F_DATE>); limit(v.first, 99991231); limit(v.second, 235959);
             xui::DateTimeValue date{int(v.first / 10000), int(v.first / 100 % 100), int(v.first % 100),
                 int(v.second / 10000), int(v.second / 100 % 100), int(v.second % 100)};
-            date.validate(); feature<xui::DateTimePicker>(n).set_value(date); break;
+            date.validate(); feature<xui::feature_contract::SetTarget<XUI_F_DATE>>(n).set_value(date); break;
         }
-        case XUI_F_COLOR: fields(v, 16); limit(v.first, UINT32_MAX); feature<xui::ColorPicker>(n).set_value({
+        case XUI_F_COLOR: fields(v, xui::feature_contract::fields<XUI_F_COLOR>); limit(v.first, UINT32_MAX); feature<xui::feature_contract::SetTarget<XUI_F_COLOR>>(n).set_value({
             uint8_t(v.first), uint8_t(v.first >> 8), uint8_t(v.first >> 16), uint8_t(v.first >> 24)}); break;
-        case XUI_F_STATUS: fields(v, 80); limit(v.first, 3); feature<xui::InlineStatus>(n).set_message(decode(v.text), static_cast<xui::StatusSeverity>(v.first)); break;
-        case XUI_F_DISMISSIBLE: fields(v, 16); limit(v.first, 1); feature<xui::InlineStatus>(n).set_dismissible(v.first != 0); break;
-        case XUI_F_MAP_VIEW: fields(v, 7); feature<xui::MapView>(n).set_view({v.a, v.b}, v.c); break;
-        case XUI_F_MAP_PAN: fields(v, 3); feature<xui::MapView>(n).pan(v.a, v.b); break;
-        case XUI_F_MEDIA_SOURCE: fields(v, 64); feature<xui::MediaPlayback>(n).load_local(decode(v.text)); break;
-        case XUI_F_VOLUME: fields(v, 1); feature<xui::MediaPlayback>(n).set_volume(v.a); break;
-        case XUI_F_MEDIA_POSITION: fields(v, 1); feature<xui::MediaPlayback>(n).seek(v.a); break;
-        case XUI_F_WEB_HTML: fields(v, 64); require(xui_capabilities() & 1, XUI_NATIVE_ERROR, "WebView2 is disabled in this build."); feature<xui::WebContent>(n).set_html(decode(v.text)); break;
-        case XUI_F_WEB_PROFILE: fields(v, 64); feature<xui::WebContent>(n).set_profile_root(decode(v.text)); break;
-        case XUI_F_ITEM_SIZE: fields(v, 3); finite_float(v.a); finite_float(v.b); feature<xui::VirtualCollection>(n).set_item_size({float(v.a), float(v.b)}); break;
+        case XUI_F_STATUS: fields(v, xui::feature_contract::fields<XUI_F_STATUS>); limit(v.first, 3); feature<xui::feature_contract::SetTarget<XUI_F_STATUS>>(n).set_message(decode(v.text), static_cast<xui::StatusSeverity>(v.first)); break;
+        case XUI_F_DISMISSIBLE: fields(v, xui::feature_contract::fields<XUI_F_DISMISSIBLE>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_DISMISSIBLE>>(n).set_dismissible(v.first != 0); break;
+        case XUI_F_MAP_VIEW: fields(v, xui::feature_contract::fields<XUI_F_MAP_VIEW>); feature<xui::feature_contract::SetTarget<XUI_F_MAP_VIEW>>(n).set_view({v.a, v.b}, v.c); break;
+        case XUI_F_MAP_PAN: fields(v, xui::feature_contract::fields<XUI_F_MAP_PAN>); feature<xui::feature_contract::SetTarget<XUI_F_MAP_PAN>>(n).pan(v.a, v.b); break;
+        case XUI_F_MEDIA_SOURCE: fields(v, xui::feature_contract::fields<XUI_F_MEDIA_SOURCE>); feature<xui::feature_contract::SetTarget<XUI_F_MEDIA_SOURCE>>(n).load_local(decode(v.text)); break;
+        case XUI_F_VOLUME: fields(v, xui::feature_contract::fields<XUI_F_VOLUME>); feature<xui::feature_contract::SetTarget<XUI_F_VOLUME>>(n).set_volume(v.a); break;
+        case XUI_F_MEDIA_POSITION: fields(v, xui::feature_contract::fields<XUI_F_MEDIA_POSITION>); feature<xui::feature_contract::SetTarget<XUI_F_MEDIA_POSITION>>(n).seek(v.a); break;
+        case XUI_F_WEB_HTML: fields(v, xui::feature_contract::fields<XUI_F_WEB_HTML>); require(xui_capabilities() & 1, XUI_NATIVE_ERROR, "WebView2 is disabled in this build."); feature<xui::feature_contract::SetTarget<XUI_F_WEB_HTML>>(n).set_html(decode(v.text)); break;
+        case XUI_F_WEB_PROFILE: fields(v, xui::feature_contract::fields<XUI_F_WEB_PROFILE>); feature<xui::feature_contract::SetTarget<XUI_F_WEB_PROFILE>>(n).set_profile_root(decode(v.text)); break;
+        case XUI_F_ITEM_SIZE: fields(v, xui::feature_contract::fields<XUI_F_ITEM_SIZE>); finite_float(v.a); finite_float(v.b); feature<xui::feature_contract::SetTarget<XUI_F_ITEM_SIZE>>(n).set_item_size({float(v.a), float(v.b)}); break;
         case XUI_F_PRESENTATION: {
-            fields(v, 16); limit(v.first, 3);
-            auto& collection = feature<xui::VirtualCollection>(n);
+            fields(v, xui::feature_contract::fields<XUI_F_PRESENTATION>); limit(v.first, 3);
+            auto& collection = feature<xui::feature_contract::SetTarget<XUI_F_PRESENTATION>>(n);
             require(v.first != 3 || collection.role() == xui::ControlRole::items_view,
                 XUI_INVALID_ARGUMENT, "Gallery presentation requires ItemsView.");
             collection.set_presentation(static_cast<xui::ItemsPresentation>(v.first)); break;
         }
-        case XUI_F_SINGLE_CLICK_ACTIVATION: fields(v, 16); limit(v.first, 1); feature<xui::ItemsView>(n).set_single_click_activation(v.first != 0); break;
-        case XUI_F_CONTENT_SIZED: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_content_sized(v.first != 0); break;
+        case XUI_F_SINGLE_CLICK_ACTIVATION: fields(v, xui::feature_contract::fields<XUI_F_SINGLE_CLICK_ACTIVATION>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_SINGLE_CLICK_ACTIVATION>>(n).set_single_click_activation(v.first != 0); break;
+        case XUI_F_CONTENT_SIZED: fields(v, xui::feature_contract::fields<XUI_F_CONTENT_SIZED>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_CONTENT_SIZED>>(n).set_content_sized(v.first != 0); break;
         case XUI_F_OFFSET:
-            fields(v, 1);
+            fields(v, xui::feature_contract::fields<XUI_F_OFFSET>);
             if (n->kind == XUI_DATA_GRID) as<xui::DataGrid>(n).set_offset(v.a, as<xui::DataGrid>(n).horizontal_offset());
-            else feature<xui::VirtualCollection>(n).set_offset(v.a);
+            else feature<xui::feature_contract::SetTarget<XUI_F_OFFSET>>(n).set_offset(v.a);
             break;
-        case XUI_F_WRAP_WIDTH: fields(v, 1); finite_float(v.a); feature<xui::Wrap>(n).set_item_width(float(v.a)); break;
-        case XUI_F_BREAKPOINT: fields(v, 1); finite_float(v.a); feature<xui::AdaptiveLayout>(n).set_breakpoint(float(v.a)); break;
-        case XUI_F_NAVIGATION_EXTENT: fields(v, 1); finite_float(v.a); feature<xui::AdaptiveLayout>(n).set_navigation_extent(float(v.a)); break;
-        case XUI_F_NAVIGATION_OPEN: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_navigation_open(v.first != 0); break;
-        case XUI_F_COMPACT_NAVIGATION: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_compact_navigation(static_cast<xui::CompactNavigation>(v.first)); break;
-        case XUI_F_ADAPTIVE_PRESENTATION: fields(v, 16); limit(v.first, 2); feature<xui::AdaptiveLayout>(n).set_presentation(static_cast<xui::AdaptivePresentation>(v.first)); break;
-        case XUI_F_NAVIGATION_SIDE: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_navigation_side(static_cast<xui::NavigationSide>(v.first)); break;
-        case XUI_F_DISMISS_ON_FOCUS_OUTSIDE: fields(v, 16); limit(v.first, 1); feature<xui::AdaptiveLayout>(n).set_dismiss_on_focus_outside(v.first != 0); break;
-        case XUI_F_SPLIT_RATIO: fields(v, 1); finite_float(v.a); feature<xui::SplitView>(n).set_ratio(float(v.a)); break;
-        case XUI_F_SECOND_VISIBLE: fields(v, 16); limit(v.first, 1); feature<xui::SplitView>(n).set_secondary_visible(v.first != 0); break;
-        case XUI_F_PAGE: fields(v, 16); feature<xui::PageView>(n).select(v.first); break;
-        case XUI_F_VISIBLE: fields(v, 16); limit(v.first, 1); control(n).set_visible(v.first != 0); break;
+        case XUI_F_WRAP_WIDTH: fields(v, xui::feature_contract::fields<XUI_F_WRAP_WIDTH>); finite_float(v.a); feature<xui::feature_contract::SetTarget<XUI_F_WRAP_WIDTH>>(n).set_item_width(float(v.a)); break;
+        case XUI_F_BREAKPOINT: fields(v, xui::feature_contract::fields<XUI_F_BREAKPOINT>); finite_float(v.a); feature<xui::feature_contract::SetTarget<XUI_F_BREAKPOINT>>(n).set_breakpoint(float(v.a)); break;
+        case XUI_F_NAVIGATION_EXTENT: fields(v, xui::feature_contract::fields<XUI_F_NAVIGATION_EXTENT>); finite_float(v.a); feature<xui::feature_contract::SetTarget<XUI_F_NAVIGATION_EXTENT>>(n).set_navigation_extent(float(v.a)); break;
+        case XUI_F_NAVIGATION_OPEN: fields(v, xui::feature_contract::fields<XUI_F_NAVIGATION_OPEN>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_NAVIGATION_OPEN>>(n).set_navigation_open(v.first != 0); break;
+        case XUI_F_COMPACT_NAVIGATION: fields(v, xui::feature_contract::fields<XUI_F_COMPACT_NAVIGATION>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_COMPACT_NAVIGATION>>(n).set_compact_navigation(static_cast<xui::CompactNavigation>(v.first)); break;
+        case XUI_F_ADAPTIVE_PRESENTATION: fields(v, xui::feature_contract::fields<XUI_F_ADAPTIVE_PRESENTATION>); limit(v.first, 2); feature<xui::feature_contract::SetTarget<XUI_F_ADAPTIVE_PRESENTATION>>(n).set_presentation(static_cast<xui::AdaptivePresentation>(v.first)); break;
+        case XUI_F_NAVIGATION_SIDE: fields(v, xui::feature_contract::fields<XUI_F_NAVIGATION_SIDE>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_NAVIGATION_SIDE>>(n).set_navigation_side(static_cast<xui::NavigationSide>(v.first)); break;
+        case XUI_F_DISMISS_ON_FOCUS_OUTSIDE: fields(v, xui::feature_contract::fields<XUI_F_DISMISS_ON_FOCUS_OUTSIDE>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_DISMISS_ON_FOCUS_OUTSIDE>>(n).set_dismiss_on_focus_outside(v.first != 0); break;
+        case XUI_F_SPLIT_RATIO: fields(v, xui::feature_contract::fields<XUI_F_SPLIT_RATIO>); finite_float(v.a); feature<xui::feature_contract::SetTarget<XUI_F_SPLIT_RATIO>>(n).set_ratio(float(v.a)); break;
+        case XUI_F_SECOND_VISIBLE: fields(v, xui::feature_contract::fields<XUI_F_SECOND_VISIBLE>); limit(v.first, 1); feature<xui::feature_contract::SetTarget<XUI_F_SECOND_VISIBLE>>(n).set_secondary_visible(v.first != 0); break;
+        case XUI_F_PAGE: fields(v, xui::feature_contract::fields<XUI_F_PAGE>); feature<xui::feature_contract::SetTarget<XUI_F_PAGE>>(n).select(v.first); break;
+        case XUI_F_VISIBLE: fields(v, xui::feature_contract::fields<XUI_F_VISIBLE>); limit(v.first, 1); control(n).set_visible(v.first != 0); break;
         default: throw Failure{XUI_INVALID_ARGUMENT, "Unknown feature property."};
         }
         callback_result(n->owner);
@@ -638,55 +634,55 @@ xui_status XUI_CALL xui_feature_get(xui_handle target, uint32_t property, xui_fe
         case XUI_F_VALUE:
             if (n->kind == XUI_RANGE_INPUT) v->a = as<xui::RangeInput>(n).value();
             else if (n->kind == XUI_NUMERIC_INPUT) v->a = as<xui::NumericInput>(n).value();
-            else v->a = feature<xui::Progress>(n).value(); break;
+            else v->a = feature<xui::feature_contract::GetTarget<XUI_F_VALUE>>(n).value(); break;
         case XUI_F_RANGE: {
             xui::NumericRange r;
             if (n->kind == XUI_RANGE_INPUT) r = as<xui::RangeInput>(n).range();
             else if (n->kind == XUI_NUMERIC_INPUT) r = as<xui::NumericInput>(n).range();
-            else r = feature<xui::Progress>(n).range();
+            else r = feature<xui::feature_contract::GetTarget<XUI_F_RANGE>>(n).range();
             v->a = r.minimum; v->b = r.maximum; v->c = r.small_step; v->d = r.large_step; break;
         }
         case XUI_F_EXPANDED:
             v->first = n->kind == XUI_SPLIT_VIEW ? as<xui::SplitView>(n).expanded() :
-                n->kind == XUI_NAVIGATION_VIEW ? as<xui::NavigationView>(n).expanded() : feature<xui::Expander>(n).expanded();
+                n->kind == XUI_NAVIGATION_VIEW ? as<xui::NavigationView>(n).expanded() : feature<xui::feature_contract::GetTarget<XUI_F_EXPANDED>>(n).expanded();
             break;
-        case XUI_F_BUTTON_ICON: v->first = static_cast<uint64_t>(feature<xui::Button>(n).icon()); break;
+        case XUI_F_BUTTON_ICON: v->first = static_cast<uint64_t>(feature<xui::feature_contract::GetTarget<XUI_F_BUTTON_ICON>>(n).icon()); break;
         case XUI_F_VERTICAL_TEXT: require(n->kind == XUI_BUTTON, XUI_WRONG_KIND, "Vertical text requires a Button."); v->first = as<xui::Button>(n).vertical_text(); break;
         case XUI_F_FOCUSED: v->first = control(n).focused(); break;
         case XUI_F_VISIBLE: v->first = control(n).visible(); break;
-        case XUI_F_IS_OPEN: v->first = feature<xui::Popup>(n).is_open(); break;
-        case XUI_F_SECOND_VISIBLE: v->first = feature<xui::SplitView>(n).secondary_visible(); break;
-        case XUI_F_SPLIT_RATIO: v->a = feature<xui::SplitView>(n).ratio(); break;
-        case XUI_F_OFFSET: v->a = n->kind == XUI_DATA_GRID ? as<xui::DataGrid>(n).offset() : feature<xui::VirtualCollection>(n).offset(); break;
-        case XUI_F_BUTTON_CHECKED: v->first = feature<xui::Button>(n).checked(); break;
-        case XUI_F_CHECKED: v->first = feature<xui::Toggle>(n).checked(); break;
-        case XUI_F_CHECK_STATE: v->first = static_cast<uint64_t>(feature<xui::CheckBox>(n).state()); break;
-        case XUI_F_THREE_STATE: v->first = feature<xui::CheckBox>(n).three_state(); break;
+        case XUI_F_IS_OPEN: v->first = feature<xui::feature_contract::GetTarget<XUI_F_IS_OPEN>>(n).is_open(); break;
+        case XUI_F_SECOND_VISIBLE: v->first = feature<xui::feature_contract::GetTarget<XUI_F_SECOND_VISIBLE>>(n).secondary_visible(); break;
+        case XUI_F_SPLIT_RATIO: v->a = feature<xui::feature_contract::GetTarget<XUI_F_SPLIT_RATIO>>(n).ratio(); break;
+        case XUI_F_OFFSET: v->a = n->kind == XUI_DATA_GRID ? as<xui::DataGrid>(n).offset() : feature<xui::feature_contract::GetTarget<XUI_F_OFFSET>>(n).offset(); break;
+        case XUI_F_BUTTON_CHECKED: v->first = feature<xui::feature_contract::GetTarget<XUI_F_BUTTON_CHECKED>>(n).checked(); break;
+        case XUI_F_CHECKED: v->first = feature<xui::feature_contract::GetTarget<XUI_F_CHECKED>>(n).checked(); break;
+        case XUI_F_CHECK_STATE: v->first = static_cast<uint64_t>(feature<xui::feature_contract::GetTarget<XUI_F_CHECK_STATE>>(n).state()); break;
+        case XUI_F_THREE_STATE: v->first = feature<xui::feature_contract::GetTarget<XUI_F_THREE_STATE>>(n).three_state(); break;
         case XUI_F_SELECTED: {
-            const auto selected = feature<xui::SelectorBar>(n).selected();
+            const auto selected = feature<xui::feature_contract::GetTarget<XUI_F_SELECTED>>(n).selected();
             v->first = selected.value_or(0); v->second = selected.has_value(); break;
         }
-        case XUI_F_BADGE_KIND: v->first = static_cast<uint64_t>(feature<xui::InfoBadge>(n).kind()); break;
-        case XUI_F_BADGE_COUNT: v->first = feature<xui::InfoBadge>(n).count(); break;
-        case XUI_F_BADGE_ICON: v->first = static_cast<uint64_t>(feature<xui::InfoBadge>(n).icon()); break;
-        case XUI_F_SINGLE_CLICK_ACTIVATION: v->first = feature<xui::ItemsView>(n).single_click_activation(); break;
-        case XUI_F_CONTENT_SIZED: v->first = feature<xui::AdaptiveLayout>(n).content_sized(); break;
-        case XUI_F_NAVIGATION_OPEN: v->first = feature<xui::AdaptiveLayout>(n).navigation_open(); break;
-        case XUI_F_ADAPTIVE_PRESENTATION: v->first = static_cast<uint64_t>(feature<xui::AdaptiveLayout>(n).presentation()); break;
-        case XUI_F_NAVIGATION_SIDE: v->first = static_cast<uint64_t>(feature<xui::AdaptiveLayout>(n).navigation_side()); break;
-        case XUI_F_DISMISS_ON_FOCUS_OUTSIDE: v->first = feature<xui::AdaptiveLayout>(n).dismiss_on_focus_outside(); break;
-        case XUI_F_PROGRESS_STATE: v->first = static_cast<uint64_t>(feature<xui::Progress>(n).state()); break;
-        case XUI_F_TEXT_SELECTION: { auto s = feature<xui::DocumentText>(n).selection(); v->first = s.start; v->second = s.end; break; }
-        case XUI_F_READ_ONLY: v->first = feature<xui::DocumentText>(n).read_only(); break;
-        case XUI_F_PASSWORD: v->first = feature<xui::PasswordInput>(n).length(); break;
-        case XUI_F_DATE: { auto d = feature<xui::DateTimePicker>(n).value(); v->first = d.year * 10000 + d.month * 100 + d.day; v->second = d.hour * 10000 + d.minute * 100 + d.second; break; }
-        case XUI_F_COLOR: { auto c = feature<xui::ColorPicker>(n).value(); v->first = c.red | uint64_t(c.green) << 8 | uint64_t(c.blue) << 16 | uint64_t(c.alpha) << 24; break; }
-        case XUI_F_MAP_VIEW: { auto& m = feature<xui::MapView>(n); v->a = m.center().latitude; v->b = m.center().longitude; v->c = m.zoom(); break; }
-        case XUI_F_HOST_STATE: v->first = static_cast<uint64_t>(feature<xui::RuntimeHost>(n).state()); break;
-        case XUI_F_MEDIA_POSITION: v->a = feature<xui::MediaPlayback>(n).position(); v->b = feature<xui::MediaPlayback>(n).duration(); break;
-        case XUI_F_PAGE: v->first = feature<xui::PageView>(n).selected(); break;
+        case XUI_F_BADGE_KIND: v->first = static_cast<uint64_t>(feature<xui::feature_contract::GetTarget<XUI_F_BADGE_KIND>>(n).kind()); break;
+        case XUI_F_BADGE_COUNT: v->first = feature<xui::feature_contract::GetTarget<XUI_F_BADGE_COUNT>>(n).count(); break;
+        case XUI_F_BADGE_ICON: v->first = static_cast<uint64_t>(feature<xui::feature_contract::GetTarget<XUI_F_BADGE_ICON>>(n).icon()); break;
+        case XUI_F_SINGLE_CLICK_ACTIVATION: v->first = feature<xui::feature_contract::GetTarget<XUI_F_SINGLE_CLICK_ACTIVATION>>(n).single_click_activation(); break;
+        case XUI_F_CONTENT_SIZED: v->first = feature<xui::feature_contract::GetTarget<XUI_F_CONTENT_SIZED>>(n).content_sized(); break;
+        case XUI_F_NAVIGATION_OPEN: v->first = feature<xui::feature_contract::GetTarget<XUI_F_NAVIGATION_OPEN>>(n).navigation_open(); break;
+        case XUI_F_ADAPTIVE_PRESENTATION: v->first = static_cast<uint64_t>(feature<xui::feature_contract::GetTarget<XUI_F_ADAPTIVE_PRESENTATION>>(n).presentation()); break;
+        case XUI_F_NAVIGATION_SIDE: v->first = static_cast<uint64_t>(feature<xui::feature_contract::GetTarget<XUI_F_NAVIGATION_SIDE>>(n).navigation_side()); break;
+        case XUI_F_DISMISS_ON_FOCUS_OUTSIDE: v->first = feature<xui::feature_contract::GetTarget<XUI_F_DISMISS_ON_FOCUS_OUTSIDE>>(n).dismiss_on_focus_outside(); break;
+        case XUI_F_PROGRESS_STATE: v->first = static_cast<uint64_t>(feature<xui::feature_contract::GetTarget<XUI_F_PROGRESS_STATE>>(n).state()); break;
+        case XUI_F_TEXT_SELECTION: { auto s = feature<xui::feature_contract::GetTarget<XUI_F_TEXT_SELECTION>>(n).selection(); v->first = s.start; v->second = s.end; break; }
+        case XUI_F_READ_ONLY: v->first = feature<xui::feature_contract::GetTarget<XUI_F_READ_ONLY>>(n).read_only(); break;
+        case XUI_F_PASSWORD: v->first = feature<xui::feature_contract::GetTarget<XUI_F_PASSWORD>>(n).length(); break;
+        case XUI_F_DATE: { auto d = feature<xui::feature_contract::GetTarget<XUI_F_DATE>>(n).value(); v->first = d.year * 10000 + d.month * 100 + d.day; v->second = d.hour * 10000 + d.minute * 100 + d.second; break; }
+        case XUI_F_COLOR: { auto c = feature<xui::feature_contract::GetTarget<XUI_F_COLOR>>(n).value(); v->first = c.red | uint64_t(c.green) << 8 | uint64_t(c.blue) << 16 | uint64_t(c.alpha) << 24; break; }
+        case XUI_F_MAP_VIEW: { auto& m = feature<xui::feature_contract::GetTarget<XUI_F_MAP_VIEW>>(n); v->a = m.center().latitude; v->b = m.center().longitude; v->c = m.zoom(); break; }
+        case XUI_F_HOST_STATE: v->first = static_cast<uint64_t>(feature<xui::feature_contract::GetTarget<XUI_F_HOST_STATE>>(n).state()); break;
+        case XUI_F_MEDIA_POSITION: v->a = feature<xui::feature_contract::GetTarget<XUI_F_MEDIA_POSITION>>(n).position(); v->b = feature<xui::feature_contract::GetTarget<XUI_F_MEDIA_POSITION>>(n).duration(); break;
+        case XUI_F_PAGE: v->first = feature<xui::feature_contract::GetTarget<XUI_F_PAGE>>(n).selected(); break;
         case XUI_F_SELECTION_STATE: {
-            const auto& selection = n->kind == XUI_DATA_GRID ? as<xui::DataGrid>(n).selection() : feature<xui::VirtualCollection>(n).selection();
+            const auto& selection = n->kind == XUI_DATA_GRID ? as<xui::DataGrid>(n).selection() : feature<xui::feature_contract::GetTarget<XUI_F_SELECTION_STATE>>(n).selection();
             auto focus = selection.focused(); v->a = focus.has_value(); v->b = static_cast<double>(selection.storage_size());
             if (focus) { v->first = focus->id; v->second = focus->version; }
             break;

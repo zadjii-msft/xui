@@ -516,6 +516,12 @@ They contain no second renderer or retained row array.
 `include\xui\xui_features.h` declares the extension through `xui.h`.
 `bindings\generate_features.py` generates both FFI declarations from that header.
 It generates typed constructors and scalar properties from `bindings\features.json`.
+The same contract supplies native feature validation and declarative compiler metadata.
+Availability is still specific to each language: a C#/Rust constructor or style target does not
+imply a `.xui` constructor. For example, `NumericInput`, `RichText`, and `MillerColumns` remain
+available through their typed APIs, not as direct markup nodes. Use `Content(element)` to embed
+an explicitly constructed element where appropriate; see the [language guide](xui-language.md).
+This consolidation changes neither feature IDs/record layouts nor native input and ownership.
 
 `ItemsView` supports the opt-in `ItemsPresentation.Gallery` mode in C# and `ItemsPresentation::Gallery` in Rust.
 The enum values remain `List = 0`, `Tiles = 1`, and `Grouped = 2`. `Gallery = 3` is appended.

@@ -1868,6 +1868,71 @@ After a feature-header or manifest change, regenerate the declarations:
 python bindings\generate_features.py
 ```
 
+The C headers own IDs and record layouts. `bindings\features.json` references those IDs by name
+and owns feature applicability, carrier shapes, constructor categories/modes, generated adapters,
+and markup argument/event/mutability/child contracts. Shared argument entries avoid duplicating
+setter/event definitions. Keep complex ownership and compound updates handwritten.
+Do not edit `feature_contract.g.hpp`, `feature_creation.g.inc`, or `ControlContract.g.cs` directly.
+Changing a handwritten native dispatch seam must also satisfy the contract generator's validation.
+
+Check the compiled feature schema and all generated consumers without rewriting any file:
+
+```powershell
+cmake --build $build --config Release --target xui_feature_catalog xui_feature_contract_abi_tests
+python bindings\generate_features.py --native-executable "$build\Release\xui_feature_catalog.exe" --check
+python -m unittest discover -s tests -p test_feature_contracts.py
+ctest --test-dir $build -C Release -R "^xui_feature_contract" --no-tests=error --output-on-failure -j 1
+dotnet run --project bindings\dotnet\GeneratorTests -c Release
+dotnet run --project bindings\dotnet\Designer.SourceTests -c Release
+dotnet run --project bindings\dotnet\Designer.Preview.Tests -c Release -p:XuiNativeDir="$build\Release"
+```
+
+The last command uses owned native preview windows. It checks retained content, native identity,
+source mappings, failed-construction rollback, and resource retirement without activating its window.
+The feature exporter is a compiled schema tool; unlike the style exporter below, it does not call
+a public schema-query ABI. No feature lookup table is shipped in the runtime DLL.
+The three feature-contract CTests run in the ordinary headless gate.
+`framework-gates.py` additionally corrupts each generated output and verifies non-writing rejection.
+
+For paired contract performance, compile the **same** `tests\feature_contract_tests.cpp` against
+each revision's public headers/import library with the same Release `/O2 /Ob2 /MT /GL /LTCG` flags.
+Place each resulting executable beside that revision's `xui.dll` and `lsh_lib.dll`.
+This permits a baseline revision that predates the new probe. For example, in the selected developer
+environment, repeat this command with revision-specific `$headers`, `$native`, and `$probe` directories:
+
+```powershell
+cl /nologo /std:c++20 /O2 /Ob2 /MT /GL /EHsc /GR /W4 /utf-8 /permissive- /DWIN32 /D_WINDOWS /DNDEBUG `
+    /I "$headers" tests\feature_contract_tests.cpp /Fo"$probe\feature.obj" /Fe"$probe\feature_contract_tests.exe" `
+    /link /LTCG "$native\xui.lib"
+Copy-Item "$native\xui.dll", "$native\lsh_lib.dll" $probe
+dotnet build tests\ContractCompilerProbe.csproj -c Release `
+    -p:XuiGeneratorAssembly="$generatorAssembly" --artifacts-path "$compilerArtifacts"
+```
+
+Build the compiler probe twice with each revision's `Xui.Generator.dll` and separate artifacts paths.
+First perform baseline calibration, then freeze `phase-name iteration-count` lines in a counts file,
+rounding native counts up to multiples of 32. Target at least one second per native phase:
+the default short counts are useful for smoke checks but can produce quantized CPU measurements.
+Do not adjust counts, inputs, or binaries during the recorded block.
+After all other builds/tests stop, run:
+
+```powershell
+python tests\measure-feature-contracts.py `
+    --baseline-native "$baselineProbe\feature_contract_tests.exe" `
+    --candidate-native "$candidateProbe\feature_contract_tests.exe" `
+    --baseline-compiler "$baselineCompiler\ContractCompilerProbe.exe" `
+    --candidate-compiler "$candidateCompiler\ContractCompilerProbe.exe" `
+    --baseline-abi "$baselineNative\xui_callback_abi_performance.exe" `
+    --candidate-abi "$candidateNative\xui_callback_abi_performance.exe" `
+    --baseline-commit $baselineCommit --counts $counts --output $newEvidenceDirectory
+```
+
+The runner retains two warmup and seven recorded alternating pairs per group, every process log,
+work signatures, binary/count hashes, and median wall/CPU/allocation results. It fails on nonzero
+process exits, different work, changed inputs, or a greater-than-5% median regression.
+Retain unsuccessful blocks; a replacement block needs an explicit protocol or implementation reason.
+This is a scoped contract/ABI/compiler comparison, not a claim about all application rendering or UIA.
+
 Normal `.xui` builds and managed style construction use checked-in catalogs.
 They do not load the native DLL to discover schemas.
 After a native schema change, build the exporter in the selected native build directory:

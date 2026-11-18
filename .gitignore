@@ -10,6 +10,7 @@
 /docs/specs/tutorials/sample/obj/
 /node_modules/
 /tools/__pycache__/
+/bindings/__pycache__/
 /tests/__pycache__/
 /tests/bin/
 /tests/obj/
