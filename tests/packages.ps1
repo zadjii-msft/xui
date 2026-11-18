@@ -23,6 +23,7 @@ if ($null -eq $license -or $license.type -ne 'expression' -or $license.InnerText
 foreach ($path in @(
     'lib\net10.0\Xui.Managed.dll', 'analyzers\dotnet\cs\Xui.Generator.dll',
     'build\native\lib\x64\xui_core.lib', 'build\native\lib\ARM64\xui_core.lib',
+    'build\native\lib\x64\xui_file_list.lib', 'build\native\lib\ARM64\xui_file_list.lib',
     'runtimes\win-x64\native\xui.dll', 'runtimes\win-arm64\native\xui.dll'
 )) {
     if (!(Test-Path (Join-Path $expanded $path))) { throw "Missing NuGet asset: $path" }

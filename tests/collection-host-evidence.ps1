@@ -39,16 +39,22 @@ if ($Mode -eq 'Build') {
         $include = Join-Path $revision.Source 'include'
         $library = Join-Path $revision.Build 'Release'
         $resource = Join-Path $baseline 'xui_collections_window_tests.dir\Release\xui.res'
+        $fileList = Join-Path $library 'xui_file_list.lib'
+        $fileListLink = if (Test-Path -LiteralPath $fileList) { "`"$fileList`"" } else { '' }
         foreach ($file in @($source, $resource, "$library\xui_core.lib", "$library\xui_windows.lib")) {
             if (!(Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing frozen input: $file" }
             $hashes += Get-FileHash -LiteralPath $file -Algorithm SHA256 |
+                Select-Object @{ n = 'Revision'; e = { $revision.Name } }, Path, Hash
+        }
+        if ($fileListLink) {
+            $hashes += Get-FileHash -LiteralPath $fileList -Algorithm SHA256 |
                 Select-Object @{ n = 'Revision'; e = { $revision.Name } }, Path, Hash
         }
         @"
 /c /I"$include" /nologo /W4 /WX- /diagnostics:column /O2 /Ob2 /GL /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D NDEBUG /D NOMINMAX /D WIN32_LEAN_AND_MEAN /D _WIN32_WINNT=0x0A00 /EHsc /MT /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /std:c++20 /permissive- /Fo"$object" /external:W4 /Gd /TP /utf-8 "$source"
 "@ | Set-Content -LiteralPath $compile -Encoding utf8
         @"
-/OUT:"$binary" /NOLOGO "$library\xui_windows.lib" "$library\xui_core.lib" PSAPI.LIB D2D1.LIB DXGUID.LIB DWRITE.LIB DWMAPI.LIB DCOMP.LIB UIAUTOMATIONCORE.LIB OLE32.LIB OLEAUT32.LIB COMCTL32.LIB SHELL32.LIB USER32.LIB GDI32.LIB WINDOWSCODECS.LIB UXTHEME.LIB MFUUID.LIB RUNTIMEOBJECT.LIB KERNEL32.LIB WINSPOOL.LIB UUID.LIB COMDLG32.LIB ADVAPI32.LIB /MANIFEST:NO /SUBSYSTEM:CONSOLE /OPT:REF /OPT:ICF /LTCG /DYNAMICBASE /NXCOMPAT /MACHINE:X64 "$resource" "$object"
+/OUT:"$binary" /NOLOGO "$library\xui_windows.lib" $fileListLink "$library\xui_core.lib" PSAPI.LIB D2D1.LIB DXGUID.LIB DWRITE.LIB DWMAPI.LIB DCOMP.LIB UIAUTOMATIONCORE.LIB OLE32.LIB OLEAUT32.LIB COMCTL32.LIB SHELL32.LIB USER32.LIB GDI32.LIB WINDOWSCODECS.LIB UXTHEME.LIB MFUUID.LIB RUNTIMEOBJECT.LIB KERNEL32.LIB WINSPOOL.LIB UUID.LIB COMDLG32.LIB ADVAPI32.LIB /MANIFEST:NO /SUBSYSTEM:CONSOLE /OPT:REF /OPT:ICF /LTCG /DYNAMICBASE /NXCOMPAT /MACHINE:X64 "$resource" "$object"
 "@ | Set-Content -LiteralPath $link -Encoding utf8
         Invoke-XuiVcVarsCommand x64 "cl /Bv @`"$compile`" && link @`"$link`"" 2>&1 |
             Tee-Object -FilePath (Join-Path $output 'build.log') | Write-Output

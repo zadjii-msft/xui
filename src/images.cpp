@@ -1,4 +1,5 @@
 #include "images.hpp"
+#include "identity_lookup.hpp"
 #include "style_hosts_geometry.hpp"
 #include "async.hpp"
 #include "drawing.hpp"
@@ -563,7 +564,6 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
         }
     };
     std::array<Wanted, maximum_rows> wanted;
-    std::array<Wanted*, maximum_rows> lookup;
     std::size_t count{};
     for (const auto& row : rows_) {
         if (row.visual.image_path.empty()) continue;
@@ -571,19 +571,12 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
         const auto size = row.image_dips == 0 ? pixels : static_cast<UINT>(std::clamp(
             std::round(row.image_dips * dpi / 96.0), 1.0, double(ImageLimits::output_dimension)));
         wanted[count] = {&row, kind, size, nullptr};
-        lookup[count] = &wanted[count];
         ++count;
     }
-    const auto end = lookup.begin() + count;
-    std::sort(lookup.begin(), end, [](const auto* a, const auto* b) { return a->identity() < b->identity(); });
-    const auto find = [&](const auto& identity) -> Wanted* {
-        const auto found = std::lower_bound(lookup.begin(), end, identity,
-            [](const auto* entry, const auto& key) { return entry->identity() < key; });
-        return found != end && (*found)->identity() == identity ? *found : nullptr;
-    };
+    const detail::IdentityLookup<Wanted, maximum_rows> lookup(std::span{wanted}.first(count));
     // Navigation and tabs retain visual identity; ordinary source refreshes reload changed files.
     const auto removed = std::erase_if(slots_, [&](const auto& slot) {
-        const auto match = find(std::tuple{slot->key, std::wstring_view{slot->path}, slot->kind, slot->pixels_size});
+        const auto match = lookup.find(std::tuple{slot->key, std::wstring_view{slot->path}, slot->kind, slot->pixels_size});
         if (!match) { remember(*slot); return true; }
         if (!match->slot) match->slot = slot.get();
         return false;
@@ -591,7 +584,7 @@ bool RowImages::sync_visuals(std::vector<RowVisual> rows, UINT dpi, const std::s
     changed = removed != 0 || changed;
     for (std::size_t i = 0; i < count; ++i) {
         // Duplicate visuals share one slot; request admission still follows input order.
-        auto& match = *find(wanted[i].identity());
+        auto& match = *lookup.find(wanted[i].identity());
         if (!match.slot) {
             auto slot = std::make_unique<Slot>();
             slot->key = match.row->key; slot->path = match.row->visual.image_path; slot->kind = match.kind;

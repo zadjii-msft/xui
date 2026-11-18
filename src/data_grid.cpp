@@ -1,4 +1,5 @@
 #include "xui/data_grid.hpp"
+#include "collection_viewport.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -356,9 +357,8 @@ std::pair<std::size_t, std::size_t> DataGrid::visible_rows() const {
     if (!source_) return {};
     const auto g = geometry();
     if (g.viewport_height() <= 0) return {};
-    const auto first = static_cast<std::size_t>(std::min(double(source_->size()), offset_ / g.row_height));
-    const auto count = static_cast<std::size_t>(std::min(double(source_->size() - first), std::ceil(double(g.viewport_height()) / g.row_height) + 1));
-    return {first, first + count};
+    const auto range = detail::uniform_viewport(source_->size(), double(g.row_height), offset_, double(g.viewport_height()));
+    return {range.begin, range.end};
 }
 std::optional<std::size_t> DataGrid::row_at(float y) const {
     const auto g = geometry();

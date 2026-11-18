@@ -1,6 +1,6 @@
 # Package from release-tag version X.Y.Z without changing the checkout manifests.
 # NativeRoot contains win-x64 and/or win-arm64 directories. Each needs xui.dll
-# and xui.lib; the static xui_core.lib and xui_windows.lib are not Rust dependencies.
+# and xui.lib; the static C++ libraries are not Rust dependencies.
 # Requires stable Cargo and the installed Rust standard library for each supplied target.
 # Verification is enabled: xui-sys is packaged first, then a checksum-backed local
 # registry lets Cargo package and verify xui offline before xui-sys is published.

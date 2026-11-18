@@ -677,6 +677,16 @@ Zero-duration determinate transitions do not disable this automatic indeterminat
 
 ### Collections and background work
 
+The generic foundation no longer declares file snapshots or workers.
+`include/xui/file_list_model.hpp` and `src/file_list_model.cpp` own `FileItem`,
+`FileSnapshot`, `FilteredView`, result records, and `FileListModel`.
+`include/xui/view_worker.hpp` and `src/view_worker.cpp` own the worker and its thread dependencies.
+These sources and `src/file_list.cpp` build into `xui_file_list`, which depends on `xui_core`;
+the dependency never points back from generic core to the file-list library.
+`xui_windows` and packaged `Xui::Windows` consume both through this dependency.
+`xui_core_isolation_tests` deliberately conflicts with legacy names if they leak back into
+generic core/collection/grid headers, and links only the core library.
+
 `FileSnapshot` shares an immutable item array. It stores lowercase names in one character buffer.
 A cancellable length pass reserves this buffer once. The snapshot does not retain geometric growth capacity.
 A sorted array of 32-bit row indices provides the shared ID lookup.
@@ -704,3 +714,30 @@ The host uses `FileList::set_view` for worker results.
 The synchronous `set_items` and `set_filter` methods remain available for small collections and pure callers.
 These synchronous methods must not process large collections on a UI thread.
 Callers must not keep mutable aliases to snapshot item arrays.
+
+### Shared viewport and image reconciliation
+
+`src/collection_viewport.hpp` supplies saturating index conversion and uniform row-window
+calculations. FileList's public `visible_range` preserves its float sanitization, clamped
+scroll offset, and symmetric two-row overscan. Grids and tiled collections retain their
+one-boundary-row policy, with the same helper used by their UIA providers.
+The helper preserves the caller's float/double arithmetic and bounds multiplication before
+forming an index. Ordinary lists, trees with variable row heights, and animated collection
+presentations still use source `row_at` or presentation geometry: treating them as fixed rows
+would lose grouping, expansion, and clipping semantics.
+
+`src/identity_lookup.hpp` is a bounded, borrowed sorted index used by `RowImages` and the
+legacy `ListPeer`. Each consumer supplies its identity tuple and retained-slot pointer.
+The index never reorders the admission input and canonicalizes duplicate identities.
+It uses stack storage, not a per-frame map or vector; steady legacy thumbnail matching
+no longer allocates a temporary wanted-row vector or scans the slots separately for every row.
+
+The adapters intentionally remain distinct. Legacy FileList resets images on snapshot,
+revision, or DPI changes and matches `(ItemId, path)` within that reset boundary. It retains
+at most 24 slots per pane and shares the window's remaining budget; failures notify the
+application once per visible request with reentrancy guards. `RowImages` matches
+`(ItemKey, path, kind, pixel size)`, supports opt-in identity retention and weak recent pixels,
+caps visible rows at 512, and defers admission at 48 queued requests. It logs failed artwork
+and keeps fallback visuals. Neither algorithm changes its queue policy, worker ownership,
+cancellation, decoder error behavior, or off-thread I/O. Shared selection inheritance would
+incorrectly conflate FileList's hidden single selection with versioned collection terms.

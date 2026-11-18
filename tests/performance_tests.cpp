@@ -1,3 +1,4 @@
+#include "xui/view_worker.hpp"
 #include "xui/core.hpp"
 #include "xui/file_list.hpp"
 #include <algorithm>

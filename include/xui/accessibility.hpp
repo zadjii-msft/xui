@@ -1,6 +1,6 @@
 #pragma once
 
-#include "xui/core.hpp"
+#include "xui/file_list_model.hpp"
 #include <windows.h>
 #include <ole2.h>
 #include <UIAutomationCore.h>

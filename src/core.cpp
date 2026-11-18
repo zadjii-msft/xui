@@ -1,6 +1,7 @@
 #include "xui/core.hpp"
 #include "xui/control_styling.hpp"
 #include "layout_styling.hpp"
+#include "collection_viewport.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -128,13 +129,6 @@ Size normalized(Size size) {
 
 double valid_row_height(float height) {
     return std::isfinite(height) && height > 0.0f ? static_cast<double>(height) : 0.0;
-}
-
-std::size_t bounded_index(double value, std::size_t count) {
-    if (!(value > 0.0)) return 0;
-    // Check before casting: the floating representation of SIZE_MAX can round up.
-    if (value >= static_cast<double>(count)) return count;
-    return static_cast<std::size_t>(value);
 }
 
 } // namespace
@@ -501,62 +495,6 @@ void Stack::arrange(Rect rectangle) {
     }
 }
 
-void FileListModel::set_items(std::shared_ptr<const std::vector<FileItem>> items) {
-    set_view(FilteredView::build(FileSnapshot::build(std::move(items)), view_->query()));
-}
-
-void FileListModel::set_filter(std::wstring filter) {
-    set_view(FilteredView::build(view_->source(), std::move(filter)));
-}
-
-void FileListModel::set_view(std::shared_ptr<const FilteredView> view) {
-    if (!view) throw std::invalid_argument("Filtered view must not be null");
-    view_ = std::move(view);
-    if (selected_ && !view_->source()->find(*selected_)) selected_.reset();
-}
-
-const std::vector<RowIndex>& FileListModel::visible_indices() const { return view_->indices(); }
-std::shared_ptr<const std::vector<FileItem>> FileListModel::items() const { return view_->source()->items(); }
-std::optional<ItemId> FileListModel::selected_id() const { return selected_; }
-
-std::optional<std::size_t> FileListModel::selected_index() const {
-    return selected_ ? view_->find(*selected_) : std::nullopt;
-}
-
-const FileItem* FileListModel::selected_item() const {
-    if (selected_)
-        if (const auto index = view_->source()->find(*selected_)) return &(*items())[*index];
-    return nullptr;
-}
-
-void FileListModel::select_index(std::size_t index) {
-    if (index < visible_indices().size()) selected_ = (*items())[visible_indices()[index]].id;
-}
-
-void FileListModel::clear_selection() { selected_.reset(); }
-
-void FileListModel::move_selection(int delta) {
-    const auto& visible = visible_indices();
-    if (delta == 0 || visible.empty()) return;
-    const auto current = selected_index();
-    if (!current) {
-        select_index(delta > 0 ? 0 : visible.size() - 1);
-        return;
-    }
-    if (delta > 0) {
-        const auto distance = static_cast<std::size_t>(delta);
-        select_index(*current + (std::min)(distance, visible.size() - 1 - *current));
-    } else {
-        const auto distance = static_cast<std::size_t>(-static_cast<std::int64_t>(delta));
-        select_index(*current - (std::min)(distance, *current));
-    }
-}
-
-void FileListModel::select_first() { select_index(0); }
-void FileListModel::select_last() {
-    if (!visible_indices().empty()) select_index(visible_indices().size() - 1);
-}
-
 float clamp_scroll(std::size_t count, float row_height, float offset, float viewport_height) {
     const double height = valid_row_height(row_height);
     const double total = static_cast<double>(count) * height;
@@ -570,8 +508,8 @@ VisibleRange visible_range(std::size_t count, float row_height, float offset,
     const float viewport = dimension(viewport_height);
     if (count == 0 || height == 0.0 || viewport == 0.0f) return {};
     const double scroll = clamp_scroll(count, row_height, offset, viewport);
-    const auto begin = bounded_index(std::floor(scroll / height), count);
-    const auto end = bounded_index(std::ceil((scroll + viewport) / height), count);
+    const auto begin = detail::bounded_index(std::floor(scroll / height), count);
+    const auto end = detail::bounded_index(std::ceil((scroll + viewport) / height), count);
     return {begin - (std::min)(begin, overscan),
         end + (std::min)(count - end, overscan)};
 }

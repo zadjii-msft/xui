@@ -1,6 +1,7 @@
 #pragma once
 
 #include "xui/controls.hpp"
+#include "xui/file_list_model.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>

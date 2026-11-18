@@ -1,5 +1,6 @@
 #include "xui/collections.hpp"
 #include "collection_presentation.hpp"
+#include "collection_viewport.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -678,9 +679,7 @@ VisibleRange VirtualCollection::visible_items() const {
     const auto scroll = std::min(offset_, maximum_offset());
     if (columns() == 1) return {source_->row_at(scroll, height),
         std::min(source_->size(), source_->row_at(scroll + viewport.height, height) + 1)};
-    const auto cols = columns(), first = static_cast<std::size_t>(scroll / height) * cols;
-    return {std::min(first, source_->size()), std::min(source_->size(),
-        first + (static_cast<std::size_t>(std::ceil(viewport.height / height)) + 1) * cols)};
+    return detail::uniform_viewport(source_->size(), height, scroll, viewport.height, columns());
 }
 std::optional<std::size_t> VirtualCollection::hit_test(Point point) const {
     const auto viewport = content_viewport();

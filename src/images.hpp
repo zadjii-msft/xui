@@ -3,6 +3,8 @@
 #include "xui/image.hpp"
 #include "xui/collections.hpp"
 #include <windows.h>
+#include <atomic>
+#include <mutex>
 #include <vector>
 
 namespace xui {

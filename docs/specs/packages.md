@@ -103,7 +103,9 @@ The [language guide](xui-language.md) describes component authoring and reload b
 ## Native C++ applications
 
 The native NuGet targets support Visual C++ projects with platform `x64` or `ARM64`.
-The default `XuiNativeLinkage=Static` links `xui_windows.lib` and `xui_core.lib`.
+The default `XuiNativeLinkage=Static` links `xui_windows.lib`, `xui_file_list.lib`, and `xui_core.lib`.
+The legacy file snapshot/model/worker library is separate from the generic foundation.
+The CMake package exposes `Xui::FileList` alongside `Xui::Core`; `Xui::Windows` brings both in.
 It selects C++20, Unicode definitions, the application manifest, and the static MSVC runtime (`/MT`).
 Only the application and its own dependencies belong in deployment.
 Neither .NET nor `xui.dll` is necessary for this mode.

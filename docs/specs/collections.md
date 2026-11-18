@@ -127,6 +127,13 @@ The [binding reference](bindings.md#windows-file-transfers) defines clipboard me
 
 ## Virtual lists and asynchronous delivery
 
+Include `xui/file_list.hpp` for the legacy control or `xui/file_list_model.hpp` for
+its immutable snapshots and selection model. The standalone worker is declared in
+`xui/view_worker.hpp`. These file-specific declarations are no longer included by
+`xui/core.hpp`; generic element/layout and collection users do not inherit them.
+Direct model-only CMake consumers link `xui_file_list`, which depends on `xui_core`.
+Windows applications linking `xui_windows` already receive both libraries.
+
 `FileList` derives from `Control`. A `Window` accepts it beside labels, buttons, toggles, and text inputs.
 The native backend creates one list window, not one control per row.
 The application supplies data and actions. It does not supply paint callbacks or accessibility providers.
