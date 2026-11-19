@@ -342,7 +342,7 @@ Writing this plan does not complete any runtime finding.
 | 5 | `callback-ownership` | Verified merged [#63](https://github.com/zadjii-msft/xui/pull/63), head `233f042f`, squash `a459962c`; follow-up [#64](https://github.com/zadjii-msft/xui/pull/64), head `2581f410`, squash `65904462`. Historical performance flags below remain unresolved, not waived by merging. | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
 | 6 | `contract-metadata` | Verified merged [#66](https://github.com/zadjii-msft/xui/pull/66), accepted head `16256a05`, squash `abf17138486ffeaf4a3ddf5a22d97200b2f890a9`; correctness gates and scoped 15-workload performance evidence below. | Merged #63 and #64, `65904462` | Finding 5: authoritative contracts, adapters, compiler/reload rules |
 | 7 | `legacy-file-list` | Verified merged [#67](https://github.com/zadjii-msft/xui/pull/67), accepted `a9dc715ef7df3a9b1bc669e44a1f6eb8f922857c`, squash `f10693c75d229aa53c1bcf625ee896bab67a5c4e`; scoped evidence and reproduced desktop limitations below. | Merged #66, `abf17138` | Finding 6: foundation isolation and shared algorithms |
-| 8 | `boundary-enforcement` | Implemented locally November 18, 2026; uncommitted/unmerged. Build/CI boundary gates, final measurements and reconciliation are recorded below. Full-program performance/desktop acceptance remains incomplete, not waived. | Merged #67, `f10693c7` | Finding 7: dependency enforcement and final evidence/source maps |
+| 8 | `boundary-enforcement` | In review: [#68](https://github.com/zadjii-msft/xui/pull/68), implementation `697a4d632078db5b379f122b15f8809c01959685`; not merged. Build/CI boundary gates, final measurements and reconciliation are recorded below. Full-program performance/desktop acceptance remains incomplete, not waived. | Merged #67, `f10693c7` | Finding 7: dependency enforcement and final evidence/source maps |
 
 ### Stage 0: Documentation roadmap
 
@@ -970,7 +970,9 @@ Nothing is marked complete solely because a file shrank or one family passed.
 #### Stage 8 implementation and evidence: November 18, 2026
 
 Implemented in the same checkout after verified merged #67. No child session or new
-runtime architecture was introduced. The phase-8 changes remain uncommitted/unmerged.
+runtime architecture was introduced. Measurements preceded publication; the implementation
+was subsequently committed as `697a4d632078db5b379f122b15f8809c01959685` and published
+for review in [#68](https://github.com/zadjii-msft/xui/pull/68). It is not merged.
 The C++ runtime, public headers and managed/Rust runtime sources are unchanged;
 the only C++ edit is the test probe's explicit longer source-publication protocol.
 
@@ -1079,7 +1081,7 @@ Evidence archive SHA-256: `47374e5d494768510b6ab7b718f9f487b406ae080a6c26548e2a4
 | 4: callback ownership/lifetime | Composition/observer separation and scoped retirement; follow-up allocation reduction | #63 accepted `233f042f63003f929a75a272cf0282f524b5ec1f`, merge `a459962c0ba95512674a857a59fc83b174d4c0e5`; #64 accepted `2581f41055c8520ef7e84c42b9c5a7984f2106d7`, merge `6590446206507789861722529ed1dd796172397c` |
 | 5: overlapping contracts | Symbolic feature, compiler, native validation and reload metadata | #66, accepted `16256a05230de68e491446fb9467a71c436fb76b`, merge `abf17138486ffeaf4a3ddf5a22d97200b2f890a9`; generated/native/compiler drift gates |
 | 6: legacy file-list leakage | Isolated models/workers/library plus shared bounded geometry and identity | #67, accepted `a9dc715ef7df3a9b1bc669e44a1f6eb8f922857c`, merge `f10693c75d229aa53c1bcf625ee896bab67a5c4e`; portable/core link guards |
-| 7: unenforced boundaries/PR coverage | Ordinary framework gate, evaluated build/source rules, deliberate violations and desktop partition | #58 established the ordinary gate; phase 8 completes these guards locally and still needs review/merge |
+| 7: unenforced boundaries/PR coverage | Ordinary framework gate, evaluated build/source rules, deliberate violations and desktop partition | #58 established the ordinary gate; #68 completes these guards and still needs review/merge |
 
 No planned structural implementation phase remains after phase 8's review/merge.
 **Acceptance work remains open:** the dated stage-1/2/3 measurement/interactive limitations,
@@ -1107,5 +1109,5 @@ Any unresolved behavioral or performance requirement remains visible as blocked/
 
 The stage-0 document originally contained only source inspection and the separately attributed
 pristine correctness report. The later ledger entries record subsequent implementation and measurements.
-Stages 0-7 are merged. Stage 8 is implemented locally but unmerged.
+Stages 0-7 are merged. Stage 8 is in review but unmerged.
 Structural implementation and unresolved acceptance evidence are tracked separately above.
