@@ -341,8 +341,8 @@ Writing this plan does not complete any runtime finding.
 | 4 | `dirty-work` | Merged [#62](https://github.com/zadjii-msft/xui/pull/62), accepted head `4f5a8016`, squash `de9ee24ea4664f0f6d0fcaf87f573383086244da`; [source map and evidence](stage4-targeted-invalidation.md) | Merged #61, `c0173871` | Finding 2: originating identity and targeted ordered work |
 | 5 | `callback-ownership` | Verified merged [#63](https://github.com/zadjii-msft/xui/pull/63), head `233f042f`, squash `a459962c`; follow-up [#64](https://github.com/zadjii-msft/xui/pull/64), head `2581f410`, squash `65904462`. Historical performance flags below remain unresolved, not waived by merging. | Merged #62, `de9ee24e` | Finding 4: composition/observation separation and scoped retirement |
 | 6 | `contract-metadata` | Verified merged [#66](https://github.com/zadjii-msft/xui/pull/66), accepted head `16256a05`, squash `abf17138486ffeaf4a3ddf5a22d97200b2f890a9`; correctness gates and scoped 15-workload performance evidence below. | Merged #63 and #64, `65904462` | Finding 5: authoritative contracts, adapters, compiler/reload rules |
-| 7 | `legacy-file-list` | Implemented locally November 18, 2026 after merged #66; uncommitted/unmerged. Scoped correctness and eight-workload paired performance pass; two broader desktop failures reproduce on merged main and remain recorded below. | Merged #66, `abf17138` | Finding 6: foundation isolation and shared algorithms |
-| 8 | `boundary-enforcement` | Not started | 7 | Finding 7: dependency enforcement and final evidence/source maps |
+| 7 | `legacy-file-list` | Verified merged [#67](https://github.com/zadjii-msft/xui/pull/67), accepted `a9dc715ef7df3a9b1bc669e44a1f6eb8f922857c`, squash `f10693c75d229aa53c1bcf625ee896bab67a5c4e`; scoped evidence and reproduced desktop limitations below. | Merged #66, `abf17138` | Finding 6: foundation isolation and shared algorithms |
+| 8 | `boundary-enforcement` | In review: [#68](https://github.com/zadjii-msft/xui/pull/68), implementation `697a4d632078db5b379f122b15f8809c01959685`; not merged. Build/CI boundary gates, final measurements and reconciliation are recorded below. Full-program performance/desktop acceptance remains incomplete, not waived. | Merged #67, `f10693c7` | Finding 7: dependency enforcement and final evidence/source maps |
 
 ### Stage 0: Documentation roadmap
 
@@ -634,11 +634,16 @@ families have concrete owners, not another universal aggregate beneath behavior 
 | Substage | Family and explicit responsibility boundary | Predecessor | Status |
 | --- | --- | --- | --- |
 | 3a | Collections, grids and legacy-native-list integration: shared `VirtualCollection` engine for ItemsView, TreeView, NavigationList, MillerColumnList and CommandMenu; row gestures/painting/images, grid resize/reorder/check/filter/OLE, typed UIA state/action/publication and retirement; embedded existing ListPeer. Window retains cross-control coordination. | Verified merged #59 | Accepted `b655d0aa`, merged #60 as `9e6673c`; [design and evidence](stage3a-collection-host.md) |
-| 3b | Native editors/documents: TextInput captions/clear adornments/suggestions, native document/password/date-time bridges; HWND/provider identity, native text/composition/caret/selection/undo/clipboard, fonts/insets/clips and close/error ordering. | Merged 3a, `9e6673c` | Implemented in the consolidated phase-3 PR; [native source map](architecture.md#native-editor-host-boundary); prior performance limits preserved |
-| 3c | Standalone Image, VectorCanvas/MapView, MediaPlayback/WebContent, SwapChainPanel: scene input/publication, asynchronous source/error/cancellation and native producer/runtime/target integration. Shared image algorithms remain shared; collection row state stays in 3a. | Consolidated with 3b | Implemented by `SceneHostPeer`; review pending |
-| 3d | Basic text/actions/choices/ranges/progress/status/color: Label, Button variants, Toggle/CheckBox/Switch, RadioGroup/ChoiceList/SelectorBar/ComboBox, NumericInput, RangeInput, Progress/ProgressRing, HistoryChart, InlineStatus/InfoBadge and ColorPicker; measurement/layout/input/repeat/choice/range/UIA and composite child integration. Native editor children use 3b; frame timers remain window-owned. | Consolidated with 3b | Implemented by `BasicHostPeer`; review pending |
-| 3e | Navigation/Miller containers, Breadcrumb/PathBar, tabs/titlebar/menu-bar and command-surface/palette/location coordination, artwork and family UIA. Shared NavigationList/MillerColumnList/CommandMenu row engines remain in 3a; native fields use 3b. Cross-window tab move loop, focus/modal/popup coordination and scheduling remain window-owned. | Consolidated with 3b | Implemented by `NavigationHostPeer` and closed window services; review pending |
-| 3f | Generic content_view, ContentView/ContentHost, Popup/ContentDialog, ScrollView translation, SplitView, Reveal/Expander and Stack/PageView/Wrap/Grid/AdaptiveLayout host integration; owned-child/active/native/UIA policy separation, deferred realization, clipping, animation and replacement. Eliminate UnextractedPeer. Window still owns topology, shared frame/placement batching and lifetime barriers. | Consolidated with 3b | Implemented by `CompositeHostPeer` and existing window ownership transactions; `UnextractedPeer` eliminated; review pending |
+| 3b | Native editors/documents: TextInput captions/clear adornments/suggestions, native document/password/date-time bridges; HWND/provider identity, native text/composition/caret/selection/undo/clipboard, fonts/insets/clips and close/error ordering. | Merged 3a, `9e6673c` | Merged #61; [native source map](architecture.md#native-editor-host-boundary); prior performance limits preserved |
+| 3c | Standalone Image, VectorCanvas/MapView, MediaPlayback/WebContent, SwapChainPanel: scene input/publication, asynchronous source/error/cancellation and native producer/runtime/target integration. Shared image algorithms remain shared; collection row state stays in 3a. | Consolidated with 3b | `SceneHostPeer`; merged #61 |
+| 3d | Basic text/actions/choices/ranges/progress/status/color: Label, Button variants, Toggle/CheckBox/Switch, RadioGroup/ChoiceList/SelectorBar/ComboBox, NumericInput, RangeInput, Progress/ProgressRing, HistoryChart, InlineStatus/InfoBadge and ColorPicker; measurement/layout/input/repeat/choice/range/UIA and composite child integration. Native editor children use 3b; frame timers remain window-owned. | Consolidated with 3b | `BasicHostPeer`; merged #61 |
+| 3e | Navigation/Miller containers, Breadcrumb/PathBar, tabs/titlebar/menu-bar and command-surface/palette/location coordination, artwork and family UIA. Shared NavigationList/MillerColumnList/CommandMenu row engines remain in 3a; native fields use 3b. Cross-window tab move loop, focus/modal/popup coordination and scheduling remain window-owned. | Consolidated with 3b | `NavigationHostPeer` and closed window services; merged #61 |
+| 3f | Generic content_view, ContentView/ContentHost, Popup/ContentDialog, ScrollView translation, SplitView, Reveal/Expander and Stack/PageView/Wrap/Grid/AdaptiveLayout host integration; owned-child/active/native/UIA policy separation, deferred realization, clipping, animation and replacement. Eliminate UnextractedPeer. Window still owns topology, shared frame/placement batching and lifetime barriers. | Consolidated with 3b | `CompositeHostPeer` and window ownership transactions; `UnextractedPeer` eliminated; merged #61 |
+
+Merge reconciliation: 3a accepted `b655d0aa2564b58c4420917a6c8781a048ee7b04`,
+merged `9e6673cffbb2f4fb320da652937729f1b7a03099` in #60.
+All of 3b-3f accepted `993bdcd7187ff295febdef6a3116490aac17aa36`,
+merged `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b` in #61.
 
 Stage 4 was authorized on November 3 after merged #61 completed the remaining
 family partition. Previously recorded acceptance limits remain explicit. Stage 7's legacy
@@ -839,7 +844,10 @@ No forced shared inheritance chain or unnecessary compatibility layer remains.
 The owner requested merging #66 and continuing phase 7 in the same session.
 GitHub confirmed merge `abf17138486ffeaf4a3ddf5a22d97200b2f890a9`, and the clean checkout
 was fast-forwarded to that main before this work. An interrupted investigation was resumed
-without a child session or a new branch. These phase-7 changes remain local and uncommitted.
+without a child session or a new branch. The owner subsequently requested publication/merge.
+Phase 7 was committed as `a9dc715ef7df3a9b1bc669e44a1f6eb8f922857c`,
+passed Documentation and Framework CI, and merged in [#67](https://github.com/zadjii-msft/xui/pull/67)
+at `f10693c75d229aa53c1bcf625ee896bab67a5c4e` on November 18, 2026, 12:44:21 UTC.
 
 **Boundary:** file-specific IDs, snapshots, result records, and selection-model declarations
 move from `core.hpp` to `file_list_model.hpp`; standalone worker declarations move to
@@ -942,7 +950,7 @@ baseline failures, and package consumer sources. Paths are normalized to workspa
 placeholders. Source hashes identify the uncommitted candidate; no commit is invented.
 Commands are in [CONTRIBUTING](../../CONTRIBUTING.md#collection-family-host-checks).
 Evidence archive SHA-256: `308c0ecd098be6cb51a1cce9dde7277db1c5d000213708ee27d9e778d18e966f`.
-Phase 8 remains unimplemented and should follow review and merge of this phase.
+The owner's next request authorized phase 8 after this verified merge.
 
 ### Stage 8: Boundary enforcement and final evidence
 
@@ -958,6 +966,131 @@ Publish absolute and relative results, resource/allocation/idle/native-identity 
 measurement environment, unresolved evidence, and approved behavioral changes.
 Reconcile every finding and any stage-3 subdivision with merged PRs and exact accepted commits.
 Nothing is marked complete solely because a file shrank or one family passed.
+
+#### Stage 8 implementation and evidence: November 18, 2026
+
+Implemented in the same checkout after verified merged #67. No child session or new
+runtime architecture was introduced. Measurements preceded publication; the implementation
+was subsequently committed as `697a4d632078db5b379f122b15f8809c01959685` and published
+for review in [#68](https://github.com/zadjii-msft/xui/pull/68). It is not merged.
+The C++ runtime, public headers and managed/Rust runtime sources are unchanged;
+the only C++ edit is the test probe's explicit longer source-publication protocol.
+
+**Enforcement:** `cmake/Architecture.cmake` inspects evaluated production sources and
+direct/interface dependencies at directory completion, so commands appended after its
+include cannot bypass the graph check. Forbidden target edges fail even with testing off.
+With testing on, `tools/architecture.py` runs at configure and before production library builds.
+It checks portable include closures, legacy isolation, all 14 independently compiled peers,
+closed host-service dependencies/owner types, ABI/private-host separation, and public
+managed/Rust runtime imports. Macro includes, unknown dependencies and missing tools/inputs
+fail explicitly. No runtime reflection, property registry, service lookup, or layout work is added.
+
+The final report covers 29 core / 3 legacy / 42 Windows / 1 ABI source units, 67 portable
+files, 57 files reachable from core, 14 peer closures, 220 public C exports, 220 managed
+imports, and 157 Rust imports. This is coverage of the scoped declarations, not a claim of
+complete language parity or an adversarial C++/preprocessor proof.
+The [source map](architecture.md#enforced-dependency-boundaries) describes the guard boundaries.
+
+**Automation and correctness:** the normal Framework gate passes all **62 headless tests**
+on its noninteractive window station, plus generated/compiler/MSBuild/managed/Rust checks.
+The architecture suite includes 26 unit cases and 15 verified real CMake configure/build
+outcomes, covering deliberate violations, incremental header/peer edits, private and interface
+link dependencies with testing disabled, missing Python, and successful repairs.
+Invalid header edits block builds of each of the four production library targets, not
+only an explicitly requested checker target.
+The same headless selection appears with desktop registration on and off: OFF has 63 total
+registrations (62 headless plus one system test); ON has 198 (those 63 plus 135 serial desktop
+tests). Neither platform skips nor zero-test matches are reported as success.
+CI collects evaluated targets, coverage reports, negative outcomes and native test evidence.
+Branch protection still requires repository-admin configuration; this session did not alter it.
+
+Four selected native suites pass: native editor ownership/retirement, targeted invalidation,
+callback ownership, and ContentHost replacement/lifetime. Two pixel suites fail:
+the collection matrix's raised popup surface and the focused legacy thumbnail's opaque PNG
+pixel assertion. Both fail identically when the same unchanged test sources are linked against
+the **frozen phase-7 libraries**, not merely another candidate build.
+Their cause is not established; these are unresolved baseline/environmental pixel results,
+not waived assertions or a complete desktop pass. Phase 7's separately recorded broad Explorer
+filtering and retained-page buffer-size failures also remain unresolved.
+
+The runtime DLL's `.text` section is identical before/after this build-only phase:
+2,313,728 bytes, SHA-256
+`cc9a0f2cf9ed54f1fae51c431f4d763736d8552ffa8c9276a7fad436bbe41bc7`.
+Whole-file hashes differ after rebuilding; this is a code-section comparison, not a claim that
+all DLL metadata or independently linked executables are byte-identical.
+
+**Final scoped performance:** compare frozen merged phase 7
+`f10693c75d229aa53c1bcf625ee896bab67a5c4e` with the candidate using the existing image
+and native-host probes. Windows 10.0.26200, Ryzen 7 7840U / 16 logical processors,
+MSVC 19.44.35217 x64 Release `/GL` and full `/LTCG`, required LSH.
+All test sources, runtime sources and build options used by the two arms are matched;
+source/binary/library hashes are retained. The final groups have two warmup and seven
+recorded alternating pairs each: 54 processes and 144 timed rows including warmups.
+No other builds/tests/status probes were launched during timing; external interference
+is not proven absent.
+
+The initial complete host block flagged source-publication CPU at +5.26%:
+296.875 to 312.5 ms, one 15.625 ms accounting tick, while wall time was -0.64%.
+That block is retained and not declared passing. A second **complete** host block uses
+65,536 rather than 8,192 source publications (all other work counts unchanged), fixed for
+both arms before execution. The probe/runner validate 131,072 actual source transitions.
+No runtime code was tuned, no individual samples were excluded, and no favorable rows were
+selected from the short block. The independent image block is unchanged.
+
+All final wall/CPU/ordinary-allocation workload medians are below the greater-than-5%
+regression screen:
+
+| Workload | Main wall median (ms) | Candidate wall median (ms) | Wall change | Owning-thread CPU change |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy image reconciliation | 712.43 | 706.46 | -0.84% | -2.17% |
+| Row images, 8 | 582.75 | 581.86 | -0.15% | Not isolated |
+| Row images, 64 | 1644.43 | 1639.79 | -0.28% | Not isolated |
+| Row images, 512 | 2244.27 | 2218.70 | -1.14% | Not isolated |
+| Native scroll synchronization | 1455.82 | 1452.39 | -0.24% | -1.09% |
+| Native selection publication | 680.19 | 689.50 | +1.37% | +0.00% |
+| Native source publication, long | 2509.09 | 2618.98 | +4.38% | +3.77% |
+| Native visible-row paint | 11962.08 | 11970.91 | +0.07% | -10.87% |
+
+All image reconciliation allocations remain zero. Native scroll/selection/long-source/paint
+allocations match exactly: 2,069,059 / 1,515,519 / 5,701,632 / 47,101.
+Both arms retain four peers, five child HWNDs, one target, two selection terms, zero editor-scroll
+writes and no animation timer for explicit scrolling, over 1m collection / 100k grid / 10k legacy
+rows. Work counts, callbacks, checksums and HWND identity checks agree.
+Final median GDI/USER are 17/12 in both; process handles are 1,067 versus 1,069 and private bytes
+42,680,320 versus 41,398,272. The two-handle difference is recorded, not explained as a leak
+or a win. These are sampled process figures and ordinary allocation hooks, not a full heap census.
+
+These measurements do not establish an application speedup from build-only checks, nor do they
+measure all rendering/UIA/physical IME/Narrator/foreground latency. The original program's
+performance acceptance is **not retroactively satisfied** by a passing phase-7-relative block.
+
+[Raw final evidence](stage8-boundary-evidence.json.gz) retains the evaluated graph, both CTest
+inventories, positive/negative outcomes, native failures and their baseline reproductions,
+all image/short-host/long-host samples, hashes, compiler/link responses and final source snapshot.
+The snapshot identifies uncommitted work without inventing a commit. Reproduction commands
+are in [CONTRIBUTING](../../CONTRIBUTING.md#architecture-boundaries).
+Evidence archive SHA-256: `47374e5d494768510b6ab7b718f9f487b406ae080a6c26548e2a42bb1c408f24`.
+
+#### Final finding reconciliation and remaining acceptance work
+
+| Original finding | Delivered implementation | Merge provenance / final guard |
+| --- | --- | --- |
+| 1: window-host concentration | Concrete peer and accessibility families; no UnextractedPeer | #60 (3a), #61 (3b-3f); exact accepted/merge IDs in the finite family ledger; phase-8 independent-unit/service guards |
+| 2: lost invalidation origin | Origin-safe, coalesced, ordered dirty work | #62, accepted `4f5a80168cd699a17314dbc4b979d0541ccc5291`, merge `de9ee24ea4664f0f6d0fcaf87f573383086244da` |
+| 3: conflated child ownership | Borrowed owned-child enumeration and separate traversal policies | #59, accepted `38f377f4cea2e4632421c4871616dd54501045b4`, merge `a3f112c9293d41998276f3e97e03e6f1f4b1ffd2` |
+| 4: callback ownership/lifetime | Composition/observer separation and scoped retirement; follow-up allocation reduction | #63 accepted `233f042f63003f929a75a272cf0282f524b5ec1f`, merge `a459962c0ba95512674a857a59fc83b174d4c0e5`; #64 accepted `2581f41055c8520ef7e84c42b9c5a7984f2106d7`, merge `6590446206507789861722529ed1dd796172397c` |
+| 5: overlapping contracts | Symbolic feature, compiler, native validation and reload metadata | #66, accepted `16256a05230de68e491446fb9467a71c436fb76b`, merge `abf17138486ffeaf4a3ddf5a22d97200b2f890a9`; generated/native/compiler drift gates |
+| 6: legacy file-list leakage | Isolated models/workers/library plus shared bounded geometry and identity | #67, accepted `a9dc715ef7df3a9b1bc669e44a1f6eb8f922857c`, merge `f10693c75d229aa53c1bcf625ee896bab67a5c4e`; portable/core link guards |
+| 7: unenforced boundaries/PR coverage | Ordinary framework gate, evaluated build/source rules, deliberate violations and desktop partition | #58 established the ordinary gate; #68 completes these guards and still needs review/merge |
+
+No planned structural implementation phase remains after phase 8's review/merge.
+**Acceptance work remains open:** the dated stage-1/2/3 measurement/interactive limitations,
+phase-5 performance flags in the original comparison protocols, the broad phase-7 desktop
+failures, and the pixel failures reproduced in this phase. They require separate diagnosis
+and controlled reruns against their recorded baselines; merging the refactors does not waive them.
+No blanket end-to-end performance, complete desktop, physical input or accessibility acceptance
+is claimed. No template rewrite, custom text engine, compatibility shim, runtime property
+dictionary or behavioral approval is introduced by this final phase.
 
 ## Risks and implementation handoff
 
@@ -976,4 +1109,5 @@ Any unresolved behavioral or performance requirement remains visible as blocked/
 
 The stage-0 document originally contained only source inspection and the separately attributed
 pristine correctness report. The later ledger entries record subsequent implementation and measurements.
-Stage 6 is merged. Stage 7 is implemented locally but unmerged; stage 8 remains unimplemented.
+Stages 0-7 are merged. Stage 8 is in review but unmerged.
+Structural implementation and unresolved acceptance evidence are tracked separately above.

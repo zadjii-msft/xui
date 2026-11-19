@@ -43,6 +43,7 @@ try {
         $tests = ($inventory | ConvertFrom-Json).tests
         $names = @($tests | ForEach-Object { $_.name })
         foreach ($required in @('xui_core_tests', 'xui_core_isolation_tests', 'xui_collection_algorithm_tests', 'xui_file_list_image_tests',
+            'xui_architecture_tests', 'xui_architecture_negative_tests', 'xui_architecture_cmake_tests',
             'xui_control_tests', 'xui_owned_children_tests', 'xui_content_host_model_tests', 'xui_layout_performance_tests',
             'xui_performance_tests', 'xui_collections_tests', 'xui_document_editing_tests',
             'xui_abi_tests', 'xui_abi_c_test', 'xui_abi_features_headless_tests', 'xui_control_style_catalog_parity',
@@ -58,7 +59,7 @@ try {
                 throw "Unexpected test registration with desktop tests OFF: $($test.name)"
             }
         }
-        foreach ($label in @{ headless = 53; core = 37; abi = 4; syntax = 2; schema = 1; allocation = 1; model = 2; lifetime = 6 }.GetEnumerator()) {
+        foreach ($label in @{ headless = 62; core = 39; abi = 5; syntax = 2; schema = 4; allocation = 2; model = 2; lifetime = 7; architecture = 3 }.GetEnumerator()) {
             $selected = @($tests | Where-Object {
                 $label.Key -in @($_.properties | Where-Object name -eq 'LABELS' | ForEach-Object { $_.value })
             })

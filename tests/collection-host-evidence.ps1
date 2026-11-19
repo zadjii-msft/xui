@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory)][string]$EvidenceDirectory,
     [ValidateRange(2, 100)][int]$Warmups = 2,
     [ValidateRange(7, 100)][int]$Samples = 7,
+    [ValidateSet(8192, 65536)][int]$SourceIterations = 8192,
     [switch]$CandidateFirst
 )
 Set-StrictMode -Version Latest
@@ -78,7 +79,11 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
         $binary = Join-Path $evidence "$($revision.Name)\collection_host_probe.exe"
         $clock = [Diagnostics.Stopwatch]::StartNew()
         $startedUtc = [DateTime]::UtcNow.ToString('o')
-        $process = Start-Process -FilePath $binary -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $arguments = @()
+        if ($SourceIterations -ne 8192) { $arguments = @('--source-iterations', "$SourceIterations") }
+        $startOptions = @{ FilePath = $binary; PassThru = $true; RedirectStandardOutput = $stdout; RedirectStandardError = $stderr }
+        if ($arguments.Count) { $startOptions.ArgumentList = $arguments }
+        $process = Start-Process @startOptions
         $exited = $process.WaitForExit(90000)
         $terminationErrors = @()
         if (!$exited) {
@@ -86,6 +91,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
             if (!$process.WaitForExit(10000)) {
                 [pscustomobject]@{
                     Revision = $revision.Name; Kind = $kind; Round = $index
+                    Arguments = $arguments; SourceIterations = $SourceIterations
                     StartedUtc = $startedUtc; CompletedUtc = [DateTime]::UtcNow.ToString('o')
                     TimedOut = $true; TerminationUnconfirmed = $true; ProcessId = $process.Id
                     TerminationErrors = @($terminationErrors | ForEach-Object { $_.ToString() })
@@ -120,7 +126,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
         $expected = @{
             'scroll-sync' = 32768
             'selection-publication' = 8192
-            'source-publication' = 8192
+            'source-publication' = $SourceIterations
             'paint-visible-rows' = 256
         }
         if ($record.Phases.Count -ne 5 -or @($record.Phases | Where-Object phase -eq 'retained').Count -ne 1) {
@@ -147,7 +153,7 @@ for ($index = 0; $index -lt $Warmups + $Samples; ++$index) {
                  $phase.selected_item -ne 106484 -or $phase.selected_grid -ne 39248)) {
                 throw "Incomplete selection effects in $name"
             }
-            if ($phaseName -eq 'source-publication' -and $phase.source_transitions -ne 16384) {
+            if ($phaseName -eq 'source-publication' -and $phase.source_transitions -ne (2 * $SourceIterations)) {
                 throw "Incomplete source identity transitions in $name"
             }
             if ($phaseName -eq 'paint-visible-rows' -and ($phase.paints -ne 256 -or $phase.item_keys -ne 19422)) {

@@ -3,6 +3,40 @@
 These notes map retained controls to their native implementation.
 Public lifecycle contracts are in [the application reference](../specs/application.md).
 
+## Enforced dependency boundaries
+
+`cmake/Architecture.cmake` exports the evaluated sources and both implementation/interface
+link dependencies for `xui_core`, `xui_file_list`, `xui_windows`, and `xui`.
+It rejects forbidden target edges even when tests are disabled.
+With testing enabled, `tools/architecture.py` runs at configure and as a dependency of every
+production library build, so changing a header cannot bypass enforcement by avoiding reconfigure.
+
+The checker follows repository-local include closures, rejects nonstandard/Win32 dependencies
+in portable models, and prevents legacy file declarations from returning to generic core.
+Public portable headers are checked even before a current translation unit uses them.
+The four platform headers (`application`, legacy `accessibility`, `native_edit`, and
+`swap_chain_panel`) are explicitly classified, not inferred from a failed compiler invocation.
+
+Fourteen peer implementation units must remain independently compiled.
+Concrete families may depend on their shared bases, not another concrete family's state,
+the window coordinator, or ABI internals. `PeerHostServices`, `ControlHostServices`, and
+`NativeFieldServices` cannot gain untyped owner escapes. Platform rendering/editing adapters
+remain legitimate typed dependencies; no new runtime service layer is introduced.
+
+Native binding adapters may use public model/window APIs, their own implementation fragments,
+generated feature contracts, and the explicit asynchronous Shell runtime interface.
+They cannot include renderer/peer internals or recover `Window::Impl`.
+Managed imports and Rust sys declarations/aliases must name the public C ABI; language coverage
+remains intentionally unequal. Nested source modules are checked, while managed `bin`/`obj`
+outputs are excluded.
+
+The checks are conservative source/build guards, not a complete semantic compiler or a new
+cross-platform support claim. Native lifetime, input, accessibility and performance tests remain
+separate acceptance requirements. The [test map](testing.md#ordinary-framework-pr-gate) and
+[contributor procedures](../../CONTRIBUTING.md#architecture-boundaries) describe the mandatory
+negative tests and reports. The [rollout ledger](architecture-review-2026-10-21.md#stage-8-boundary-enforcement-and-final-evidence)
+retains exact merge identities and unresolved historical evidence.
+
 ## Application-discovered regressions
 
 `bindings\dotnet\Xui.Generator\XuiGenerator.cs` distinguishes component identifiers from member names on external expressions.

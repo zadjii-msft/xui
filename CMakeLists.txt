@@ -989,3 +989,5 @@ if(MSVC)
         endif()
     endforeach()
 endif()
+
+include(cmake/Architecture.cmake)
