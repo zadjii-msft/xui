@@ -35,7 +35,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cargo is required.' }
           rustfmt --version
           if ($LASTEXITCODE -ne 0) { throw 'rustfmt is required.' }
-      - name: Build and run window-free native checks
+      - name: Enforce architecture and run window-free native checks
         shell: pwsh
         run: .\tests\framework-pr.ps1 -Suite Native
       - name: Check generated contracts, compiler, and bindings
@@ -47,6 +47,9 @@ jobs:
           name: framework-headless-evidence
           path: |
             build/framework-pr/headless-inventory.json
+            build/framework-pr/architecture-targets.json
+            build/framework-pr/architecture-report.json
+            build/framework-pr/architecture-negative.json
             build/framework-pr/headless.xml
             build/framework-pr/Testing/Temporary/
             build/framework-pr/CMakeFiles/CMakeConfigureLog.yaml

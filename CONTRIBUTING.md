@@ -1058,6 +1058,42 @@ ctest --test-dir $build -C Release -R "xui_winui" --output-on-failure
 ctest --test-dir $build -C Release -R "xui_miller" --output-on-failure
 ```
 
+### Architecture boundaries
+
+With `BUILD_TESTING=ON`, configure and every build of the four production libraries run
+`tools\architecture.py`. `cmake\Architecture.cmake` supplies the **evaluated** source and
+direct/interface link dependencies; the checker does not parse a second copy of the CMake
+source lists. Collection is deferred until the end of the XUI directory, including target
+changes after the guard's include. Missing Python, missing inputs, unknown dependencies, and violations fail the
+build. Target-link constraints also apply with testing disabled; the Python source checks
+are part of maintainer/test builds, not a new dependency of extracted native packages.
+
+The rules protect portable core/model includes, the isolated legacy library, independently
+compiled family peers and their closed host-service interfaces, and the ABI adapter's
+explicit runtime services. Managed and Rust imports must name public C declarations.
+New concrete host families or private ABI service headers need an explicit classification
+and corresponding negative-test coverage, not an unrestricted owner pointer or include shim.
+Conditional includes are checked conservatively; non-literal includes in the checked closure
+are rejected rather than silently ignored. This is a dependency guard, not a C++ type checker
+or a promise of a supported non-Windows runtime.
+
+```powershell
+cmake --build $build --config Release --target xui_architecture_check
+ctest --test-dir $build -C Release -L "^architecture$" --no-tests=error --output-on-failure -j 1
+python tools\architecture.py --targets "$build\architecture-targets.json"
+python -m unittest discover -s tests -p test_architecture.py
+```
+
+`architecture-targets.json` records actual CMake inputs. `architecture-report.json` records
+the checked surface, and `architecture-negative.json` preserves deliberate failing and
+repaired configure/build outcomes from disposable fixtures.
+The normal Framework PR gate requires all three architecture tests alongside core,
+binding/compiler, and generated-contract checks. It runs **62 headless tests** on a private,
+noninteractive window station with desktop registration OFF; it never substitutes a skip
+or a zero-test selection for coverage. CI uploads the architecture reports and native results.
+The existing required status name remains **Windows headless core and contracts**;
+repository branch-protection settings are still an administrator responsibility.
+
 ### Native editor family host checks
 
 The ordinary gate requires `xui_native_field_accessibility_tests` alongside both
@@ -1261,6 +1297,12 @@ decoded slots; the 8/64/512-row probe uses resident pixels and measures only rec
 excluding input preparation and identity assertions. Run serially with no concurrent build/test work.
 The native host comparison below additionally checks work counters, native identity and resource bounds.
 Its build step supports both pre-isolation and split-library baselines and records the actual libraries.
+For a source-publication phase that is too short for Windows CPU accounting, freeze
+`-SourceIterations 65536` before measurement (default: 8192). The matching probe accepts only
+`--source-iterations 8192|65536`; unknown or malformed counts fail before native work.
+The runner records the selected count, verifies twice that many actual source transitions,
+and still runs the complete scroll/selection/source/paint block. Keep earlier blocks
+separate; do not combine favorable samples across protocols.
 
 The ordinary gate includes `xui_family_accessibility_tests` and
 `xui_family_accessibility_retirement_tests`: typed retained-provider/token/role contracts
