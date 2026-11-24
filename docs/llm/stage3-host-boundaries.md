@@ -7,8 +7,12 @@ Collection/grid/legacy-list hosts landed in [#60](https://github.com/zadjii-msft
 On October 22, 2026 the maintainer changed the delivery plan: finish the remaining
 stage-3 work directly in the architecture-review worktree, without child sessions,
 and submit one consolidated PR: [#61](https://github.com/zadjii-msft/xui/pull/61).
-Stages 4-8 are deferred. The PR is open for review, not merged or declared to have
-passed the unresolved performance/interactive acceptance criteria.
+That implementation merged as `c0173871ddf6c17d25e66bddca83cf1ebf3a2e8b`
+in [#61](https://github.com/zadjii-msft/xui/pull/61), accepted head
+`993bdcd7187ff295febdef6a3116490aac17aa36`.
+The reports below retain their original performance/interactive limitations; the
+[current rollout ledger](architecture-review-2026-10-21.md#ordered-rollout-ledger)
+tracks subsequent phases rather than treating this historical handoff as current state.
 
 The native editor commits were incorporated before the remaining family extraction.
 The former `Window::Impl::UnextractedPeer` and its window-owned paint/input dispatch

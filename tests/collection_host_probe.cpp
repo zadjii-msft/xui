@@ -28,6 +28,7 @@ void operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 namespace {
 using namespace xui;
 using collections_test::require;
+unsigned source_iterations = 8192;
 constexpr UINT update = WM_APP + 12, metrics = WM_APP + 60;
 std::uint64_t ticks(FILETIME value) {
     return (std::uint64_t(value.dwHighDateTime) << 32) | value.dwLowDateTime;
@@ -323,7 +324,7 @@ void probe() {
         finish("selection-publication", 8192, timing);
         begin();
         unsigned transitions{};
-        timing = measure(8192, [&](unsigned index) {
+        timing = measure(source_iterations, [&](unsigned index) {
             transitions += items->source() != (index % 2 ? first : second);
             transitions += grid->source() != (index % 2 ? rows : other_rows);
             items->set_items(index % 2 ? first : second);
@@ -333,11 +334,11 @@ void probe() {
                 grid->source() == (index % 2 ? rows : other_rows), "Source identity changes are actually accepted");
             checksum = mix(checksum, index % 2 ? 1 : 2);
         });
-        require(transitions == 16384 && items->source() == first && grid->source() == rows &&
+        require(transitions == 2 * source_iterations && items->source() == first && grid->source() == rows &&
             items->selection().focused() == expected_item && grid->selected() == expected_grid &&
             item_callbacks == 8192 && grid_callbacks == 8192,
             "Source phase publishes both alternating identities without losing selection or adding callbacks");
-        finish("source-publication", 8192, timing, transitions);
+        finish("source-publication", source_iterations, timing, transitions);
         begin();
         const auto painted_before = SendMessageW(hwnd, metrics, 0, 0);
         timing = measure(256, [&](unsigned index) {
@@ -383,8 +384,13 @@ void probe() {
     require(Drawing::live_targets() == 0, "Root renderer retires after close");
 }
 }
-int main(int argc, char**) {
-    if (argc != 1) { std::cerr << "This probe accepts no selectors\n"; return 2; }
+int main(int argc, char** argv) {
+    if (argc == 3 && std::string_view(argv[1]) == "--source-iterations" &&
+        (std::string_view(argv[2]) == "8192" || std::string_view(argv[2]) == "65536"))
+        source_iterations = std::string_view(argv[2]) == "8192" ? 8192 : 65536;
+    else if (argc != 1) {
+        std::cerr << "Usage: collection_host_probe [--source-iterations 8192|65536]\n"; return 2;
+    }
     try { std::cout << std::setprecision(17); native_failure_contract(); probe(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

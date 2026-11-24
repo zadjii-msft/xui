@@ -18,6 +18,8 @@ Build and test commands belong in [CONTRIBUTING](../../CONTRIBUTING.md).
 - [Documentation site maintenance](../../CONTRIBUTING.md#retype-preview-and-github-pages): Retype source selection, generated navigation, checks, and GitHub Pages deployment.
 - [Documentation branding adapter](#documentation-branding-adapter): Canonical Zoey assets, Retype configuration, and publication checks.
 - [Native architecture](architecture.md): Window hosting, tab drag ownership, drawing, accessibility, lists, and worker ownership.
+- [Enforced dependency boundaries](architecture.md#enforced-dependency-boundaries): Evaluated CMake graph, portable includes, closed peer services, public ABI imports, and deliberate-violation gates.
+- [Final refactor reconciliation](architecture-review-2026-10-21.md#stage-8-implementation-and-evidence-november-18-2026): Phase-8 gates and performance, exact merge provenance for all findings, and acceptance work that remains open.
 - [Stage-3 host boundaries](stage3-host-boundaries.md): Completed family extraction, window coordination boundary, typed provider state and preserved performance limitations.
 - [Stage-4 targeted invalidation](stage4-targeted-invalidation.md): Origin-safe dirty work, captured-pass ordering, narrow native/UIA synchronization and retained comparison evidence.
 - [Stage-5 callback ownership](stage5-callback-ownership.md): Separate composition/observation, scoped registration retirement, in-flight managed roots and validation.
